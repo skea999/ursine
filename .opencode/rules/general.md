@@ -1,0 +1,4 @@
+- English ONLY.
+- Context7 MCP for docs.
+- Priority: information-scan > general > Ask user > coding-standards > workflow > testing > Project
+- Rules update: ask user

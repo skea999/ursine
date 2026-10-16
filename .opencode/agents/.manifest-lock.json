@@ -1,0 +1,57 @@
+{
+  "code-reviewer": {
+    "sha256": "ae15ac6b1ee1a5c2c5ba393f70eed9b9aae90ca0f5a06e709731d94f587fd877",
+    "installedAt": "2026-06-01T21:06:00.532Z",
+    "updatedAt": "2026-10-16T15:06:02.485Z"
+  },
+  "test-automator": {
+    "sha256": "c48c84c1e121bde10739047df929c02f7a5a3fda07dd19f2893cdf44f1d2c5d1",
+    "installedAt": "2026-06-01T21:06:00.787Z",
+    "updatedAt": "2026-10-16T15:06:02.736Z"
+  },
+  "debugger": {
+    "sha256": "15c757de33cd8d9411229001aef4b45cb262099a1a4c587b5e6dc46bc56f5bdc",
+    "installedAt": "2026-06-01T21:06:00.991Z",
+    "updatedAt": "2026-10-16T15:06:02.999Z"
+  },
+  "performance-engineer": {
+    "sha256": "b359255c0bd406a8112e1f543ad456b734fc4277a9b6e8ccc8e569a7688dfa26",
+    "installedAt": "2026-06-01T21:06:01.240Z",
+    "updatedAt": "2026-10-16T15:06:03.243Z"
+  },
+  "refactoring-specialist": {
+    "sha256": "baf12ef51f2bd8277ef4a9f4fb72dfd862ad72f6dcd94d9cf0282e144ff938eb",
+    "installedAt": "2026-06-01T21:06:01.690Z",
+    "updatedAt": "2026-10-16T15:06:03.482Z"
+  },
+  "security-auditor": {
+    "sha256": "b5875df42b2b6a909b8d482279b5bf3246a4eaa72d5d8f2ecec7d8278c8ff042",
+    "installedAt": "2026-06-01T21:06:07.363Z",
+    "updatedAt": "2026-10-16T15:06:07.583Z"
+  },
+  "penetration-tester": {
+    "sha256": "c9bfbd426274dffff5730119750dc4803dbfadba16388bf9acb23e9d4e018ecc",
+    "installedAt": "2026-06-01T21:06:07.580Z",
+    "updatedAt": "2026-10-16T15:06:07.893Z"
+  },
+  "documentation-engineer": {
+    "sha256": "f941316a3d19753ca7a42fd1b4f9ee48804184ecacdacb23f59df3a524ec766f",
+    "installedAt": "2026-06-01T21:06:13.258Z",
+    "updatedAt": "2026-06-01T21:06:13.258Z"
+  },
+  "legacy-modernizer": {
+    "sha256": "267d8e25850013520a972f3810a2d9ca9a21919e0c150bd724e06983ae001f6c",
+    "installedAt": "2026-10-16T15:06:03.700Z",
+    "updatedAt": "2026-10-16T15:06:03.700Z"
+  },
+  "smart-contract-auditor": {
+    "sha256": "e330f8b1ab984495900052dd58da75838f29eff1a037dd630e737477e84d5428",
+    "installedAt": "2026-10-16T15:06:08.126Z",
+    "updatedAt": "2026-10-16T15:06:08.126Z"
+  },
+  "compliance-auditor": {
+    "sha256": "456cfa790a600008be8627b8358e53f893119c2867ee4e8410bc106328c7976b",
+    "installedAt": "2026-10-16T15:06:08.378Z",
+    "updatedAt": "2026-10-16T15:06:08.378Z"
+  }
+}

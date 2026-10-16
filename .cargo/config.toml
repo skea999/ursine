@@ -1,0 +1,5 @@
+# Workspace build configuration.
+# All build output goes to artifacts/ (gitignored contents, folder tracked
+# via .gitkeep) — per skea999: builds never go to target/.
+[build]
+target-dir = "artifacts/target"

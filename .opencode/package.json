@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@opencode-ai/plugin": "1.14.39"
+  },
+  "plugin": {
+    "opencode-rules@latest": "*"
+  }
+}

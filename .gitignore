@@ -1,0 +1,45 @@
+# Ursine build outputs
+target
+artifacts/*
+!artifacts/.gitkeep
+
+# Dependencies
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+coverage/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Temporary
+tmp/
+temp/
+.tmp/
+
+# Agent installer backups (not the version/manifest files)
+.opencode/.backups/
+
+# agents-opencode local version marker (updater state, not project content)
+/.opencode-agents-version

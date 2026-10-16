@@ -1,0 +1,16 @@
+{
+  "name": "ursine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FeralOS control center: ursined daemon + GTK4 GUI + web frontend. Rust workspace. package.json exists only for tooling that expects it (hooks/CI); real builds are Cargo.",
+  "scripts": {
+    "lint": "cargo clippy --workspace -- -D warnings",
+    "typecheck": "cargo check --workspace",
+    "test": "cargo test --workspace",
+    "build": "cargo build --workspace",
+    "build:release": "cargo build --release -p ursined -p ursine",
+    "fmt": "cargo fmt",
+    "fmt:check": "cargo fmt --check",
+    "test:security": "cargo audit || echo 'install cargo-audit: cargo install cargo-audit'"
+  }
+}

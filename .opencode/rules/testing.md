@@ -1,0 +1,25 @@
+---
+globs:
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/__tests__/**"
+  - "tests/**"
+keywords:
+  - "testing"
+  - "unit test"
+  - "coverage"
+  - "tdd"
+  - "test-driven"
+  - "spec"
+  - "assert"
+  - "e2e"
+  - "static analysis"
+  - "lint"
+  - "sast"
+  - "dependency scan"
+---
+- pyramid: unit > int > e2e
+- static: lint + typecheck + sast (Semgrep/CodeQL)
+- security: dependency-scan + container-scan
+- e2e: Playwright via webapp-testing skill
+- pre-commit; no skip; mock ext; isolate

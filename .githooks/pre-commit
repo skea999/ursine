@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Pre-commit hook: scan for secrets + PII
+# Install: git config core.hooksPath .githooks
+
+echo "=== Pre-commit: Lint + Information Scan ==="
+# Run lint on staged files (generic - override per stack)
+if [ -f "package.json" ] && command -v npx &> /dev/null; then
+  npx --no-install lint-staged 2>/dev/null || true
+fi
+echo "=== Pre-commit: Information Scan ==="
+
+# Patterns to block
+PATTERNS=(
+  'AKIA[0-9A-Z]{16}'                          # AWS Access Key
+  '-----BEGIN[[:space:]]*(RSA|EC|OPENSSH|DSA)[[:space:]]*PRIVATE KEY-----'  # Private key
+  'ghp_[0-9a-zA-Z]{36}'                       # GitHub PAT
+  'gho_[0-9a-zA-Z]{36}'                       # GitHub OAuth
+  'ghu_[0-9a-zA-Z]{36}'                       # GitHub user token
+  'sk-[0-9a-zA-Z]{32,}'                       # OpenAI API key
+  'xox[baprs]-[0-9a-zA-Z]{10,}'               # Slack token
+  'PGP[[:space:]]+PRIVATE[[:space:]]+KEY'     # PGP key
+  $'(password|secret|api_key|apikey)[[:space:]]*[:=][[:space:]]*["\'][^"\']{8,}["\']'  # Generic secret
+)
+
+# Files staged for commit
+FILES=$(git diff --cached --name-only --diff-filter=ACMR)
+BLOCKED=0
+
+for FILE in $FILES; do
+  [ -f "$FILE" ] || continue
+  for PATTERN in "${PATTERNS[@]}"; do
+    if git show ":${FILE}" | grep -qiE "$PATTERN"; then
+      echo "⚠️  BLOCKED: $FILE matches secret pattern"
+      BLOCKED=1
+    fi
+  done
+done
+
+if [ $BLOCKED -eq 1 ]; then
+  echo "Commit rejected. Remove secrets and try again."
+  echo "To bypass (not recommended): git commit --no-verify"
+  exit 1
+fi
+
+echo "✓ Information scan passed"
+
+# --- Ursine: format check on staged Rust code (cargo gate) ---
+if command -v cargo >/dev/null 2>&1; then
+  if git diff --cached --name-only --diff-filter=ACMR | grep -q '\.rs$'; then
+    if ! cargo fmt --check >/dev/null 2>&1; then
+      echo "⚠️  BLOCKED: cargo fmt --check failed (run: cargo fmt)"
+      exit 1
+    fi
+    echo "✓ cargo fmt passed"
+  fi
+fi
+exit 0

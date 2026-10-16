@@ -1,0 +1,53 @@
+# Statement of Intent — Ursine
+
+Confirmed by skea999, 2026-10-16 (interview-me protocol: hypothesis → corrections → explicit yes).
+
+## Outcome
+
+Ursine is the complete control center of FeralOS, in the spirit of Webmin: one root daemon (`ursined`) exposing a unified API over every system area — packages (nix, apk, flatpak), users, snapshots, niri config, printers, scanners, bluetooth, network, firewall, disks, and later Incus, ZFS/Pirateus — with interchangeable frontends (native GTK4 GUI, later web, later Incus UI). Modules turn themselves on or off via the runtime capability mechanism (`"auto"`): the machine's reality drives what is visible.
+
+## User
+
+skea999 on the FeralOS desktop (niri/Wayle) and as admin of FeralOS servers/hypervisors.
+
+## Why now
+
+FeralOS has no control center; Nix has no GUI on any distro; the FeralOS desktop ecosystem (Wayle, Veila, Raffi) is Rust/GTK — Ursine completes it.
+
+## Success
+
+- Every module whose backend exists on the machine is fully operable from the GUI (and later web).
+- CI compiles and tests every cargo feature combination and builds+publishes the musl nix flake.
+- Daemon idles at ~3-6 MB RSS, 0% CPU.
+- The UIs look and behave like one product, and a non-expert can use them.
+
+## Binding constraints
+
+- Memory-safe (Rust only, no C of ours), musl for FeralOS (nix included, `pkgsMusl`/`pkgsStatic`).
+- No polkit, no database, stateless daemon, frontends thin.
+- Backends are the existing daemons, driven via D-Bus/CLI — never reimplemented.
+- Local builds via Docker + Alpine images; CI per-feature test matrix + nix flake publish.
+
+## Version plan (order of construction — everything is in scope)
+
+| Ver | Content |
+|-----|---------|
+| **v1** | Backend skeleton (socket, PAM handshake, capabilities, audit) + **GUI GTK4/libadwaita** (mandatory in v1): packages **nix** (the unique gap), users (accountsservice), snapshots (btrfs/btrbk), niri config editor |
+| **v2** | Packages **apk** + **flatpak**; modules printers (CUPS), scanners (SANE), bluetooth (BlueZ), network (NetworkManager), firewall (firewalld), disks (UDisks2). No OIDC in v2 |
+| **v3** | **OIDC + web interface** (web is the LAST frontend) |
+| **v4** | **Incus UI** |
+| **v5** | **ZFS + Pirateus** (FeralOS hyperconverged storage stack) |
+| **v6** | **Support for other distros** (package-manager/init abstraction; glibc revisited here) |
+
+## UI principles (binding)
+
+- **All UIs must look as similar as possible**: one design language across GUI, web, and future UIs — same layout patterns, same navigation structure, same icons, same terminology (`CONTEXT.md` vocabulary is the source of truth), theme aligned with libadwaita.
+- **User-friendly**: libadwaita HIG compliance for the GUI; capability-gated panels (never show a broken module — show why it is off and how to enable it); explicit confirmation for destructive actions; plain language, no jargon; every action visible in the audit log is explainable in the UI.
+
+## Out of scope (today)
+
+AppImage, glibc builds in v1/v2, non-FeralOS distros before v6.
+
+## Phasing ≠ exclusion
+
+Web, OIDC, printers, disks, other distros are NOT out of scope: they are later phases of the same product. Out of scope means never, phasing means later.

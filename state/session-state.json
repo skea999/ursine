@@ -1,0 +1,47 @@
+{
+  "goal": "Ursine — FeralOS complete control center (Webmin-style): root daemon + GTK4 GUI (v1), full module coverage (v2), OIDC+web (v3), Incus UI (v4), ZFS+Pirateus (v5), multi-distro (v6). Intent source of truth: docs/intent/ursine.md.",
+  "status": "planning-complete",
+  "active_goals": [
+    "Intent CONFIRMED by skea999 2026-10-16, saved to docs/intent/ursine.md (version plan v1-v6, UI principles).",
+    "Next: v0.1 skeleton (see docs/TASKS.md and handoff/latest.md)."
+  ],
+  "next_actions": [
+    "Create flake.nix (musl static, pkgsMusl/pkgsStatic) + .github/workflows/ci.yml: cargo test matrix per feature (default/pam/web/oidc/full) in Alpine container, clippy+fmt gate, nix flake check + nix build, Release artifacts on tag.",
+    "Install rustup (dev machine has no rustc/cargo).",
+    "Init cargo workspace: crates/ursine-api, crates/ursine-core, bins/ursined, bins/ursine, web/; remove template src/.",
+    "ursine-api: serde types (JSON-lines envelope, ModuleId, Capability, TriState, Error, Principal, asUser).",
+    "ursined skeleton: config load, capabilities scan, unix socket + peer creds, PAM handshake (cargo feature pam, stub on dev — libpam headers missing), JSONL audit, dispatch returning NotImplemented.",
+    "Tests: serde roundtrip, tri-state config, capabilities scan.",
+    "Clean template leftovers: src/ dirs, package.json scripts, ROADMAP.md.",
+    "Create sgconfig.yml (ast-grep custom rules) when Rust scanning starts."
+  ],
+  "key_decisions": [
+    "No polkit: PAM handshake per session (daemon-side, service ursine, wheel check) then RAM-only Bearer session token. Web moves to OIDC later without API changes.",
+    "No database, daemon stateless: system is source of truth (apk/flatpak/nix/shadow/btrfs). Audit = JSONL + logrotate. Config = /etc/ursine/config.toml, tri-state auto|true|false.",
+    "Capabilities runtime-detected, never persisted; ensure_available() per request; capabilities.refresh + config.init APIs.",
+    "asUser param for per-user ops (flatpak --user, nix profile); default = principal; apk/--system always root.",
+    "Cargo features web/oidc trim binary (~2-3 MB) and idle RSS (~3-6 MB target); daemon always on via dinit, event-driven, no polling.",
+    "Modules v1: packages (nix first — unique gap), snapshots (owned by packages/store: manual + pre-update auto), users (accountsservice), niri config editor.",
+    "Do NOT build printers/scanners/bluetooth/network/firewall/disks — already packaged on Alpine (see docs/PROJECT.md).",
+    "Rust everywhere: GUI must be gtk4-rs/libadwaita (Wayle stack) anyway; shared serde types make a second backend language a liability.",
+    "Build policy: musl everywhere incl. nix (pkgsMusl/pkgsStatic, never glibc). Local builds via Docker + Alpine images (rust:alpine). CI: test every cargo feature combination; build and publish nix flake (repo-resident, github:skea999/ursine; Release artifacts on tag).",
+    "Agents wired: opencode.json instructions load CONTEXT/architecture/PROJECT/handoff/TASKS into every agent; .opencode/rules/ursine.md holds binding project invariants (via opencode-rules plugin).",
+    "INTENT CONFIRMED: version plan v1 (backend+GUI: nix, users, snapshots, niri) / v2 (apk, flatpak, printers, scanners, bluetooth, network, firewall, disks) / v3 (OIDC + web, LAST frontend) / v4 (Incus UI) / v5 (ZFS + Pirateus) / v6 (other distros). Phasing != exclusion: everything is in scope.",
+    "UI principles (binding): all UIs must look as similar as possible (one design language, same layout/navigation/icons/terminology, libadwaita-aligned theme) and must be user-friendly (HIG compliance, capability-gated panels never shown broken, confirm destructive actions, plain language).",
+    "CI FULLY CONTAINERIZED (skea999 correction): every GitHub Actions job runs in a Docker container — cargo matrix in alpine:3.22 (apk add rust cargo git nodejs; linux-pam-dev only on pam jobs), flake/release jobs in nixos/nix container. No rustup/cargo/nix ever installed on host runners.",
+    "GUI adopts RELM4 (option B, skea999): gtk4-rs+libadwaita via relm4 Elm-style components — less boilerplate, SPEC-gui corrected. Skills installed via npx skills add (+ skills-lock.json): apollographql/skills@rust-best-practices, wshobson/agents@rust-async-patterns, victorzhuk/skills@z-rust-gtk4, gotar/opencode-config@gtk-ui-ux-engineer. Skills updated (npx skills update) + agents-opencode harness updated.",
+    "HARDENING POLICIES merged from template state (skea999): dedup/security/dependency checks also containerized; project root mounted READ-ONLY in containers (only artifacts/ writable); temp files only artifacts/<tool-or-task>/, never host /tmp; keep last 3 artifact versions per subfolder; changelog convention (CHANGELOG.md only); agents flat in .opencode/agents/ (re-promote after installer runs); context-mode global plugin (never mcp.context-mode); ast-grep host-apk + global skills, per-project rules via sgconfig.yml.",
+    "Container runtime = PODMAN (host has podman 5.8.8, no docker). Scripts auto-detect (CONTAINER_RUNTIME env, podman, docker). .opencode-agents-version gitignored (root stays clean); .opencode/package.json+lock stay tracked (ignore lines dropped).",
+    "Workflow aligned to updated harness: complex chain = @orchestrator→@planner→@codebase→Pattern 8 Pre-Commit Review Gate (Tier 1 cargo build/test/clippy/fmt → Tier 2 @review lens briefs requirements|code|security|ux-responsive, max 2 cycles)→@debugger→@docs; skill-chain per simple tasks; all 18 referenced skills verified present in .agents/skills/. READY TO WRITE CODE (pending spec approval + go signal)."
+  ],
+  "risks": [
+    "Root-access software: auth bugs are critical. Small auth surface, audit every action, short token TTL.",
+    "asUser execution (su/setuid from root daemon) needs hardening review + integration tests.",
+    "Dev machine lacks libpam headers; pam must be feature-gated with stub fallback.",
+    "Scope is now large (v1-v6): discipline via capability-gated modules and thin frontends; never let per-module logic leak into frontends.",
+    ".opencode/package.json + package-lock.json tracked while .opencode/.gitignore ignores them — decide: git rm --cached or drop ignore lines.",
+    ".opencode-agents-version marker (2.6.0) untracked at root — decide: track or gitignore.",
+    "After every 'npx agents-opencode --update': manifest may regenerate researcher.md and clobber the updated version — restore via git checkout if diff shows changes.",
+    "Agent fixes diverge from template: hidden:true on 15 subagents + quoted description in code-reviewer.md + no model overrides in opencode.json. After 'npx agents-opencode --update' or next template sync these may be clobbered — re-apply (or promote the fix upstream to skea-store)."
+  ]
+}

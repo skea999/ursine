@@ -1,0 +1,71 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "opencode-rules@latest",
+    "agents-opencode"
+  ],
+  "permission": {
+    "*": "allow",
+    "external_directory": "ask",
+    "doom_loop": "deny",
+    "bash": {
+      "*": "allow",
+      "sudo": "deny",
+      "sudo *": "deny",
+      "doas": "deny",
+      "doas *": "deny"
+    }
+  },
+  "agent": {
+    "planner": {},
+    "review": {},
+    "code-reviewer": {},
+    "researcher": {},
+    "debugger": {},
+    "test-automator": {},
+    "information-scan": {},
+    "vulnerability-scan": {},
+    "codebase": {},
+    "docs": {},
+    "documentation-engineer": {},
+    "performance-engineer": {},
+    "refactoring-specialist": {},
+    "blogger": {},
+    "brutal-critic": {},
+    "em-advisor": {},
+    "legal-advisor": {},
+    "penetration-tester": {},
+    "security-auditor": {},
+    "orchestrator": {
+      "permission": {
+        "task": {
+          "*": "deny",
+          "planner": "allow",
+          "codebase": "allow",
+          "review": "allow",
+          "code-reviewer": "allow",
+          "vulnerability-scan": "allow",
+          "information-scan": "allow",
+          "debugger": "allow",
+          "test-automator": "allow",
+          "performance-engineer": "allow",
+          "refactoring-specialist": "allow",
+          "docs": "allow",
+          "documentation-engineer": "allow",
+          "researcher": "allow",
+          "blogger": "allow",
+          "brutal-critic": "allow",
+          "legal-advisor": "allow",
+          "em-advisor": "allow",
+          "penetration-tester": "allow",
+          "security-auditor": "allow",
+          "legacy-modernizer": "allow",
+          "compliance-auditor": "allow",
+          "smart-contract-auditor": "allow",
+          "explore": "allow",
+          "general": "allow"
+        }
+      }
+    }
+  }
+}
