@@ -29,7 +29,10 @@ See `AGENTS.md` for project context and milestone history.
 actions list/add/remove/upgrade/search/history/rollback/wipe-history/diff-closures;
 exec `su -l -s /bin/sh <user> -c 'nix ...'` with strict validation, uid 1000..60000,
 timeouts; parsers for profile-list/search JSON. 68 tests, clippy/fmt green.
-Real nix ops not e2e-tested on dev (container has no nix/user) — verify on FeralOS.
+Also: **storeGc** (root `nix store gc`, total) and **pruneGenerations** (keep last N,
+dry-run plan from `nix profile history`, exec via `nix-env --delete-generations +N`).
+74 tests green. Real nix ops not e2e-tested on dev (container has no nix/user) —
+verify on FeralOS.
 
 **Next (v0.3)**: packages.nix module — exec `nix profile ...` as `asUser` via `su -l`, parse `--json` outputs on committed fixtures, stream progress; then v0.3 store GUI (relm4). Also: dinit service + `/etc/pam.d/ursine` files for packaging.
 

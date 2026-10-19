@@ -73,17 +73,30 @@ pub fn validate_target_user(user: &str) -> Result<(), ApiError> {
     ))
 }
 
-/// Run `nix <args...>` as `user`, capturing output. Timeout kills the child.
+/// Run `nix <args...>` as `user`.
 pub async fn run_as_user(
     user: &str,
     args: &[(&str, &str)],
     timeout: Duration,
 ) -> Result<CommandOutcome, ApiError> {
-    validate_target_user(user)?;
+    run_as_user_program(user, "nix", args, timeout).await
+}
 
-    // Build the nix command line: every atom is validated upstream, and we
+/// Run an arbitrary program (validated) as `user` with a login environment.
+pub async fn run_as_user_program(
+    user: &str,
+    program: &str,
+    args: &[(&str, &str)],
+    timeout: Duration,
+) -> Result<CommandOutcome, ApiError> {
+    validate_target_user(user)?;
+    if !is_safe_atom(program) {
+        return Err(ApiError::invalid("invalid program"));
+    }
+
+    // Build the command line: every atom is validated upstream, and we
     // single-quote anyway (defense in depth).
-    let mut nix_cmd = String::from("nix");
+    let mut nix_cmd = String::from(program);
     for (flag, value) in args {
         if !is_safe_atom(flag) || (!value.is_empty() && !is_safe_atom(value)) {
             return Err(ApiError::invalid("invalid command argument"));
@@ -115,6 +128,54 @@ pub async fn run_as_user(
             )
         })?
         .map_err(|e| ApiError::internal(format!("spawn su/nix: {e}")))?;
+
+    let mut stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let mut stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    truncate(&mut stdout, MAX_OUTPUT);
+    truncate(&mut stderr, MAX_OUTPUT);
+
+    if output.status.success() {
+        Ok(CommandOutcome { stdout, stderr })
+    } else {
+        let detail = if stderr.trim().is_empty() {
+            stdout.trim().to_string()
+        } else {
+            stderr.trim().to_string()
+        };
+        Err(ApiError::new(
+            ursine_api::ErrorCode::Internal,
+            format!("nix command failed: {detail}"),
+        ))
+    }
+}
+
+/// Run `nix <args...>` as ROOT (store-wide operations: gc). The daemon is root;
+/// no shell is involved (argv only, no quoting concerns).
+pub async fn run_as_root(
+    args: &[(&str, &str)],
+    timeout: Duration,
+) -> Result<CommandOutcome, ApiError> {
+    let mut cmd = Command::new("nix");
+    for (flag, value) in args {
+        if !is_safe_atom(flag) || (!value.is_empty() && !is_safe_atom(value)) {
+            return Err(ApiError::invalid("invalid command argument"));
+        }
+        cmd.arg(flag);
+        if !value.is_empty() {
+            cmd.arg(value);
+        }
+    }
+    cmd.kill_on_drop(true);
+
+    let output = tokio::time::timeout(timeout, cmd.output())
+        .await
+        .map_err(|_| {
+            ApiError::new(
+                ursine_api::ErrorCode::Internal,
+                format!("nix command timed out after {}s", timeout.as_secs()),
+            )
+        })?
+        .map_err(|e| ApiError::internal(format!("spawn nix: {e}")))?;
 
     let mut stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let mut stderr = String::from_utf8_lossy(&output.stderr).into_owned();

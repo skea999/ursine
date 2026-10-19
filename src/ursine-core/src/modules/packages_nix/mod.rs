@@ -5,6 +5,7 @@
 //! Every command runs AS the target user (login env, own profile), never root.
 
 mod exec;
+mod generations;
 mod parse;
 
 use std::time::Duration;
@@ -18,6 +19,7 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(60);
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(300);
 const HISTORY_TIMEOUT: Duration = Duration::from_secs(60);
 const MUTATE_TIMEOUT: Duration = Duration::from_secs(900);
+const GC_TIMEOUT: Duration = Duration::from_secs(3600);
 
 /// Normalize an installable: bare attr → `nixpkgs#attr`; flake refs pass
 /// through (same accepted charset). Path installs are rejected in v1.
@@ -147,6 +149,43 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             }
             let out = exec::run_as_user(user, &args, HISTORY_TIMEOUT).await?;
             Ok(lines(&out))
+        }
+        Action::StoreGc => {
+            // Store-wide GC: unreachable paths only; runs as root via the daemon.
+            let out = exec::run_as_root(&[("store", ""), ("gc", "")], GC_TIMEOUT).await?;
+            Ok(json!(out))
+        }
+        Action::PruneGenerations { keep, dry_run } => {
+            let profile_path = format!("/nix/var/nix/profiles/per-user/{user}/profile");
+            let hist =
+                exec::run_as_user(user, &[("profile", ""), ("history", "")], HISTORY_TIMEOUT)
+                    .await?;
+            let gens = generations::parse_history(&hist.stdout);
+            let plan = generations::prune_plan(&gens, *keep)?;
+            let plan_numbers: Vec<u32> = plan.iter().map(|g| g.number).collect();
+
+            if *dry_run {
+                return Ok(json!({
+                    "dry_run": true,
+                    "would_delete": plan_numbers,
+                    "kept": gens.len().saturating_sub(plan.len()),
+                }));
+            }
+
+            let keep_arg = format!("+{keep}");
+            let out = exec::run_as_user_program(
+                user,
+                "nix-env",
+                &[("-p", &profile_path), ("--delete-generations", &keep_arg)],
+                MUTATE_TIMEOUT,
+            )
+            .await?;
+            Ok(json!({
+                "dry_run": false,
+                "deleted": plan_numbers,
+                "stdout": out.stdout,
+                "stderr": out.stderr,
+            }))
         }
         _ => Err(ApiError::invalid(
             "action is not valid for module packages_nix",

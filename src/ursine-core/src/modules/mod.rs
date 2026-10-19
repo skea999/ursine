@@ -92,6 +92,8 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::Rollback { .. } => "rollback",
         Action::WipeHistory { .. } => "wipe_history",
         Action::DiffClosures { .. } => "diff_closures",
+        Action::StoreGc => "store_gc",
+        Action::PruneGenerations { .. } => "prune_generations",
         Action::ListSnapshots => "list_snapshots",
         Action::Stats => "stats",
         Action::CreateSnapshot { .. } => "create_snapshot",

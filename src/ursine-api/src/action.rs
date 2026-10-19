@@ -58,6 +58,13 @@ pub enum Action {
     DiffClosures {
         generation: Option<u32>,
     },
+    /// Garbage-collect the whole nix store (unreachable paths only).
+    StoreGc,
+    /// Prune profile generations, keeping the last `keep` (dry_run = no changes).
+    PruneGenerations {
+        keep: u32,
+        dry_run: bool,
+    },
 
     // -- snapshots (btrbk) --
     /// List btrbk-managed snapshots.
