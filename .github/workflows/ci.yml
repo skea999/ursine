@@ -131,6 +131,8 @@ jobs:
     steps:
       - run: apk add --no-cache git nodejs linux-pam-dev github-cli tar
       - uses: actions/checkout@v4
+      # gh invokes git; container ownership differs from the checkout dir owner.
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Build release binaries
         run: |
           cargo build --release -p ursined --features pam
