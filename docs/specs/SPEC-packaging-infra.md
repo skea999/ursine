@@ -23,7 +23,7 @@ Everything that makes Ursine buildable, testable, releasable and packagable — 
    - `cargo test --workspace --no-default-features` / `--features pam` / `--features full`
    - gate: `cargo clippy --workspace --all-features -- -D warnings` + `cargo fmt --check`
 2. `flake`: **container** `nixos/nix` → `nix flake check` + `nix build --out-link artifacts/result` on push/PR — builds the pinned binary package in seconds (out-link rule: nothing but source files ever appears at repo root)
-3. `release` (tags only): same `nixos/nix` container builds musl binaries → attach to GitHub Release (ursined, ursine + dinit files); flake published by existing in repo → `github:skea999/ursine`
+3. `package` job (alpine rust image) builds release binaries → versioned GitHub Release on tags, rolling `latest` prerelease on main. Flake consumption: `github:skea999/ursine` (pinned via `nix/binary.nix`)
 4. NO job installs rustup/cargo/nix on the host runner; actions that need node work because containers provide `nodejs` (alpine) or ship it (nix image)
 
 ## Commands
