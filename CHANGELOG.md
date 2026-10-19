@@ -6,7 +6,9 @@
 - v0.2 packages.nix: new-CLI-only nix profiles (`nix profile`), as-user execution
   with strict validation, 9 operations (list/add/remove/upgrade/search/history/
   rollback/wipe-history/diff-closures), total store GC and keep-last-N
-  generation pruning (dry-run plan), JSON parsers, timeouts. 74 tests.
+  generation pruning (dry-run plan, root exec, current from symlink), JSON
+  parsers, timeouts. remove/removeAll/removeRegex, upgradeRegex. 78 tests.
+  Behavior verified against real nix 2.31.5.
 - v0.1 skeleton (green): Rust workspace `src/{ursine-api,ursine-core,ursined,ursine}`; protocol types (JSON-lines + Bearer session token), PAM handshake (feature `pam`, dev stub), RAM token store with 10-min sliding TTL, per-uid rate limiting, JSONL audit, unix socket server (0666, peer creds), module dispatch with capability gating; 55 tests; e2e smoke verified.
 - `flake.nix` (pkgsMusl dynamic musl, x86_64, `pam` feature) + lock; eval validated in nixos/nix container.
 - `.github/workflows/ci.yml` ACTIVE: containerized test matrix (default/pam), clippy/fmt gate, nixos/nix flake check/build, release-on-tag.

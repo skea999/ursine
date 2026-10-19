@@ -38,10 +38,20 @@ pub enum Action {
     Remove {
         package: String,
     },
+    /// Remove every package from the profile.
+    RemoveAll,
+    /// Remove all packages whose name matches a regex.
+    RemoveRegex {
+        pattern: String,
+    },
     /// Upgrade one package (or all when `all`).
     Upgrade {
         package: Option<String>,
         all: bool,
+    },
+    /// Upgrade all packages whose name matches a regex.
+    UpgradeRegex {
+        pattern: String,
     },
     /// Profile history (generations).
     Generations,

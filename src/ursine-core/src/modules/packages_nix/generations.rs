@@ -1,58 +1,78 @@
 //! Profile generations: listing and prune planning (keep last N).
 //!
-//! `nix profile` has no "keep last N" switch, so the plan is computed from
-//! `nix profile history` output and executed with the generation-deletion
-//! switch of the GC subsystem (`nix-env --delete-generations +N`). Package
-//! operations stay new-CLI-only; this exception is documented in the spec.
+//! Real `nix profile history` (2.31) emits ANSI styling even on pipes and does
+//! NOT mark the current generation — the active generation is read from the
+//! `profile-N-link` symlink instead.
+//!
+//! `nix profile` has no "keep last N" switch, so the plan is computed here and
+//! executed with the GC-subsystem switch `nix-env -p <profile>
+//! --delete-generations +N` (as root: in multi-user mode the profile lives in
+//! the store, users cannot lock/write it directly).
 
-use ursine_api::ApiError;
-
-/// One profile generation as reported by `nix profile history`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Generation {
-    pub number: u32,
-    pub current: bool,
+/// Strip ANSI SGR sequences (`ESC [ … m`) emitted by nix.
+fn strip_ansi(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' && matches!(chars.peek(), Some('[')) {
+            chars.next();
+            for inner in chars.by_ref() {
+                if inner.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
 }
 
-/// Parse `nix profile history` human output.
-///
-/// Lines look like:
-/// `Version 3 (2025-01-01)` / `Version 1 (2024-11-01) (current)`.
-pub fn parse_history(text: &str) -> Vec<Generation> {
+/// Parse generation numbers from `nix profile history` output.
+/// Lines look like: `Version 33 (2026-10-14):` or `Version 34 (…) <- 33:`.
+pub fn parse_history(text: &str) -> Vec<u32> {
     let mut out = Vec::new();
-    for line in text.lines() {
+    for raw in text.lines() {
+        let line = strip_ansi(raw);
         let line = line.trim();
         let Some(rest) = line.strip_prefix("Version ") else {
             continue;
         };
-        let mut parts = rest.split_whitespace();
-        let Some(num) = parts.next() else { continue };
-        let Ok(number) = num.parse::<u32>() else {
+        let Some(num) = rest.split_whitespace().next() else {
             continue;
         };
-        out.push(Generation {
-            number,
-            current: line.contains("(current)"),
-        });
+        if let Ok(number) = num.parse::<u32>() {
+            out.push(number);
+        }
     }
-    out.sort_by_key(|g| g.number);
+    out.sort_unstable();
+    out.dedup();
     out
 }
 
+/// Current generation from a symlink target like `profile-34-link`.
+pub fn parse_generation_link(target: &str) -> Option<u32> {
+    let name = target.rsplit('/').next()?;
+    let rest = name.strip_prefix("profile-")?;
+    let digits = rest.strip_suffix("-link")?;
+    digits.parse().ok()
+}
+
 /// Which generations would be deleted keeping the newest `keep` (1..=1000).
-pub fn prune_plan(generations: &[Generation], keep: u32) -> Result<Vec<Generation>, ApiError> {
+/// The active generation is never included.
+pub fn prune_plan(generations: &[u32], current: Option<u32>, keep: u32) -> Result<Vec<u32>, u32> {
     if !(1..=1000).contains(&keep) {
-        return Err(ApiError::invalid("keep must be between 1 and 1000"));
+        return Err(keep);
     }
     if generations.is_empty() {
         return Ok(Vec::new());
     }
-    let keep = keep.min(generations.len() as u32) as usize;
-    let cutoff = generations.len() - keep;
+    let keep_n = (keep as usize).min(generations.len());
+    let cutoff = generations.len() - keep_n;
     Ok(generations[..cutoff]
         .iter()
-        .filter(|g| !g.current) // never delete the active generation
         .copied()
+        .filter(|g| Some(*g) != current)
         .collect())
 }
 
@@ -60,61 +80,65 @@ pub fn prune_plan(generations: &[Generation], keep: u32) -> Result<Vec<Generatio
 mod tests {
     use super::*;
 
-    const HISTORY: &str = "\
-Version 4 (2025-02-01)
-+ hello-2.12.1
-Version 3 (2025-01-01)
-+ jq-1.7.1
-Version 2 (2024-12-01)
-Version 1 (2024-11-01) (current)
-";
+    // Real output sample from nix 2.31.5 (ANSI escapes included).
+    const HISTORY: &str = "Version \u{1b}[1m33\u{1b}[0m (2026-10-14):\n  flake:nixpkgs#hello: ∅ -> 2.12\n\nVersion \u{1b}[32;1m34\u{1b}[0m (2026-10-16) <- 33:\n  flake:nixpkgs#gh: ∅ -> 2.102.0\n";
 
     #[test]
-    fn parses_versions_and_current() {
-        let gens = parse_history(HISTORY);
-        assert_eq!(gens.len(), 4);
-        assert_eq!(gens[0].number, 1);
-        assert!(gens[0].current);
-        assert!(!gens[3].current);
+    fn strips_ansi_and_parses_numbers() {
+        assert_eq!(parse_history(HISTORY), vec![33, 34]);
+    }
+
+    #[test]
+    fn parses_rollback_arrow_lines() {
+        let text = "Version 5 (2025-01-01) <- 3:\nVersion 4 (2024-12-01):\n";
+        assert_eq!(parse_history(text), vec![4, 5]);
+    }
+
+    #[test]
+    fn parses_generation_symlink() {
+        assert_eq!(
+            parse_generation_link("/nix/var/nix/profiles/per-user/u/profile-34-link"),
+            Some(34)
+        );
+        assert_eq!(parse_generation_link("profile-2-link"), Some(2));
+        assert_eq!(parse_generation_link("profile-link"), None);
+        assert_eq!(parse_generation_link("nonsense"), None);
     }
 
     #[test]
     fn keeps_last_n_newest() {
-        let gens = parse_history(HISTORY); // numbers 1..4, 1 is current
-        let plan = prune_plan(&gens, 2).unwrap();
-        // keep 2 newest (3,4); 1 is active so it survives even if old -> [2].
-        assert_eq!(plan.iter().map(|g| g.number).collect::<Vec<_>>(), vec![2]);
+        let gens = vec![33, 34, 35];
+        let plan = prune_plan(&gens, Some(35), 2).unwrap();
+        assert_eq!(plan, vec![33], "keep 34,35 (35 is current)");
     }
 
     #[test]
     fn never_deletes_current_even_if_old() {
-        let gens = parse_history(HISTORY);
-        let plan = prune_plan(&gens, 1).unwrap();
-        // newest = 4; older = 2,3 (1 is current and stays, but not in plan anyway)
-        // keep 1 newest (4); old gens 2,3 are deleted; 1 is active -> survives.
+        let gens = vec![33, 34, 35];
+        // current is the oldest (rollback case)
+        let plan = prune_plan(&gens, Some(33), 1).unwrap();
         assert_eq!(
-            plan.iter().map(|g| g.number).collect::<Vec<_>>(),
-            vec![2, 3]
+            plan,
+            vec![34],
+            "keep 35; 33 is current -> survives; 34 deleted"
         );
-        assert!(!plan.iter().any(|g| g.current));
+        assert!(!plan.contains(&33));
     }
 
     #[test]
     fn keep_larger_than_history_is_noop() {
-        let gens = parse_history(HISTORY);
-        assert!(prune_plan(&gens, 10).unwrap().is_empty());
+        assert!(prune_plan(&[1, 2], Some(2), 10).unwrap().is_empty());
     }
 
     #[test]
     fn invalid_keep_is_rejected() {
-        let gens = parse_history(HISTORY);
-        assert!(prune_plan(&gens, 0).is_err());
-        assert!(prune_plan(&gens, 1001).is_err());
+        assert!(prune_plan(&[1], Some(1), 0).is_err());
+        assert!(prune_plan(&[1], Some(1), 1001).is_err());
     }
 
     #[test]
     fn empty_history_is_fine() {
         assert!(parse_history("").is_empty());
-        assert!(prune_plan(&[], 3).unwrap().is_empty());
+        assert!(prune_plan(&[], None, 3).unwrap().is_empty());
     }
 }

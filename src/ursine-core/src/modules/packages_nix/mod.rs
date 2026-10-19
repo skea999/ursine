@@ -90,6 +90,30 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             .await?;
             Ok(json!(out))
         }
+        Action::RemoveAll => {
+            let out = exec::run_as_user(
+                user,
+                &[("profile", ""), ("remove", ""), ("--all", "")],
+                MUTATE_TIMEOUT,
+            )
+            .await?;
+            Ok(json!(out))
+        }
+        Action::RemoveRegex { pattern } => {
+            exec::validate_regex(pattern)?;
+            let out = exec::run_as_user(
+                user,
+                &[
+                    ("profile", ""),
+                    ("remove", ""),
+                    ("--regex", ""),
+                    (pattern, ""),
+                ],
+                MUTATE_TIMEOUT,
+            )
+            .await?;
+            Ok(json!(out))
+        }
         Action::Upgrade { package, all } => {
             let out = if *all {
                 exec::run_as_user(
@@ -110,6 +134,21 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                 )
                 .await?
             };
+            Ok(json!(out))
+        }
+        Action::UpgradeRegex { pattern } => {
+            exec::validate_regex(pattern)?;
+            let out = exec::run_as_user(
+                user,
+                &[
+                    ("profile", ""),
+                    ("upgrade", ""),
+                    ("--regex", ""),
+                    (pattern, ""),
+                ],
+                MUTATE_TIMEOUT,
+            )
+            .await?;
             Ok(json!(out))
         }
         Action::Generations => {
@@ -156,33 +195,43 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             Ok(json!(out))
         }
         Action::PruneGenerations { keep, dry_run } => {
+            exec::validate_username(user)?;
             let profile_path = format!("/nix/var/nix/profiles/per-user/{user}/profile");
+
+            // nix profile history does not mark the active generation; read it
+            // from the profile symlink (profile-N-link), as root.
+            let current = std::fs::read_link(&profile_path)
+                .ok()
+                .and_then(|t| generations::parse_generation_link(&t.to_string_lossy()));
+
             let hist =
                 exec::run_as_user(user, &[("profile", ""), ("history", "")], HISTORY_TIMEOUT)
                     .await?;
             let gens = generations::parse_history(&hist.stdout);
-            let plan = generations::prune_plan(&gens, *keep)?;
-            let plan_numbers: Vec<u32> = plan.iter().map(|g| g.number).collect();
+            let plan = generations::prune_plan(&gens, current, *keep)
+                .map_err(|_| ApiError::invalid("keep must be between 1 and 1000"))?;
 
             if *dry_run {
                 return Ok(json!({
                     "dry_run": true,
-                    "would_delete": plan_numbers,
+                    "current": current,
+                    "would_delete": plan,
                     "kept": gens.len().saturating_sub(plan.len()),
                 }));
             }
 
+            // Root: in multi-user mode the profile lives in the store; users
+            // cannot lock/write it directly (verified on nix 2.31).
             let keep_arg = format!("+{keep}");
-            let out = exec::run_as_user_program(
-                user,
-                "nix-env",
+            let out = exec::run_as_root(
                 &[("-p", &profile_path), ("--delete-generations", &keep_arg)],
                 MUTATE_TIMEOUT,
             )
             .await?;
             Ok(json!({
                 "dry_run": false,
-                "deleted": plan_numbers,
+                "current": current,
+                "deleted": plan,
                 "stdout": out.stdout,
                 "stderr": out.stderr,
             }))

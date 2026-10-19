@@ -19,14 +19,17 @@ channels / `nix-env` are out of scope by decision (skea999).
 | `nix.listInstalled` | asUser | `nix profile list --json` → `InstalledPackage[]` |
 | `nix.install` | asUser | `nix profile add <nixpkgs#pkg|flake#attr>` (bare name → `nixpkgs#name`) |
 | `nix.remove` | asUser | `nix profile remove <element>` |
+| `nix.removeAll` | asUser | `nix profile remove --all` |
+| `nix.removeRegex` | asUser | `nix profile remove --regex <pattern>` |
 | `nix.upgrade` | asUser | `nix profile upgrade <element>` / `--all` |
+| `nix.upgradeRegex` | asUser | `nix profile upgrade --regex <pattern>` |
 | `nix.search` | asUser | `nix search nixpkgs <query> --json` → `SearchResult[]` |
 | `nix.generations` | asUser | `nix profile history` → lines |
 | `nix.rollback` | asUser | `nix profile rollback [--to N]` |
 | `nix.wipeHistory` | asUser | `nix profile wipe-history [--older-than D] [--dry-run]` |
 | `nix.diffClosures` | asUser | `nix profile diff-closures` → lines |
 | `nix.storeGc` | **root** | `nix store gc` — total GC (unreachable paths only), timeout 3600s |
-| `nix.pruneGenerations` | asUser | plan from `nix profile history`; `dry_run` returns `would_delete`; exec `nix-env -p <profile> --delete-generations +N` (GC subsystem switch; package ops stay new-CLI-only) |
+| `nix.pruneGenerations` | **root** (exec) | plan from `nix profile history` (ANSI stripped; current generation read from `profile-N-link` symlink — nix 2.31 does not mark it); `dry_run` returns `current` + `would_delete`; exec `nix-env -p <profile> --delete-generations +N` (root: users cannot lock the store profile in multi-user mode) |
 
 Execution rules (binding): `su -l -s /bin/sh <user> -c 'nix ...'` (login env:
 HOME/PATH/XDG for the user's own profile); every argument validated against a
@@ -38,7 +41,8 @@ mutations 900s, store gc 3600s, child killed on timeout.
 GC notes: `storeGc` runs as root and only removes paths unreachable from any
 GC root (profile generations are roots — that is why prune exists). The active
 generation is never deleted; `pruneGenerations` computes the plan first, so the
-GUI can preview it before running.
+GUI can preview it before running. Verified against nix 2.31.5: `history` emits
+ANSI escapes and has no `(current)` marker; `--delete-generations +N` needs root.
 
 - `asUser` defaults to the authenticated principal; daemon verifies target user exists and is a normal user (uid >= 1000) before exec
 - Long ops (install/upgrade) stream progress lines over the socket (JSON progress events, same connection)

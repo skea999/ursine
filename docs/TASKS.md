@@ -15,7 +15,7 @@
 - (empty)
 
 ### Done — v0.2 packages.nix (2026-10-19)
-- [x] New-CLI-only nix module: list/add/remove/upgrade/search/history/rollback/wipe-history/diff-closures + **storeGc** (root, total) + **pruneGenerations** (keep last N, dry-run plan); `su -l -s /bin/sh` as target user; strict arg validation + single-quoting; uid 1000..60000; timeouts (60/300/900/3600s); JSON parsers; 74 tests green | P0
+- [x] New-CLI-only nix module: list/add/remove/removeAll/removeRegex/upgrade/upgradeRegex/search/history/rollback/wipe-history/diff-closures + **storeGc** (root, total) + **pruneGenerations** (root exec, keep last N, dry-run with current from symlink); `su -l -s /bin/sh` as target user; strict validation; uid 1000..60000; timeouts; 78 tests green. **Verified against real nix 2.31.5** (list JSON schema, history ANSI/no-current, --regex flags, prune lock semantics) | P0
 
 ### Done — v0.1 skeleton (2026-10-19)
 - [x] Cargo workspace `src/{ursine-api,ursine-core,ursined,ursine}`; template `src/` subdirs removed | P0

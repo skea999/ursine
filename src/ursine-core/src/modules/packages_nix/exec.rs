@@ -30,6 +30,66 @@ pub fn validate_installable(arg: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// Validate a username for profile path construction (no traversal).
+pub fn validate_username(user: &str) -> Result<(), ApiError> {
+    let ok = !user.is_empty()
+        && user.len() <= 32
+        && user
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase() || c == '_')
+        && user
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '-'));
+    if ok {
+        Ok(())
+    } else {
+        Err(ApiError::invalid("invalid user name"))
+    }
+}
+
+/// Validate a nix regex pattern (`--regex`): safe inside single quotes, no shell
+/// metacharacters that we refuse, no quote/newline. Spaces are allowed.
+pub fn validate_regex(pattern: &str) -> Result<(), ApiError> {
+    if pattern.is_empty() || pattern.len() > 256 {
+        return Err(ApiError::invalid("invalid regex pattern"));
+    }
+    let ok = pattern.chars().all(|c| {
+        c.is_ascii_alphanumeric()
+            || matches!(
+                c,
+                ' ' | '.'
+                    | '*'
+                    | '?'
+                    | '['
+                    | ']'
+                    | '('
+                    | ')'
+                    | '{'
+                    | '}'
+                    | '|'
+                    | '^'
+                    | '$'
+                    | '+'
+                    | '-'
+                    | '_'
+                    | ':'
+                    | '/'
+                    | '#'
+                    | '='
+                    | ','
+                    | '~'
+                    | '@'
+                    | '%'
+            )
+    });
+    if ok {
+        Ok(())
+    } else {
+        Err(ApiError::invalid("invalid regex pattern"))
+    }
+}
+
 /// Validate a search query (nix search takes a regex; keep it conservative).
 pub fn validate_query(q: &str) -> Result<(), ApiError> {
     if q.is_empty()
@@ -243,6 +303,27 @@ mod tests {
                 "{arg:?} must be rejected"
             );
         }
+    }
+
+    #[test]
+    fn regex_validation_allows_common_patterns() {
+        assert!(validate_regex(".*vim.*").is_ok());
+        assert!(validate_regex("python3(11|12)?").is_ok());
+        assert!(validate_regex("hello world").is_ok());
+        assert!(validate_regex("bad'quote").is_err());
+        assert!(validate_regex("bad;rm").is_err());
+        assert!(validate_regex("back`tick").is_err());
+        assert!(validate_regex("").is_err());
+    }
+
+    #[test]
+    fn username_validation_blocks_traversal() {
+        assert!(validate_username("skea999").is_ok());
+        assert!(validate_username("_svc").is_ok());
+        assert!(validate_username("Root").is_err());
+        assert!(validate_username("../root").is_err());
+        assert!(validate_username("a/b").is_err());
+        assert!(validate_username("").is_err());
     }
 
     #[test]
