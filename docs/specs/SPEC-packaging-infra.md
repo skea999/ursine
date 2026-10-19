@@ -6,7 +6,9 @@ Everything that makes Ursine buildable, testable, releasable and packagable — 
 
 ## Tech Stack
 
-- Nix flake: `pkgsMusl` (x86_64-linux, DYNAMIC musl — Alpine-style) — NEVER the default glibc stdenv. `pkgsStatic` is impossible: static musl cannot link libpam.so.
+- Nix flake: packages the **pinned musl release artifact** (`nix/binary.nix`: URL + sha256) — a `stdenvNoCC` derivation, no compilation. WHY: nixpkgs does not cache `pkgsMusl`/`pkgsStatic` toolchains (stable branches included — verified on nixos-26.05), so a from-source musl build compiles musl+rustc for hours on every run. Binaries are built in the Alpine CI container (same libc, fast) and the flake makes them consumable reproducibly (`nix run github:skea999/ursine`).
+- Binaries are **dynamic musl** (never static): PAM loads `pam_unix.so` via `dlopen`; static musl has no dlopen. glibc variants are a v6 concern (two artifacts from the same source).
+- **Release checklist**: bump `nix/binary.nix` version/url/sha256 on every tag (`sha256sum` of the tarball).
 - **CI fully containerized (binding)**: every job runs inside a container on GitHub-hosted runners — NO build toolchain installed on the host:
   - cargo jobs: `container: alpine:3.22` (FeralOS target branch) + `apk add rust cargo git nodejs` (`nodejs` required so JS actions like checkout run inside the musl container); `linux-pam-dev` added only for `pam` matrix jobs
   - flake/release jobs: `container: nixos/nix` (git present / `nix-env -iA nixpkgs.git` if missing) — nix itself runs INSIDE the container
@@ -20,7 +22,7 @@ Everything that makes Ursine buildable, testable, releasable and packagable — 
    - `apk add rust cargo git nodejs` (+ `linux-pam-dev` on pam jobs)
    - `cargo test --workspace --no-default-features` / `--features pam` / `--features full`
    - gate: `cargo clippy --workspace --all-features -- -D warnings` + `cargo fmt --check`
-2. `flake`: **container** `nixos/nix` → `nix flake check` + `nix build --out-link artifacts/result` on push/PR (out-link rule: nothing but source files ever appears at repo root)
+2. `flake`: **container** `nixos/nix` → `nix flake check` + `nix build --out-link artifacts/result` on push/PR — builds the pinned binary package in seconds (out-link rule: nothing but source files ever appears at repo root)
 3. `release` (tags only): same `nixos/nix` container builds musl binaries → attach to GitHub Release (ursined, ursine + dinit files); flake published by existing in repo → `github:skea999/ursine`
 4. NO job installs rustup/cargo/nix on the host runner; actions that need node work because containers provide `nodejs` (alpine) or ship it (nix image)
 

@@ -104,7 +104,7 @@ docker run --rm -it -v "$PWD:/work" -w /work rust:alpine sh     # interactive sh
 GitHub CI (`.github/workflows/ci.yml`, to be created at v0.1) — **all jobs in Docker containers, no toolchain on the host**:
 
 1. **test matrix, musl**: `alpine:3.22` container (FeralOS target; `apk add rust cargo git nodejs`; `linux-pam-dev` only on pam jobs); `cargo test` runs once per cargo feature combination that exists — default, `pam` (`full` when web/oidc land in v3). Clippy + fmt gate on all features. (`nodejs` in-container so JS actions work on musl.)
-2. **nix flake**: `nixos/nix` **container** → `nix flake check` + `nix build --out-link artifacts/result` on every push. `flake.nix` at repo root builds both binaries on **dynamic musl** via `pkgsMusl` (never glibc; static musl cannot link libpam.so).
+2. **nix flake**: `nixos/nix` **container** → `nix flake check` + `nix build --out-link artifacts/result` on every push. `flake.nix` packages the **pinned musl artifact** (`nix/binary.nix`, URL+sha256): nixpkgs does not cache musl toolchains (stable included), so from-source musl builds take hours; Alpine builds the binary, Nix publishes it reproducibly.
 3. **publish**: on tag, same `nixos/nix` container builds musl binaries and CI attaches them to a GitHub Release; the flake itself is "published" by living in the repo (`github:skea999/ursine`).
 
 ## Module inventory (v1)

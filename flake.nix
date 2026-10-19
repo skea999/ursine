@@ -1,47 +1,54 @@
 {
   description = "Ursine — FeralOS control center (ursined daemon + GUI)";
 
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-  };
+  # Stable nixpkgs: only used for packaging (no musl toolchain build).
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
   outputs = { self, nixpkgs }:
     let
       system = "x86_64-linux";
-      # musl everywhere (binding rule): pkgsMusl, dynamic musl binaries
-      # (Alpine-style; static musl cannot link libpam). Never glibc.
       pkgs = nixpkgs.legacyPackages.${system};
-      musl = pkgs.pkgsMusl;
-      version = "0.1.0";
-    in {
-      packages.${system} = {
-        default = self.packages.${system}.ursine;
+      bin = import ./nix/binary.nix;
 
-        ursine = musl.rustPlatform.buildRustPackage {
-          pname = "ursine";
-          inherit version;
-          src = ./.;
+      # The binaries themselves are musl (built in Alpine CI): nixpkgs does not
+      # cache musl toolchains, so building from source here would take hours on
+      # every run. This derivation packages the pinned release artifact — the
+      # flake stays reproducible (URL + sha256) and instant to build.
+      #
+      # WHY dynamic musl: PAM loads pam_unix.so via dlopen at runtime; a fully
+      # static musl binary cannot dlopen. FeralOS is Alpine (dynamic musl).
+      ursine = pkgs.stdenvNoCC.mkDerivation {
+        pname = "ursine";
+        inherit (bin) version;
 
-          cargoLock.lockFile = ./Cargo.lock;
+        src = pkgs.fetchurl {
+          inherit (bin) url sha256;
+        };
 
-          # Real PAM on release builds (linux-pam is on every FeralOS install).
-          buildFeatures = [ "pam" ];
-          buildInputs = [ musl.linux-pam ];
+        nativeBuildInputs = [ pkgs.gnutar ];
 
-          # GUI crate is a placeholder until the store milestone; no GTK yet.
-          doCheck = true;
+        # Tarball root = bin/ (no wrapper dir): unpack straight into $out.
+        dontUnpack = true;
+        installPhase = ''
+          mkdir -p $out
+          tar xzf $src -C $out
+          chmod +x $out/bin/ursined $out/bin/ursine
+        '';
 
-          meta = {
-            description = "Ursine control center: ursined daemon + ursine GUI (musl)";
-            license = pkgs.lib.licenses.isc;
-            mainProgram = "ursined";
-            platforms = [ "x86_64-linux" ];
-          };
+        meta = {
+          description = "Ursine control center: ursined daemon + ursine GUI (musl)";
+          license = pkgs.lib.licenses.isc;
+          mainProgram = "ursined";
+          platforms = [ "x86_64-linux" ];
         };
       };
+    in {
+      packages.${system} = {
+        default = ursine;
+        inherit ursine;
+      };
 
-      # `nix build --out-link artifacts/result` builds both binaries at:
-      #   artifacts/result/bin/ursined, artifacts/result/bin/ursine
-      checks.${system}.build = self.packages.${system}.ursine;
+      # `nix build --out-link artifacts/result` → artifacts/result/bin/{ursined,ursine}
+      checks.${system}.package = ursine;
     };
 }
