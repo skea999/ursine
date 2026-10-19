@@ -190,6 +190,7 @@ mod tests {
     }
 
     fn tmp_dir(name: &str) -> PathBuf {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir — tests only; paths are container-local and non-security-sensitive
         let d = std::env::temp_dir().join(format!("ursine-dispatch-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         d

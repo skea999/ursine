@@ -120,6 +120,7 @@ mod tests {
     use crate::clock::ManualClock;
 
     fn tmp_path(name: &str) -> PathBuf {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir — tests only; paths are container-local and non-security-sensitive
         std::env::temp_dir()
             .join(format!("ursine-audit-{name}-{}", std::process::id()))
             .join("audit.jsonl")

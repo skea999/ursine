@@ -7,6 +7,8 @@
 - `flake.nix` (pkgsMusl dynamic musl, x86_64, `pam` feature) + lock; eval validated in nixos/nix container.
 - `.github/workflows/ci.yml` ACTIVE: containerized test matrix (default/pam), clippy/fmt gate, nixos/nix flake check/build, release-on-tag.
 - `ci/Containerfile.dev` dev image; dynamic musl build config (`-crt-static` off — static musl cannot link libpam).
+- CI gates: cargo-vet (supply chain), cargo-audit (RustSec), Semgrep SAST, flake archive published as artifact.
+- PAM via `pam-client 0.2` (replaces `pam 0.7`): fixes RUSTSEC-2025-0040 (`users 0.8` vulnerable/unmaintained) and avoids bindgen.
 
 All notable changes to Ursine. Format: Keep a Changelog, semver.
 

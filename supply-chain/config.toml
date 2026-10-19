@@ -72,8 +72,8 @@ criteria = "safe-to-deploy"
 version = "1.21.4"
 criteria = "safe-to-deploy"
 
-[[exemptions.pam]]
-version = "0.7.0"
+[[exemptions.pam-client]]
+version = "0.2.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.pam-sys]]
@@ -98,6 +98,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.regex-syntax]]
 version = "0.8.11"
+criteria = "safe-to-deploy"
+
+[[exemptions.rustversion]]
+version = "1.0.23"
 criteria = "safe-to-deploy"
 
 [[exemptions.serde]]
@@ -202,10 +206,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.unicode-ident]]
 version = "1.0.27"
-criteria = "safe-to-deploy"
-
-[[exemptions.users]]
-version = "0.8.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.valuable]]

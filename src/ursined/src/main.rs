@@ -29,6 +29,7 @@ OPTIONS:
 ";
 
 fn main() -> std::process::ExitCode {
+    // nosemgrep: rust.lang.security.args.args — CLI args parsed strictly (unknown rejected); no shell, no eval
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut config_path = PathBuf::from("/etc/ursine/config.toml");
 

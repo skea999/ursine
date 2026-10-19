@@ -16,8 +16,11 @@ tokio.workspace = true
 tracing.workspace = true
 getrandom.workspace = true
 # Real PAM on FeralOS builds; dev builds use the stub authenticator.
-pam = { version = "0.7", optional = true }
+# pam-client 0.2 = maintained fork of pam 0.7: pam-sys 0.5 (pregenerated
+# bindings, no bindgen), no vulnerable `users` dependency.
+# Public API is the pam_client:: Context style.
+pam-client = { version = "0.2", optional = true, default-features = false }
 
 [features]
 default = []
-pam = ["dep:pam"]
+pam = ["dep:pam-client"]

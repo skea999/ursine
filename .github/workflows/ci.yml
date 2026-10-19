@@ -24,6 +24,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: never
+  NIX_CONFIG: "experimental-features = nix-command flakes"
 
 jobs:
   # ── Test matrix: one cargo test run per feature combination, musl ──
@@ -67,9 +68,8 @@ jobs:
     steps:
       - run: apk add --no-cache git nodejs
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-vet
+      # musl container: taiki-e prebuilds are glibc; build from source instead.
+      - run: cargo install cargo-vet --locked
       - run: cargo vet --locked
 
   # ── Dependency vulnerabilities (RustSec) ──
@@ -109,8 +109,8 @@ jobs:
       - run: nix profile install nixpkgs#nodejs
       - uses: actions/checkout@v4
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - run: nix --extra-experimental-features "nix-command flakes" flake check
-      - run: nix --extra-experimental-features "nix-command flakes" build --out-link artifacts/result
+      - run: nix flake check
+      - run: nix build --out-link artifacts/result
 
   # ── Publish the flake as a downloadable archive (testable after CI) ──
   publish:
@@ -125,8 +125,7 @@ jobs:
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: |
           mkdir -p artifacts
-          nix --extra-experimental-features "nix-command flakes" \
-            flake archive --to "file:$PWD/artifacts/ursine-flake.tar" -L
+          nix flake archive --to "file:$PWD/artifacts/ursine-flake.tar" -L
       - uses: actions/upload-artifact@v4
         with:
           name: ursine-flake
@@ -145,12 +144,11 @@ jobs:
       - uses: actions/checkout@v4
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: |
-          nix --extra-experimental-features "nix-command flakes" build --out-link artifacts/result
+          nix build --out-link artifacts/result
           mkdir -p artifacts/pkg
           cp artifacts/result/bin/ursined artifacts/result/bin/ursine artifacts/pkg/
           tar czf ursine-${{ github.ref_name }}-x86_64-musl.tar.gz -C artifacts pkg
-          nix --extra-experimental-features "nix-command flakes" \
-            flake archive --to "file:$PWD/artifacts/ursine-flake.tar"
+          nix flake archive --to "file:$PWD/artifacts/ursine-flake.tar"
       - name: Verify tarball contents
         run: tar tzf ursine-${{ github.ref_name }}-x86_64-musl.tar.gz
       - run: |
