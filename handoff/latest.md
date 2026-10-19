@@ -25,7 +25,13 @@ See `AGENTS.md` for project context and milestone history.
 - **Nix strategy (final)**: nixpkgs does NOT cache `pkgsMusl`/`pkgsStatic` (verified on stable nixos-26.05: rustc/linux-pam NOT in cache.nixos.org). `pkgsStatic` is also impossible for us: PAM modules are `dlopen`ed at runtime and static musl has no dlopen. Decision: **Alpine (rust:1-alpine) builds the dynamic-musl binaries; the flake packages the pinned release artifact** (`nix/binary.nix` URL+sha256, `stdenvNoCC`, builds in seconds). Release v0.1.0 created with the tarball; `nix flake check` + `nix build` green locally in nixos/nix container. Release checklist: bump `nix/binary.nix` on every tag.
 - **CI jobs final**: test matrix, lint, vet, audit, sast, flake (pinned package), package (Alpine release build; tag release or rolling `latest` on main).
 
-**Next (v0.2)**: packages.nix module — exec `nix profile ...` as `asUser` via `su -l`, parse `--json` outputs on committed fixtures, stream progress; then v0.3 store GUI (relm4). Also: dinit service + `/etc/pam.d/ursine` files for packaging.
+**v0.2 DONE (2026-10-19)**: nix module on the NEW CLI only (`nix profile ...`);
+actions list/add/remove/upgrade/search/history/rollback/wipe-history/diff-closures;
+exec `su -l -s /bin/sh <user> -c 'nix ...'` with strict validation, uid 1000..60000,
+timeouts; parsers for profile-list/search JSON. 68 tests, clippy/fmt green.
+Real nix ops not e2e-tested on dev (container has no nix/user) — verify on FeralOS.
+
+**Next (v0.3)**: packages.nix module — exec `nix profile ...` as `asUser` via `su -l`, parse `--json` outputs on committed fixtures, stream progress; then v0.3 store GUI (relm4). Also: dinit service + `/etc/pam.d/ursine` files for packaging.
 
 ## Session 2026-10-16 — INTENT CONFIRMED (NO CODE YET)
 

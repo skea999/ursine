@@ -7,6 +7,8 @@ use std::path::Path;
 use serde_json::json;
 use ursine_api::{Action, ApiError, Capability, ModuleId, Response, UrsineConfig};
 
+pub mod packages_nix;
+
 use crate::capabilities::{module_switch, Registry};
 
 /// Everything a handler may touch (no daemon internals).
@@ -30,7 +32,7 @@ fn required_caps(module: ModuleId) -> &'static [Capability] {
 }
 
 /// Route a validated call. `NotImplemented` for everything beyond v0.1 wiring.
-pub fn handle(
+pub async fn handle(
     module: ModuleId,
     action: &Action,
     ctx: &ModuleCtx<'_>,
@@ -59,8 +61,9 @@ pub fn handle(
             Ok(json!({ "written": ctx.config_path.display().to_string() }))
         }
 
+        (ModuleId::PackagesNix, action) => packages_nix::handle(action, ctx).await,
+
         // v1 module surface: wired later milestone by milestone.
-        (ModuleId::PackagesNix, _) => Err(ApiError::not_implemented("packages.nix")),
         (ModuleId::Snapshots, _) => Err(ApiError::not_implemented("snapshots")),
         (ModuleId::Users, _) => Err(ApiError::not_implemented("users")),
         (ModuleId::Niri, _) => Err(ApiError::not_implemented("niri")),
@@ -86,6 +89,9 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::Remove { .. } => "remove",
         Action::Upgrade { .. } => "upgrade",
         Action::Generations => "generations",
+        Action::Rollback { .. } => "rollback",
+        Action::WipeHistory { .. } => "wipe_history",
+        Action::DiffClosures { .. } => "diff_closures",
         Action::ListSnapshots => "list_snapshots",
         Action::Stats => "stats",
         Action::CreateSnapshot { .. } => "create_snapshot",
@@ -137,8 +143,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn system_status_reports_stub_auth_in_dev() {
+    #[tokio::test]
+    async fn system_status_reports_stub_auth_in_dev() {
         let (caps, cfg, path) = ctx_with(AllMissing);
         let ctx = ModuleCtx {
             caps: &caps,
@@ -146,7 +152,9 @@ mod tests {
             config_path: &path,
             as_user: "u",
         };
-        let v = handle(ModuleId::System, &Action::Status, &ctx).unwrap();
+        let v = handle(ModuleId::System, &Action::Status, &ctx)
+            .await
+            .unwrap();
         assert_eq!(
             v["auth"],
             if cfg!(feature = "pam") { "pam" } else { "stub" }
@@ -154,8 +162,8 @@ mod tests {
         assert_eq!(v["protocol_version"], ursine_api::PROTOCOL_VERSION);
     }
 
-    #[test]
-    fn capabilities_list_returns_all_six() {
+    #[tokio::test]
+    async fn capabilities_list_returns_all_six() {
         let (caps, cfg, path) = ctx_with(AllMissing);
         let ctx = ModuleCtx {
             caps: &caps,
@@ -163,12 +171,14 @@ mod tests {
             config_path: &path,
             as_user: "u",
         };
-        let v = handle(ModuleId::Capabilities, &Action::List, &ctx).unwrap();
+        let v = handle(ModuleId::Capabilities, &Action::List, &ctx)
+            .await
+            .unwrap();
         assert_eq!(v.as_array().unwrap().len(), 6);
     }
 
-    #[test]
-    fn package_actions_gated_before_notimplemented() {
+    #[tokio::test]
+    async fn package_actions_gated_before_notimplemented() {
         let (caps, cfg, path) = ctx_with(AllMissing);
         let ctx = ModuleCtx {
             caps: &caps,
@@ -176,14 +186,16 @@ mod tests {
             config_path: &path,
             as_user: "u",
         };
-        let err = handle(ModuleId::PackagesNix, &Action::ListInstalled, &ctx).unwrap_err();
+        let err = handle(ModuleId::PackagesNix, &Action::ListInstalled, &ctx)
+            .await
+            .unwrap_err();
         // nix missing on fake machine -> gating error wins over NotImplemented
         assert_eq!(err.code, ursine_api::ErrorCode::Unavailable);
         assert!(err.fix.is_some());
     }
 
-    #[test]
-    fn disabled_module_is_unavailable_even_if_forced_off() {
+    #[tokio::test]
+    async fn disabled_module_is_unavailable_even_if_forced_off() {
         let (caps, mut cfg, path) = ctx_with(AllMissing);
         cfg.modules.packages_nix = ursine_api::TriState::Off;
         let ctx = ModuleCtx {
@@ -199,12 +211,13 @@ mod tests {
             },
             &ctx,
         )
+        .await
         .unwrap_err();
         assert_eq!(err.code, ursine_api::ErrorCode::Unavailable);
     }
 
-    #[test]
-    fn invalid_module_action_combo_is_rejected() {
+    #[tokio::test]
+    async fn invalid_module_action_combo_is_rejected() {
         let (caps, cfg, path) = ctx_with(AllMissing);
         let ctx = ModuleCtx {
             caps: &caps,
@@ -219,6 +232,7 @@ mod tests {
             },
             &ctx,
         )
+        .await
         .unwrap_err();
         assert_eq!(err.code, ursine_api::ErrorCode::Invalid);
     }

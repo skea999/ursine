@@ -11,14 +11,27 @@ The flagship: GUI + API for Nix user profiles — install, remove, search, list,
 
 ## API surface
 
+**Only the NEW nix CLI is supported** (`nix profile ...`, flake refs). Classic
+channels / `nix-env` are out of scope by decision (skea999).
+
 | Action | Executed as | Command shape |
 |---|---|---|
-| `nix.listInstalled` | asUser | `nix profile list --profile /nix/var/nix/profiles/profile` (user default profile) — parse `--json` |
-| `nix.install` | asUser | `nix profile install nixpkgs#<pkg>` |
-| `nix.remove` | asUser | `nix profile remove <attr|index>` |
-| `nix.upgrade` | asUser | `nix profile upgrade <attr|index>` / `--all` |
-| `nix.search` | asUser | `nix search nixpkgs <query>` — parsed, cached briefly in RAM |
-| `nix.generations` | asUser | `nix profile history` (read-only) |
+| `nix.listInstalled` | asUser | `nix profile list --json` → `InstalledPackage[]` |
+| `nix.install` | asUser | `nix profile add <nixpkgs#pkg|flake#attr>` (bare name → `nixpkgs#name`) |
+| `nix.remove` | asUser | `nix profile remove <element>` |
+| `nix.upgrade` | asUser | `nix profile upgrade <element>` / `--all` |
+| `nix.search` | asUser | `nix search nixpkgs <query> --json` → `SearchResult[]` |
+| `nix.generations` | asUser | `nix profile history` → lines |
+| `nix.rollback` | asUser | `nix profile rollback [--to N]` |
+| `nix.wipeHistory` | asUser | `nix profile wipe-history [--older-than D] [--dry-run]` |
+| `nix.diffClosures` | asUser | `nix profile diff-closures` → lines |
+
+Execution rules (binding): `su -l -s /bin/sh <user> -c 'nix ...'` (login env:
+HOME/PATH/XDG for the user's own profile); every argument validated against a
+strict charset and single-quoted (no shell injection); target user must exist
+and have uid in `1000..60000` (system users/root rejected); path installs
+(`./flake`, `/path`) rejected in v1; timeouts: list/history 60s, search 300s,
+mutations 900s, child killed on timeout.
 
 - `asUser` defaults to the authenticated principal; daemon verifies target user exists and is a normal user (uid >= 1000) before exec
 - Long ops (install/upgrade) stream progress lines over the socket (JSON progress events, same connection)

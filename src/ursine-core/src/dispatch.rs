@@ -31,7 +31,7 @@ pub struct Daemon {
 
 impl Daemon {
     /// Handle one request. Never panics on request content.
-    pub fn handle(&self, req: Request, peer: &PeerInfo) -> Response {
+    pub async fn handle(&self, req: Request, peer: &PeerInfo) -> Response {
         let id = req.id;
         if req.v != ursine_api::PROTOCOL_VERSION {
             return Response::err(
@@ -50,7 +50,10 @@ impl Daemon {
                 module,
                 action,
                 as_user,
-            } => self.handle_call(id, req.token.as_ref(), module, action, as_user),
+            } => {
+                self.handle_call(id, req.token.as_ref(), module, action, as_user)
+                    .await
+            }
         }
     }
 
@@ -120,7 +123,7 @@ impl Daemon {
         Response::auth_ok(id, token, ttl)
     }
 
-    fn handle_call(
+    async fn handle_call(
         &self,
         id: Option<u64>,
         token: Option<&ursine_api::SessionToken>,
@@ -144,7 +147,7 @@ impl Daemon {
             as_user: &target_user,
         };
 
-        let result = modules::handle(module, &action, &ctx);
+        let result = modules::handle(module, &action, &ctx).await;
 
         let outcome = Outcome::from_result(&result);
         self.audit
@@ -215,10 +218,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn happy_path_auth_then_call() {
+    #[tokio::test]
+    async fn happy_path_auth_then_call() {
         let (_clock, d) = daemon(&tmp_dir("happy"));
-        let resp = d.handle(auth_request(1), &peer());
+        let resp = d.handle(auth_request(1), &peer()).await;
         let token = match resp.body {
             ResponseBody::AuthOk {
                 token,
@@ -240,7 +243,7 @@ mod tests {
                 as_user: None,
             },
         };
-        let resp = d.handle(call, &peer());
+        let resp = d.handle(call, &peer()).await;
         match resp.body {
             ResponseBody::Ok { result } => {
                 assert!(result.get("version").is_some());
@@ -249,8 +252,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn call_without_token_is_unauthorized() {
+    #[tokio::test]
+    async fn call_without_token_is_unauthorized() {
         let (_clock, d) = daemon(&tmp_dir("no-token"));
         let call = Request {
             v: PROTOCOL_VERSION,
@@ -262,14 +265,14 @@ mod tests {
                 as_user: None,
             },
         };
-        match d.handle(call, &peer()).body {
+        match d.handle(call, &peer()).await.body {
             ResponseBody::Err { error } => assert_eq!(error.code, ErrorCode::Unauthorized),
             other => panic!("want err, got {other:?}"),
         }
     }
 
-    #[test]
-    fn unknown_token_is_unauthorized() {
+    #[tokio::test]
+    async fn unknown_token_is_unauthorized() {
         let (_clock, d) = daemon(&tmp_dir("bad-token"));
         let call = Request {
             v: PROTOCOL_VERSION,
@@ -281,14 +284,14 @@ mod tests {
                 as_user: None,
             },
         };
-        match d.handle(call, &peer()).body {
+        match d.handle(call, &peer()).await.body {
             ResponseBody::Err { error } => assert_eq!(error.code, ErrorCode::Unauthorized),
             other => panic!("want err, got {other:?}"),
         }
     }
 
-    #[test]
-    fn stub_rejects_empty_credentials_generically() {
+    #[tokio::test]
+    async fn stub_rejects_empty_credentials_generically() {
         let (_clock, d) = daemon(&tmp_dir("empty-creds"));
         let req = Request {
             v: PROTOCOL_VERSION,
@@ -299,14 +302,14 @@ mod tests {
                 password: "".into(),
             },
         };
-        match d.handle(req, &peer()).body {
+        match d.handle(req, &peer()).await.body {
             ResponseBody::Err { error } => assert_eq!(error.code, ErrorCode::Unauthorized),
             other => panic!("want err, got {other:?}"),
         }
     }
 
-    #[test]
-    fn rate_limit_blocks_after_five_failures() {
+    #[tokio::test]
+    async fn rate_limit_blocks_after_five_failures() {
         let (_clock, d) = daemon(&tmp_dir("rate"));
         let mut last = None;
         for _ in 0..7 {
@@ -319,7 +322,7 @@ mod tests {
                     password: "".into(),
                 },
             };
-            last = Some(d.handle(req, &peer()).body);
+            last = Some(d.handle(req, &peer()).await.body);
         }
         match last {
             Some(ResponseBody::Err { error }) => assert_eq!(error.code, ErrorCode::RateLimited),
@@ -327,8 +330,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn wrong_protocol_version_is_rejected() {
+    #[tokio::test]
+    async fn wrong_protocol_version_is_rejected() {
         let (_clock, d) = daemon(&tmp_dir("version"));
         let req = Request {
             v: 99,
@@ -339,16 +342,16 @@ mod tests {
                 password: "b".into(),
             },
         };
-        match d.handle(req, &peer()).body {
+        match d.handle(req, &peer()).await.body {
             ResponseBody::Err { error } => assert_eq!(error.code, ErrorCode::Invalid),
             other => panic!("want err, got {other:?}"),
         }
     }
 
-    #[test]
-    fn module_stubs_return_not_implemented_with_gating() {
+    #[tokio::test]
+    async fn module_stubs_return_not_implemented_with_gating() {
         let (_clock, d) = daemon(&tmp_dir("stub"));
-        let resp = d.handle(auth_request(1), &peer());
+        let resp = d.handle(auth_request(1), &peer()).await;
         let token = match resp.body {
             ResponseBody::AuthOk { token, .. } => token,
             other => panic!("want auth_ok, got {other:?}"),
@@ -363,7 +366,7 @@ mod tests {
                 as_user: None,
             },
         };
-        match d.handle(call, &peer()).body {
+        match d.handle(call, &peer()).await.body {
             ResponseBody::Err { error } => {
                 // Either gating (unavailable) or NotImplemented — both acceptable
                 // on machines without nix; must NEVER be Ok.

@@ -1,18 +1,21 @@
 # Tasks — Ursine
 
-**Milestone**: v0.1 — Skeleton (DONE) → v0.2 packages.nix
+**Milestone**: v0.2 — packages.nix (DONE) → v0.3 store GUI
 **Updated**: 2026-10-19
 
 ## Current Sprint
 
 ### Todo
-- [ ] v0.2: packages.nix module — `nix profile list/install/remove/upgrade/search` executed as `asUser`, JSON parsers on committed fixtures, progress events | P0 | agent
+- [ ] v0.3: store GUI (relm4): login, home cards, nix store view, snapshots panel | P0 | agent
 - [ ] `dinit/ursined` service file + PAM service `/etc/pam.d/ursine` (auth-only, pam_unix) shipped for packaging | P1 | agent
 - [ ] v0.3 store GUI (relm4): login, home cards, nix store, snapshots panel | P0 | agent
 - [ ] v0.4 users (accountsservice) + niri editor forms | P1 | agent
 
 ### In Progress
 - (empty)
+
+### Done — v0.2 packages.nix (2026-10-19)
+- [x] New-CLI-only nix module: list/add/remove/upgrade/search/history/rollback/wipe-history/diff-closures; `su -l -s /bin/sh` as target user; strict arg validation + single-quoting; uid 1000..60000 check; timeouts (60/300/900s, kill on timeout); JSON parsers for `profile list --json` + `search --json`; 68 tests total green | P0
 
 ### Done — v0.1 skeleton (2026-10-19)
 - [x] Cargo workspace `src/{ursine-api,ursine-core,ursined,ursine}`; template `src/` subdirs removed | P0

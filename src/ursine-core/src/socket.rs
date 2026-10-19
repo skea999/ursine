@@ -80,7 +80,7 @@ async fn handle_connection(daemon: Arc<Daemon>, stream: UnixStream) -> Result<()
             continue;
         }
         let response = match serde_json::from_str::<ursine_api::Request>(&line) {
-            Ok(req) => daemon.handle(req, &peer),
+            Ok(req) => daemon.handle(req, &peer).await,
             Err(e) => ursine_api::Response::err(
                 None,
                 ursine_api::ApiError::invalid(format!("bad request line: {e}")),

@@ -45,6 +45,19 @@ pub enum Action {
     },
     /// Profile history (generations).
     Generations,
+    /// Roll the profile back to a previous generation (default: previous).
+    Rollback {
+        generation: Option<u32>,
+    },
+    /// Delete old profile generations (destructive). Dry-run supported.
+    WipeHistory {
+        older_than: Option<String>,
+        dry_run: bool,
+    },
+    /// Show what changed between generations (human-readable closure diff).
+    DiffClosures {
+        generation: Option<u32>,
+    },
 
     // -- snapshots (btrbk) --
     /// List btrbk-managed snapshots.
