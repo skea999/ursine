@@ -3,7 +3,7 @@
 Stack: **Rust** (workspace, edition 2021+). Target Alpine Linux / musl. Decisions: `docs/architecture/overview.md`.
 
 - Backend daemon: `ursined` (tokio, unix socket, JSON lines)
-- Desktop GUI: `ursine` (GTK4 + libadwaita via relm4/gtk4-rs — Wayle shell stack family)
+- Desktop GUI: `ursine` (libcosmic — COSMIC toolkit, iced-based Rust UI; decision 2026-10-19: security over visual coherence with the GTK Wayle shell)
 - Web: static assets in `web/`, served by daemon; framework TBD (any JS, zero server logic)
 - Shared crates: `ursine-api` (types), `ursine-core` (modules)
 - Layout (binding): code `src/` (members `src/ursine-api`, `src/ursine-core`, `src/ursined`, `src/ursine`), tests `tests/`, generated `artifacts/` (contents gitignored, folder tracked via `.gitkeep`). **Build output in `artifacts/target`** — `.cargo/config.toml` sets `target-dir`; no `target/` at root. Temp files: `artifacts/<tool-or-task>/` only, never host `/tmp`

@@ -11,7 +11,7 @@ ursined (root daemon, dinit service)          ← all logic, exactly once
 ├─ transport: newline-delimited JSON over unix socket (/run/ursine.sock)
 └─ web: static assets served by the daemon + WebSocket for progress
 
-ursine   (GUI, GTK4/libadwaita via relm4)
+ursine   (GUI, libcosmic / COSMIC toolkit — iced-based, Rust UI)
 ursine-web (static HTML/JS, zero server logic)
 ursine-api  (shared crate: request/response types, Capability, config model)
 ursine-core (shared crate: module implementations)
