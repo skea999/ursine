@@ -1,9 +1,11 @@
-# Ursine CI — fully containerized (rule 9): no rustup/cargo/nix on host runners.
+# Ursine CI — fully containerized (rule 9): no host toolchains on runners.
 #
-# Matrix covers every cargo feature that EXISTS today: default / pam.
-# web+oidc features join the matrix in v3 when they land.
-# alpine:3.22 = FeralOS target branch (match the distro, not latest).
-# Layout reference: docs/specs/SPEC-packaging-infra.md
+# Jobs: test matrix (default/pam) · lint (clippy+fmt) · vet (cargo-vet) ·
+#       audit (RustSec advisories) · sast (Semgrep) · flake (check+build) ·
+#       publish (flake archive artifact) · release (tags).
+#
+# alpine-based `rust:1-alpine` = same musl base as ci/Containerfile.dev.
+# Layout/spec reference: docs/specs/SPEC-packaging-infra.md
 
 name: CI
 
@@ -20,21 +22,22 @@ concurrency:
 permissions:
   contents: write # release upload on tags
 
+env:
+  CARGO_TERM_COLOR: never
+
 jobs:
   # ── Test matrix: one cargo test run per feature combination, musl ──
   test:
     runs-on: ubuntu-latest
     container:
-      image: alpine:3.22
+      image: rust:1-alpine
     strategy:
       fail-fast: false
       matrix:
         features: ["", "pam"]
     name: test (${{ matrix.features || 'default' }})
     steps:
-      - run: apk add --no-cache rust cargo git nodejs # nodejs: JS actions in musl container
-      - run: apk add --no-cache linux-pam-dev # PAM headers for pam jobs
-        if: ${{ matrix.features != '' }}
+      - run: apk add --no-cache git nodejs linux-pam-dev
       - uses: actions/checkout@v4
       - name: Test
         run: |
@@ -48,36 +51,97 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     container:
-      image: alpine:3.22
+      image: rust:1-alpine
     steps:
-      - run: apk add --no-cache rust cargo git nodejs linux-pam-dev
+      - run: apk add --no-cache git nodejs linux-pam-dev
       - run: rustup component add clippy rustfmt
       - uses: actions/checkout@v4
       - run: cargo clippy --workspace --all-features -- -D warnings
       - run: cargo fmt --check
 
-  # ── Nix flake: check + build (musl via pkgsMusl, never glibc) ──
+  # ── Supply-chain vetting (cargo-vet) ──
+  vet:
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1-alpine
+    steps:
+      - run: apk add --no-cache git nodejs
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-vet
+      - run: cargo vet --locked
+
+  # ── Dependency vulnerabilities (RustSec) ──
+  audit:
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1-alpine
+    steps:
+      - run: apk add --no-cache git nodejs
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit
+
+  # ── SAST (Semgrep, Rust ruleset) ──
+  sast:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      # semgrep image ships git; no JS actions needed here.
+      - run: |
+          git clone --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" repo
+          cd repo
+          git fetch --depth 1 origin "$GITHUB_SHA" && git checkout "$GITHUB_SHA"
+      - working-directory: repo
+        run: semgrep scan --config p/rust --error --quiet
+
+  # ── Nix flake: check + build (pkgsMusl, dynamic musl, never glibc) ──
   flake:
     runs-on: ubuntu-latest
     container:
       image: nixos/nix
     steps:
-      - run: nix-env -iA nixpkgs.git nixpkgs.nodejs # git for flake fetch, node for JS actions
+      # git is already in the image (nix-env git conflicts); node for JS actions.
+      - run: nix profile install nixpkgs#nodejs
       - uses: actions/checkout@v4
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: nix --extra-experimental-features "nix-command flakes" flake check
       - run: nix --extra-experimental-features "nix-command flakes" build --out-link artifacts/result
 
-  # ── Release: musl binaries + dinit files on tag ──
-  # Flake itself is published by living in the repo: github:skea999/ursine
+  # ── Publish the flake as a downloadable archive (testable after CI) ──
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    container:
+      image: nixos/nix
+    needs: [flake]
+    steps:
+      - run: nix profile install nixpkgs#nodejs
+      - uses: actions/checkout@v4
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: |
+          mkdir -p artifacts
+          nix --extra-experimental-features "nix-command flakes" \
+            flake archive --to "file:$PWD/artifacts/ursine-flake.tar" -L
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ursine-flake
+          path: artifacts/ursine-flake.tar
+
+  # ── Release: musl binaries + flake archive on tag ──
+  # Flake published by living in the repo: github:skea999/ursine
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     container:
       image: nixos/nix
-    needs: [test, lint, flake]
+    needs: [test, lint, vet, audit, sast, flake]
     steps:
-      - run: nix-env -iA nixpkgs.git nixpkgs.nodejs nixpkgs.gh
+      - run: nix profile install nixpkgs#nodejs nixpkgs.gh
       - uses: actions/checkout@v4
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: |
@@ -85,13 +149,14 @@ jobs:
           mkdir -p artifacts/pkg
           cp artifacts/result/bin/ursined artifacts/result/bin/ursine artifacts/pkg/
           tar czf ursine-${{ github.ref_name }}-x86_64-musl.tar.gz -C artifacts pkg
-      - name: Smoke test (extract + run)
-        run: |
-          apk add --no-cache tar 2>/dev/null || true
-          tar tzf ursine-${{ github.ref_name }}-x86_64-musl.tar.gz
+          nix --extra-experimental-features "nix-command flakes" \
+            flake archive --to "file:$PWD/artifacts/ursine-flake.tar"
+      - name: Verify tarball contents
+        run: tar tzf ursine-${{ github.ref_name }}-x86_64-musl.tar.gz
       - run: |
           gh release create "$GITHUB_REF_NAME" \
             ursine-${{ github.ref_name }}-x86_64-musl.tar.gz \
+            artifacts/ursine-flake.tar \
             --title "$GITHUB_REF_NAME" --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
