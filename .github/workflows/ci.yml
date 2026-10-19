@@ -2,9 +2,14 @@
 #
 # Jobs: test matrix (default/pam) · lint (clippy+fmt) · vet (cargo-vet) ·
 #       audit (RustSec advisories) · sast (Semgrep) · flake (check+build) ·
-#       publish (flake archive artifact) · release (tags).
+#       publish (rolling `latest` release: flake archive + binaries) ·
+#       release (version tags).
 #
-# alpine-based `rust:1-alpine` = same musl base as ci/Containerfile.dev.
+# Notes:
+# - cargo jobs use rust:1-alpine = same musl base as ci/Containerfile.dev.
+# - nix jobs use nixos/nix and avoid JS actions: runner node cannot exec in
+#   that image, so we git-clone manually and use the nix-provided `gh`.
+# - alpine-based image = FeralOS target (musl dynamic, never glibc).
 # Layout/spec reference: docs/specs/SPEC-packaging-infra.md
 
 name: CI
@@ -20,7 +25,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write # release upload on tags
+  contents: write # rolling `latest` + tag releases
 
 env:
   CARGO_TERM_COLOR: never
@@ -105,14 +110,19 @@ jobs:
     container:
       image: nixos/nix
     steps:
-      # git is already in the image (nix-env git conflicts); node for JS actions.
-      - run: nix profile install nixpkgs#nodejs
-      - uses: actions/checkout@v4
-      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - run: nix flake check
-      - run: nix build --out-link artifacts/result
+      - name: Clone (no JS actions in this image)
+        run: |
+          git init repo && cd repo
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout FETCH_HEAD
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/repo"
+      - working-directory: repo
+        run: nix flake check
+      - working-directory: repo
+        run: nix build --out-link artifacts/result
 
-  # ── Publish the flake as a downloadable archive (testable after CI) ──
+  # ── Publish: rolling `latest` release (flake archive + dev binaries) ──
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -120,19 +130,37 @@ jobs:
       image: nixos/nix
     needs: [flake]
     steps:
-      - run: nix profile install nixpkgs#nodejs
-      - uses: actions/checkout@v4
-      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - run: |
-          mkdir -p artifacts
-          nix flake archive --to "file:$PWD/artifacts/ursine-flake.tar" -L
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ursine-flake
-          path: artifacts/ursine-flake.tar
+      - run: nix profile install nixpkgs#gh
+      - name: Clone (no JS actions in this image)
+        run: |
+          git init repo && cd repo
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout FETCH_HEAD
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/repo"
+      - name: Build + package
+        working-directory: repo
+        run: |
+          nix build --out-link artifacts/result
+          mkdir -p artifacts/pkg
+          cp artifacts/result/bin/ursined artifacts/result/bin/ursine artifacts/pkg/
+          tar czf artifacts/ursine-dev-x86_64-musl.tar.gz -C artifacts/pkg .
+          nix flake archive --to "file:$PWD/artifacts/ursine-flake.tar"
+          tar tzf artifacts/ursine-dev-x86_64-musl.tar.gz
+      - name: Publish rolling `latest` release
+        working-directory: repo
+        run: |
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest \
+            artifacts/ursine-dev-x86_64-musl.tar.gz \
+            artifacts/ursine-flake.tar \
+            --title "Development snapshot (latest)" \
+            --notes "Automated musl build from $GITHUB_SHA on $(date -u +%Y-%m-%dT%H:%MZ)" \
+            --prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── Release: musl binaries + flake archive on tag ──
-  # Flake published by living in the repo: github:skea999/ursine
+  # ── Release: musl binaries + flake archive on version tags ──
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -140,21 +168,27 @@ jobs:
       image: nixos/nix
     needs: [test, lint, vet, audit, sast, flake]
     steps:
-      - run: nix profile install nixpkgs#nodejs nixpkgs.gh
-      - uses: actions/checkout@v4
-      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - run: |
+      - run: nix profile install nixpkgs#gh
+      - name: Clone (no JS actions in this image)
+        run: |
+          git init repo && cd repo
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout FETCH_HEAD
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/repo"
+      - name: Build + package
+        working-directory: repo
+        run: |
           nix build --out-link artifacts/result
           mkdir -p artifacts/pkg
           cp artifacts/result/bin/ursined artifacts/result/bin/ursine artifacts/pkg/
-          tar czf ursine-${{ github.ref_name }}-x86_64-musl.tar.gz -C artifacts pkg
+          tar czf "ursine-${GITHUB_REF_NAME}-x86_64-musl.tar.gz" -C artifacts pkg
           nix flake archive --to "file:$PWD/artifacts/ursine-flake.tar"
-      - name: Verify tarball contents
-        run: tar tzf ursine-${{ github.ref_name }}-x86_64-musl.tar.gz
+          tar tzf "ursine-${GITHUB_REF_NAME}-x86_64-musl.tar.gz"
       - run: |
           gh release create "$GITHUB_REF_NAME" \
-            ursine-${{ github.ref_name }}-x86_64-musl.tar.gz \
-            artifacts/ursine-flake.tar \
+            "repo/ursine-${GITHUB_REF_NAME}-x86_64-musl.tar.gz" \
+            repo/artifacts/ursine-flake.tar \
             --title "$GITHUB_REF_NAME" --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
