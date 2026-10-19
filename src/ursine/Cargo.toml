@@ -8,3 +8,10 @@ repository.workspace = true
 
 [dependencies]
 ursine-api.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+# COSMIC toolkit (iced-based Rust UI). Pinned: pre-1.0 git dependency — isolate
+# behind our own UI layer and bump deliberately.
+# https://github.com/pop-os/libcosmic
+libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "430f3d48a97d8779f9c1985473912e594ccca1ae", features = ["wgpu"] }

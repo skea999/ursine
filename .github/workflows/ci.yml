@@ -48,9 +48,9 @@ jobs:
       - name: Test
         run: |
           if [ -z "${{ matrix.features }}" ]; then
-            cargo test --workspace --no-default-features
+            cargo test --workspace --exclude ursine --no-default-features
           else
-            cargo test --workspace --features ${{ matrix.features }}
+            cargo test --workspace --exclude ursine --features ${{ matrix.features }}
           fi
 
   # ── Lint + format gate (all features) ──
@@ -62,8 +62,22 @@ jobs:
       - run: apk add --no-cache git nodejs linux-pam-dev
       - run: rustup component add clippy rustfmt
       - uses: actions/checkout@v4
-      - run: cargo clippy --workspace --all-features -- -D warnings
+      - run: cargo clippy --workspace --exclude ursine --all-features -- -D warnings
       - run: cargo fmt --check
+
+  # ── GUI: libcosmic build on musl (heavy; own job) ──
+  gui:
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1-alpine
+    steps:
+      - run: |
+          apk add --no-cache git nodejs cmake fontconfig-dev freetype-dev \
+            libxkbcommon-dev expat-dev pkgconf
+      - run: rustup component add clippy
+      - uses: actions/checkout@v4
+      - run: cargo build -p ursine
+      - run: cargo clippy -p ursine -- -D warnings
 
   # ── Supply-chain vetting (cargo-vet) ──
   vet:
@@ -129,7 +143,9 @@ jobs:
       image: rust:1-alpine
     needs: [test, lint, vet, audit, sast]
     steps:
-      - run: apk add --no-cache git nodejs linux-pam-dev github-cli tar
+      - run: |
+          apk add --no-cache git nodejs linux-pam-dev github-cli tar \
+            cmake fontconfig-dev freetype-dev libxkbcommon-dev expat-dev pkgconf
       - uses: actions/checkout@v4
       # gh invokes git; container ownership differs from the checkout dir owner.
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"

@@ -40,7 +40,9 @@ has no `(current)` marker -> current generation read from `profile-N-link`;
 
 **GUI stack decision (2026-10-19, same session)**: desktop shell stays **Wayle (GTK4)**; the app moves to **libcosmic** (COSMIC toolkit, iced-based) — security over visual coherence (no GTK/gdk-pixbuf/librsvg in the GUI process). Pinned `libcosmic` rev `430f3d48a97d8779f9c1985473912e594ccca1ae`. Distro already mixes COSMIC apps (cosmic-edit/player) on niri, so mixed design languages accepted. **Web GUI (v3) must also be memory-safe** — stack undecided; Rust→WASM preferred (see `docs/specs/SPEC-web.md`). UX principles remain toolkit-independent.
 
-**Next (v0.3)**: libcosmic spike — add build deps to `ci/Containerfile.dev` (`cmake fontconfig-dev freetype-dev libxkbcommon-dev expat-dev pkgconf`, runtime `mesa`/`vulkan-loader`), empty window + one socket call (`capabilities.list`) on musl; then store screens. Also: dinit service + `/etc/pam.d/ursine` files for packaging.
+**v0.3 SPIKE DONE (2026-10-19)**: libcosmic pinned rev **builds on musl** in the dev container (`cargo build -p ursine`, deps: cmake/fontconfig/freetype/xkbcommon/expat/pkgconf). Minimal window shows daemon status via a real socket round-trip (`capabilities.list` unauthenticated → expected `unauthorized`; `URSINE_SOCKET` env override). `cargo clippy -p ursine -D warnings` + fmt green. CI: new `gui` job (build+clippy); daemon jobs use `--exclude ursine` so they stay fast. Vet re-generated (596 exemptions from the libcosmic tree).
+
+**Next (v0.3 screens)**: login (PAM prompt) → home cards → nix store (list/search/install/remove/GC/generations) → snapshots. Also: dinit service + `/etc/pam.d/ursine` files for packaging.
 
 ## Session 2026-10-16 — INTENT CONFIRMED (NO CODE YET)
 

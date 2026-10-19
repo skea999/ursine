@@ -6,14 +6,16 @@
 ## Current Sprint
 
 ### Todo
-- [ ] v0.3 spike: libcosmic pinned rev builds on musl (add dev deps: cmake, fontconfig-dev, freetype-dev, libxkbcommon-dev, expat-dev, pkgconf) + empty window + one socket call | P0 | agent
-- [ ] v0.3: store GUI (libcosmic): login, home cards, nix store view, snapshots panel | P0 | agent
+- [ ] v0.3: store GUI (libcosmic): login (PAM prompt), home cards, nix store view, snapshots panel | P0 | agent
 - [ ] `dinit/ursined` service file + PAM service `/etc/pam.d/ursine` (auth-only, pam_unix) shipped for packaging | P1 | agent
 - [ ] v0.4 users (accountsservice) + niri editor forms | P1 | agent
 - [ ] v3 (deferred): choose web GUI stack — **must be memory-safe** (Rust→WASM preferred: Leptos/Yew/Dioxus; TypeScript acceptable fallback). See `docs/specs/SPEC-web.md` | P2 | skea999
 
 ### In Progress
 - (empty)
+
+### Done — v0.3 libcosmic spike (2026-10-19)
+- [x] libcosmic pinned rev builds on musl; minimal window + real socket round-trip (`capabilities.list`, unauthenticated → expected `unauthorized`); env `URSINE_SOCKET` override; build deps added to `ci/Containerfile.dev`; CI `gui` job (build + clippy) added; daemon jobs exclude the GUI for speed | P0
 
 ### Done — v0.2 packages.nix (2026-10-19)
 - [x] New-CLI-only nix module: list/add/remove/removeAll/removeRegex/upgrade/upgradeRegex/search/history/rollback/wipe-history/diff-closures + **storeGc** (root, total) + **pruneGenerations** (root exec, keep last N, dry-run with current from symlink); `su -l -s /bin/sh` as target user; strict validation; uid 1000..60000; timeouts; 78 tests green. **Verified against real nix 2.31.5** (list JSON schema, history ANSI/no-current, --regex flags, prune lock semantics) | P0
