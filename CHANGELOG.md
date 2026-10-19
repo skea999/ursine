@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.0] — 2026-10-19
+
+### Added
+- v0.1 skeleton (green): Rust workspace `src/{ursine-api,ursine-core,ursined,ursine}`; protocol types (JSON-lines + Bearer session token), PAM handshake (feature `pam`, dev stub), RAM token store with 10-min sliding TTL, per-uid rate limiting, JSONL audit, unix socket server (0666, peer creds), module dispatch with capability gating; 55 tests; e2e smoke verified.
+- `flake.nix` (pkgsMusl dynamic musl, x86_64, `pam` feature) + lock; eval validated in nixos/nix container.
+- `.github/workflows/ci.yml` ACTIVE: containerized test matrix (default/pam), clippy/fmt gate, nixos/nix flake check/build, release-on-tag.
+- `ci/Containerfile.dev` dev image; dynamic musl build config (`-crt-static` off — static musl cannot link libpam).
+
 All notable changes to Ursine. Format: Keep a Changelog, semver.
 
 ## [Unreleased] — 2026-10-16

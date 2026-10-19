@@ -6,21 +6,21 @@ Everything that makes Ursine buildable, testable, releasable and packagable — 
 
 ## Tech Stack
 
-- Nix flake: `pkgsMusl`/`pkgsStatic` (x86_64-linux musl static) — NEVER the default glibc stdenv
-- **CI fully containerized (binding)**: every job runs inside a Docker container on GitHub-hosted runners — NO build toolchain installed on the host:
-  - cargo jobs: `container: alpine:3.22` + `apk add rust cargo git nodejs` (`nodejs` required so JS actions like checkout run inside the musl container); `linux-pam-dev` added only for `pam` matrix jobs
+- Nix flake: `pkgsMusl` (x86_64-linux, DYNAMIC musl — Alpine-style) — NEVER the default glibc stdenv. `pkgsStatic` is impossible: static musl cannot link libpam.so.
+- **CI fully containerized (binding)**: every job runs inside a container on GitHub-hosted runners — NO build toolchain installed on the host:
+  - cargo jobs: `container: alpine:3.22` (FeralOS target branch) + `apk add rust cargo git nodejs` (`nodejs` required so JS actions like checkout run inside the musl container); `linux-pam-dev` added only for `pam` matrix jobs
   - flake/release jobs: `container: nixos/nix` (git present / `nix-env -iA nixpkgs.git` if missing) — nix itself runs INSIDE the container
 - Local dev mirrors CI exactly: `podman run (or docker) --rm -it -v "$PWD:/work" -w /work rust:alpine …`
 - Packaging: APKBUILDs in `skea999/feralos-aports` (out of this repo — dinit service + config example shipped here in `dinit/` for the APKBUILD to install)
 
 ## CI workflow (`.github/workflows/ci.yml`)
 
-1. `test` (matrix over cargo features that EXIST: `default`, `pam`, `full`; web/oidc enter the matrix when their features land in v3):
+1. `test` (matrix over cargo features that EXIST: `default`, `pam`; `full` returns when web/oidc land in v3):
    - **Docker**: `alpine:3.22` container
    - `apk add rust cargo git nodejs` (+ `linux-pam-dev` on pam jobs)
    - `cargo test --workspace --no-default-features` / `--features pam` / `--features full`
    - gate: `cargo clippy --workspace --all-features -- -D warnings` + `cargo fmt --check`
-2. `flake`: **Docker**: `nixos/nix` container → `nix flake check` + `nix build --out-link artifacts/result` on push/PR (out-link rule: nothing but source files ever appears at repo root)
+2. `flake`: **container** `nixos/nix` → `nix flake check` + `nix build --out-link artifacts/result` on push/PR (out-link rule: nothing but source files ever appears at repo root)
 3. `release` (tags only): same `nixos/nix` container builds musl binaries → attach to GitHub Release (ursined, ursine + dinit files); flake published by existing in repo → `github:skea999/ursine`
 4. NO job installs rustup/cargo/nix on the host runner; actions that need node work because containers provide `nodejs` (alpine) or ship it (nix image)
 
@@ -32,7 +32,7 @@ docker run --rm -it -v "$PWD:/work" -w /work rust:alpine cargo test --workspace
 docker run --rm -it -v "$PWD:/work" -w /work rust:alpine sh -c "apk add linux-pam-dev && cargo build -p ursined --features pam"
 
 # nix
-nix build --out-link artifacts/result   # both binaries, musl static; symlink in artifacts/
+nix build --out-link artifacts/result   # both binaries, dynamic musl; symlink in artifacts/
 nix flake check
 ```
 
@@ -42,7 +42,8 @@ nix flake check
 flake.nix                  musl static: ursined + ursine
 flake.lock
 .github/workflows/ci.yml   test matrix + flake + release (written, COMMENTED until v0.1)
-.cargo/config.toml         target-dir = "artifacts/target" (no target/ at root)
+.cargo/config.toml         target-dir = "artifacts/target" + musl dynamic (-crt-static off)
+ci/Containerfile.dev       dev/CI image: rust:1-alpine + linux-pam-dev + clippy/rustfmt
 scripts/clean-artifacts.sh keep LAST 3 nix out-links + nix-collect-garbage (-d); --all = + cargo clean
 dinit/
 ├─ ursined                 system service (depend on: dbus; respawn)
@@ -76,7 +77,7 @@ Run `scripts/clean-artifacts.sh` after builds or whenever disk is tight
 
 ## Success Criteria
 
-- Push → green CI: every job ran inside a container (alpine for cargo, nixos/nix for flake), matrix (default/pam/full) on musl + flake check/build
+- Push → green CI: every job ran inside a container (alpine for cargo, nixos/nix for flake), matrix (default/pam) on musl + flake check/build
 - Tag → GitHub Release with musl static binaries + dinit files
 - A dev machine with only Docker can build and test everything
 - `nix run github:skea999/ursine#ursined -- --version` works on any nix-enabled musl host

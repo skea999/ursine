@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "src/ursine-api",
+    "src/ursine-core",
+    "src/ursined",
+    "src/ursine",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "ISC"
+authors = ["skea999 <sket999@disroot.org>"]
+repository = "https://github.com/skea999/ursine"
+
+[workspace.dependencies]
+ursine-api = { path = "src/ursine-api" }
+ursine-core = { path = "src/ursine-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+toml = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+getrandom = "0.2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

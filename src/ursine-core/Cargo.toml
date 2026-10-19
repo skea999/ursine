@@ -1,0 +1,23 @@
+[package]
+name = "ursine-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+ursine-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+getrandom.workspace = true
+# Real PAM on FeralOS builds; dev builds use the stub authenticator.
+pam = { version = "0.7", optional = true }
+
+[features]
+default = []
+pam = ["dep:pam"]

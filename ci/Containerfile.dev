@@ -1,0 +1,13 @@
+# Ursine dev/CI container image (musl).
+# Usage:
+#   podman build -t ursine-ci:1 -f ci/Containerfile.dev .
+#   podman run --rm --network=host -v "$PWD:/work" -w /work \
+#     -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 cargo test --workspace
+#
+# Mirrors the GitHub CI matrix environment (alpine + rust) with clippy/rustfmt
+# and PAM headers preinstalled so feature builds work offline of apk.
+FROM rust:1-alpine
+
+RUN apk add --no-cache linux-pam-dev git nodejs \
+    && rustup component add clippy rustfmt \
+    && rm -rf /var/cache/apk/*

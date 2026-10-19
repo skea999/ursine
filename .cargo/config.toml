@@ -1,5 +1,11 @@
 # Workspace build configuration.
 # All build output goes to artifacts/ (gitignored contents, folder tracked
-# via .gitkeep) — per skea999: builds never go to target/.
+# via .gitkeep) — builds never go to target/.
 [build]
 target-dir = "artifacts/target"
+
+# FeralOS/Alpine style: dynamic musl binaries (crt-static off).
+# Static musl cannot link dynamic system libs (libpam.so) — and Alpine's whole
+# userland is dynamic musl anyway. This makes -lpam/-lpam_misc resolve.
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=-crt-static"]

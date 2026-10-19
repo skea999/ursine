@@ -44,11 +44,17 @@ State: `state/session-state.json`.
 
 ## Stack commands
 
+No host toolchain. Run everything in the dev image (see getting-started):
+
 ```bash
-cargo build --workspace          # build
-cargo test --workspace           # test
-cargo clippy --workspace -- -D warnings   # lint (CI gate)
-cargo fmt --check                # format check
+podman build -t ursine-ci:1 -f ci/Containerfile.dev .   # once
+podman run --rm --network=host -v "$PWD:/work" -w /work \
+  -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 cargo build --workspace
+podman run --rm --network=host -v "$PWD:/work" -w /work \
+  -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 cargo test --workspace --all-features
+podman run --rm --network=host -v "$PWD:/work" -w /work \
+  -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 sh -c \
+  "cargo clippy --workspace --all-features -- -D warnings && cargo fmt --check"
 ```
 
 `pam` = cargo feature (no libpam headers on dev machine). Dev: `cargo build` (stub auth). Release/FeralOS: `cargo build --features pam`.

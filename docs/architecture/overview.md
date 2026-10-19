@@ -103,8 +103,8 @@ docker run --rm -it -v "$PWD:/work" -w /work rust:alpine sh     # interactive sh
 
 GitHub CI (`.github/workflows/ci.yml`, to be created at v0.1) — **all jobs in Docker containers, no toolchain on the host**:
 
-1. **test matrix, musl**: `alpine:3.22` container (`apk add rust cargo git nodejs`; `linux-pam-dev` only on pam jobs); `cargo test` runs once per cargo feature combination — no default, `pam`, `full` — so every existing feature is tested (test per ogni funzionalità). Clippy + fmt gate on the full set. (`nodejs` in-container so JS actions work on musl.)
-2. **nix flake**: `nixos/nix` **container** → `nix flake check` + `nix build` on every push. `flake.nix` at repo root builds both binaries statically on musl (`pkgsMusl`/`pkgsStatic` — never the default glibc stdenv).
+1. **test matrix, musl**: `alpine:3.22` container (FeralOS target; `apk add rust cargo git nodejs`; `linux-pam-dev` only on pam jobs); `cargo test` runs once per cargo feature combination that exists — default, `pam` (`full` when web/oidc land in v3). Clippy + fmt gate on all features. (`nodejs` in-container so JS actions work on musl.)
+2. **nix flake**: `nixos/nix` **container** → `nix flake check` + `nix build --out-link artifacts/result` on every push. `flake.nix` at repo root builds both binaries on **dynamic musl** via `pkgsMusl` (never glibc; static musl cannot link libpam.so).
 3. **publish**: on tag, same `nixos/nix` container builds musl binaries and CI attaches them to a GitHub Release; the flake itself is "published" by living in the repo (`github:skea999/ursine`).
 
 ## Module inventory (v1)

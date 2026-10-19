@@ -1,94 +1,97 @@
-## Ursine CI — fully containerized (rule 9): no rustup/cargo/nix on host runners.
-##
-## ⚠️ DISABLED UNTIL v0.1 SKELETON LANDS (no Cargo workspace / flake.nix yet).
-##    To activate: remove the leading "# " (single hash + space) on every line.
-##    The "##" header above stays commented. Matrix covers every cargo feature
-##    that EXISTS: default / pam / full. web+oidc join the matrix in v3.
-## Layout reference: docs/specs/SPEC-packaging-infra.md
+# Ursine CI — fully containerized (rule 9): no rustup/cargo/nix on host runners.
+#
+# Matrix covers every cargo feature that EXISTS today: default / pam.
+# web+oidc features join the matrix in v3 when they land.
+# alpine:3.22 = FeralOS target branch (match the distro, not latest).
+# Layout reference: docs/specs/SPEC-packaging-infra.md
 
-# name: CI
-#
-# on:
-#   push:
-#     branches: [main, develop]
-#     tags: ["v*"]
-#   pull_request:
-#
-# concurrency:
-#   group: ${{ github.workflow }}-${{ github.ref }}
-#   cancel-in-progress: true
-#
-# permissions:
-#   contents: write        # release upload on tags
-#
-# jobs:
-#   # ── Test matrix: one cargo test run per feature combination, musl ──
-#   test:
-#     runs-on: ubuntu-latest
-#     container:
-#       image: alpine:3.22
-#     strategy:
-#       fail-fast: false
-#       matrix:
-#         features: ["", "pam", "full"]
-#     name: test (${{ matrix.features }})
-#     steps:
-#       - run: apk add --no-cache rust cargo git nodejs   # nodejs: JS actions in musl container
-#       - run: apk add --no-cache linux-pam-dev           # PAM headers (pam jobs only)
-#         if: ${{ matrix.features != '' }}
-#       - uses: actions/checkout@v4
-#       - name: Test
-#         run: |
-#           if [ -z "${{ matrix.features }}" ]; then
-#             cargo test --workspace --no-default-features
-#           else
-#             cargo test --workspace --features ${{ matrix.features }}
-#           fi
-#
-#   # ── Lint + format gate (full feature set) ──
-#   lint:
-#     runs-on: ubuntu-latest
-#     container:
-#       image: alpine:3.22
-#     steps:
-#       - run: apk add --no-cache rust cargo git nodejs
-#       - uses: actions/checkout@v4
-#       - run: cargo clippy --workspace --all-features -- -D warnings
-#       - run: cargo fmt --check
-#
-#   # ── Nix flake: check + build (musl static via pkgsMusl/pkgsStatic) ──
-#   flake:
-#     runs-on: ubuntu-latest
-#     container:
-#       image: nixos/nix
-#     steps:
-#       - run: nix-env -iA nixpkgs.git nixpkgs.nodejs   # git for flake fetch, node for JS actions
-#       - uses: actions/checkout@v4
-#       - run: nix --extra-experimental-features "nix-command flakes" flake check
-#       - run: nix --extra-experimental-features "nix-command flakes" build --out-link artifacts/result
-#
-#   # ── Release: musl static binaries + dinit files on tag ──
-#   # Flake itself is published by living in the repo: github:skea999/ursine
-#   release:
-#     if: startsWith(github.ref, 'refs/tags/v')
-#     runs-on: ubuntu-latest
-#     container:
-#       image: nixos/nix
-#     needs: [test, lint, flake]
-#     steps:
-#       - run: nix-env -iA nixpkgs.git nixpkgs.nodejs nixpkgs.gh
-#       - uses: actions/checkout@v4
-#       - run: |
-#           nix --extra-experimental-features "nix-command flakes" build --out-link artifacts/result
-#           mkdir -p artifacts/pkg
-#           cp artifacts/result/bin/ursined artifacts/result/bin/ursine artifacts/pkg/
-#           cp -r dinit artifacts/pkg/
-#           tar czf ursine-${{ github.ref_name }}-x86_64-musl.tar.gz -C artifacts pkg
-#       - name: Smoke test (extract + run in fresh Alpine)
-#         run: echo "smoke test placeholder — see SPEC-packaging-infra"
-#       - run: |
-#           gh release create "$GITHUB_REF_NAME" \
-#             ursine-${{ github.ref_name }}-x86_64-musl.tar.gz \
-#             --title "$GITHUB_REF_NAME" --generate-notes
-#         env:
-#           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ["v*"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # release upload on tags
+
+jobs:
+  # ── Test matrix: one cargo test run per feature combination, musl ──
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:3.22
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["", "pam"]
+    name: test (${{ matrix.features || 'default' }})
+    steps:
+      - run: apk add --no-cache rust cargo git nodejs # nodejs: JS actions in musl container
+      - run: apk add --no-cache linux-pam-dev # PAM headers for pam jobs
+        if: ${{ matrix.features != '' }}
+      - uses: actions/checkout@v4
+      - name: Test
+        run: |
+          if [ -z "${{ matrix.features }}" ]; then
+            cargo test --workspace --no-default-features
+          else
+            cargo test --workspace --features ${{ matrix.features }}
+          fi
+
+  # ── Lint + format gate (all features) ──
+  lint:
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:3.22
+    steps:
+      - run: apk add --no-cache rust cargo git nodejs linux-pam-dev
+      - run: rustup component add clippy rustfmt
+      - uses: actions/checkout@v4
+      - run: cargo clippy --workspace --all-features -- -D warnings
+      - run: cargo fmt --check
+
+  # ── Nix flake: check + build (musl via pkgsMusl, never glibc) ──
+  flake:
+    runs-on: ubuntu-latest
+    container:
+      image: nixos/nix
+    steps:
+      - run: nix-env -iA nixpkgs.git nixpkgs.nodejs # git for flake fetch, node for JS actions
+      - uses: actions/checkout@v4
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: nix --extra-experimental-features "nix-command flakes" flake check
+      - run: nix --extra-experimental-features "nix-command flakes" build --out-link artifacts/result
+
+  # ── Release: musl binaries + dinit files on tag ──
+  # Flake itself is published by living in the repo: github:skea999/ursine
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    container:
+      image: nixos/nix
+    needs: [test, lint, flake]
+    steps:
+      - run: nix-env -iA nixpkgs.git nixpkgs.nodejs nixpkgs.gh
+      - uses: actions/checkout@v4
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: |
+          nix --extra-experimental-features "nix-command flakes" build --out-link artifacts/result
+          mkdir -p artifacts/pkg
+          cp artifacts/result/bin/ursined artifacts/result/bin/ursine artifacts/pkg/
+          tar czf ursine-${{ github.ref_name }}-x86_64-musl.tar.gz -C artifacts pkg
+      - name: Smoke test (extract + run)
+        run: |
+          apk add --no-cache tar 2>/dev/null || true
+          tar tzf ursine-${{ github.ref_name }}-x86_64-musl.tar.gz
+      - run: |
+          gh release create "$GITHUB_REF_NAME" \
+            ursine-${{ github.ref_name }}-x86_64-musl.tar.gz \
+            --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

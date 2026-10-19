@@ -2,18 +2,16 @@
   "goal": "Ursine — FeralOS complete control center (Webmin-style): root daemon + GTK4 GUI (v1), full module coverage (v2), OIDC+web (v3), Incus UI (v4), ZFS+Pirateus (v5), multi-distro (v6). Intent source of truth: docs/intent/ursine.md.",
   "status": "planning-complete",
   "active_goals": [
-    "Intent CONFIRMED by skea999 2026-10-16, saved to docs/intent/ursine.md (version plan v1-v6, UI principles).",
-    "Next: v0.1 skeleton (see docs/TASKS.md and handoff/latest.md)."
+    "v0.1 SKELETON COMPLETE & GREEN: workspace (4 crates, layout src/), ursine-api 27 tests, ursine-core 28 tests, daemon e2e smoke (auth/token/status/caps/audit/shutdown), flake.nix evaluates, CI active (alpine 3.22 matrix + nixos/nix flake).",
+    "NEXT: commit + push, then v0.2 packages.nix module (nix profile list/install/remove/search as asUser)."
   ],
   "next_actions": [
-    "Create flake.nix (musl static, pkgsMusl/pkgsStatic) + .github/workflows/ci.yml: cargo test matrix per feature (default/pam/web/oidc/full) in Alpine container, clippy+fmt gate, nix flake check + nix build, Release artifacts on tag.",
-    "Install rustup (dev machine has no rustc/cargo).",
-    "Init cargo workspace: crates/ursine-api, crates/ursine-core, bins/ursined, bins/ursine, web/; remove template src/.",
-    "ursine-api: serde types (JSON-lines envelope, ModuleId, Capability, TriState, Error, Principal, asUser).",
-    "ursined skeleton: config load, capabilities scan, unix socket + peer creds, PAM handshake (cargo feature pam, stub on dev — libpam headers missing), JSONL audit, dispatch returning NotImplemented.",
-    "Tests: serde roundtrip, tri-state config, capabilities scan.",
-    "Clean template leftovers: src/ dirs, package.json scripts, ROADMAP.md.",
-    "Create sgconfig.yml (ast-grep custom rules) when Rust scanning starts."
+    "Commit skeleton (conventional msg). Push: ask skea999.",
+    "v0.2: packages.nix module (exec asUser via su -l, JSON parsers on fixtures, progress events).",
+    "v0.3: store GUI (relm4). v0.4: users + niri. Then v1.0 packaging in feralos-aports.",
+    "Add PAM service file /etc/pam.d/ursine to packaging (feralos-aports) — auth-only (pam_unix).",
+    "Add dinit service file dinit/ursined to repo + packaging.",
+    "Optional: promote agent fixes (hidden/no-model/quote) to skea-store template (15 files differ)."
   ],
   "key_decisions": [
     "No polkit: PAM handshake per session (daemon-side, service ursine, wheel check) then RAM-only Bearer session token. Web moves to OIDC later without API changes.",
@@ -32,7 +30,9 @@
     "GUI adopts RELM4 (option B, skea999): gtk4-rs+libadwaita via relm4 Elm-style components — less boilerplate, SPEC-gui corrected. Skills installed via npx skills add (+ skills-lock.json): apollographql/skills@rust-best-practices, wshobson/agents@rust-async-patterns, victorzhuk/skills@z-rust-gtk4, gotar/opencode-config@gtk-ui-ux-engineer. Skills updated (npx skills update) + agents-opencode harness updated.",
     "HARDENING POLICIES merged from template state (skea999): dedup/security/dependency checks also containerized; project root mounted READ-ONLY in containers (only artifacts/ writable); temp files only artifacts/<tool-or-task>/, never host /tmp; keep last 3 artifact versions per subfolder; changelog convention (CHANGELOG.md only); agents flat in .opencode/agents/ (re-promote after installer runs); context-mode global plugin (never mcp.context-mode); ast-grep host-apk + global skills, per-project rules via sgconfig.yml.",
     "Container runtime = PODMAN (host has podman 5.8.8, no docker). Scripts auto-detect (CONTAINER_RUNTIME env, podman, docker). .opencode-agents-version gitignored (root stays clean); .opencode/package.json+lock stay tracked (ignore lines dropped).",
-    "Workflow aligned to updated harness: complex chain = @orchestrator→@planner→@codebase→Pattern 8 Pre-Commit Review Gate (Tier 1 cargo build/test/clippy/fmt → Tier 2 @review lens briefs requirements|code|security|ux-responsive, max 2 cycles)→@debugger→@docs; skill-chain per simple tasks; all 18 referenced skills verified present in .agents/skills/. READY TO WRITE CODE (pending spec approval + go signal)."
+    "Workflow aligned to updated harness: complex chain = @orchestrator→@planner→@codebase→Pattern 8 Pre-Commit Review Gate (Tier 1 cargo build/test/clippy/fmt → Tier 2 @review lens briefs requirements|code|security|ux-responsive, max 2 cycles)→@debugger→@docs; skill-chain per simple tasks; all 18 referenced skills verified present in .agents/skills/. READY TO WRITE CODE (pending spec approval + go signal).",
+    "Build: dynamic musl (crt-static off) via .cargo/config.toml — static musl cannot link libpam.so; Alpine-style dynamic musl. Nix flake uses pkgsMusl (NOT pkgsStatic). Dev/CI image: ci/Containerfile.dev (rust:1-alpine + linux-pam-dev + clippy/rustfmt). pam crate pinned to 0.7 (pam-sys 0.5 pregenerated bindings; 0.8 pulls bindgen/clang).",
+    "CI ACTIVE: .github/workflows/ci.yml uncommented; matrix default/pam; alpine:3.22 (FeralOS target); nixos/nix container for flake check/build; release on tags attaches musl binaries."
   ],
   "risks": [
     "Root-access software: auth bugs are critical. Small auth surface, audit every action, short token TTL.",
@@ -42,6 +42,7 @@
     ".opencode/package.json + package-lock.json tracked while .opencode/.gitignore ignores them — decide: git rm --cached or drop ignore lines.",
     ".opencode-agents-version marker (2.6.0) untracked at root — decide: track or gitignore.",
     "After every 'npx agents-opencode --update': manifest may regenerate researcher.md and clobber the updated version — restore via git checkout if diff shows changes.",
-    "Agent fixes diverge from template: hidden:true on 15 subagents + quoted description in code-reviewer.md + no model overrides in opencode.json. After 'npx agents-opencode --update' or next template sync these may be clobbered — re-apply (or promote the fix upstream to skea-store)."
+    "Agent fixes diverge from template: hidden:true on 15 subagents + quoted description in code-reviewer.md + no model overrides in opencode.json. After 'npx agents-opencode --update' or next template sync these may be clobbered — re-apply (or promote the fix upstream to skea-store).",
+    "Nix build not yet executed locally (eval green); first CI run will be the real build validation. Flake.lock tracked; src needs git-tracked files (nix sees only tracked files)."
   ]
 }

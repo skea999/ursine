@@ -10,15 +10,28 @@
 
 Container runtime: **podman** on this machine (docker works identically — same commands).
 
-Preferred: NO local toolchain — build in containers with Alpine (musl, same as CI and FeralOS):
+Preferred: NO local toolchain — build in the dev image (Alpine/musl, same as CI and FeralOS):
 
 ```bash
-docker run --rm -it -v "$PWD:/work" -w /work rust:alpine cargo build --workspace
-docker run --rm -it -v "$PWD:/work" -w /work rust:alpine sh   # shell inside
+# one-time: build the dev image (rust + linux-pam-dev + clippy/rustfmt)
+podman build -t ursine-ci:1 -f ci/Containerfile.dev .
 
-# with PAM (feature build):
-docker run --rm -it -v "$PWD:/work" -w /work rust:alpine sh -c \
-  "apk add --no-cache linux-pam-dev && cargo build -p ursined --features pam"
+# build / test / lint (network=host: pasta cannot set up tap on this host)
+podman run --rm --network=host -v "$PWD:/work" -w /work \
+  -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 cargo build --workspace
+
+podman run --rm --network=host -v "$PWD:/work" -w /work \
+  -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 cargo test --workspace --all-features
+
+podman run --rm --network=host -v "$PWD:/work" -w /work \
+  -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 sh -c \
+  "cargo clippy --workspace --all-features -- -D warnings && cargo fmt --check"
+```
+
+Binaries land in `artifacts/target/debug/`. Run the daemon against a test config:
+
+```bash
+artifacts/target/debug/ursined --config artifacts/ursine-dev/config.toml
 ```
 
 Optional native toolchain (if you want cargo on the host):

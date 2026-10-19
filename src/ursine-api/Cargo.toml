@@ -1,0 +1,20 @@
+[package]
+name = "ursine-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+toml.workspace = true
+
+# Integration surface lives in the repo-root tests/ tree (layout rule).
+[[test]]
+name = "protocol_roundtrip"
+path = "../../tests/ursine-api/roundtrip.rs"

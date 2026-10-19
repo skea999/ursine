@@ -1,47 +1,49 @@
 # Tasks — Ursine
 
-**Milestone**: v0.1 — Skeleton
-**Updated**: 2026-10-16
+**Milestone**: v0.1 — Skeleton (DONE) → v0.2 packages.nix
+**Updated**: 2026-10-19
 
 ## Current Sprint
 
 ### Todo
-- [ ] AWAITING SPEC APPROVAL — no development until skea999 says so | P0 | skea999
-- [ ] Init cargo workspace: `src/ursine-api`, `src/ursine-core`, `src/ursined`, `src/ursine`, `web/`; remove template `src/` subdirs | P0 | agent
-- [ ] ursine-api: serde types (JSON-lines envelope, ModuleId, Capability, TriState, Error, Principal, asUser) | P0 | agent
-- [ ] ursined skeleton: config load, capabilities scan, unix socket + peer creds, PAM handshake (feature `pam`, stub on dev), JSONL audit, dispatch NotImplemented | P0 | agent
-- [x] CI `.github/workflows/ci.yml` written — **fully commented out until v0.1 skeleton** (test matrix per cargo feature in alpine container, clippy+fmt gate, `nixos/nix` container: flake check/build + Release publish on tag) | P0 | agent — 2026-10-16
-- [ ] Activate ci.yml (uncomment) together with workspace + flake.nix | P0 | agent
-- [ ] flake.nix: build ursined + ursine statically on musl (pkgsMusl/pkgsStatic), x86_64 only | P0 | agent
-- [ ] Tests: serde roundtrip, tri-state config defaults, capabilities scan units | P1 | agent
-- [ ] Clean template leftovers: template `src/` subdirs, `skills-lock.json` decision | P2 | agent
+- [ ] v0.2: packages.nix module — `nix profile list/install/remove/upgrade/search` executed as `asUser`, JSON parsers on committed fixtures, progress events | P0 | agent
+- [ ] `dinit/ursined` service file + PAM service `/etc/pam.d/ursine` (auth-only, pam_unix) shipped for packaging | P1 | agent
+- [ ] v0.3 store GUI (relm4): login, home cards, nix store, snapshots panel | P0 | agent
+- [ ] v0.4 users (accountsservice) + niri editor forms | P1 | agent
 
 ### In Progress
 - (empty)
 
-### Done
-- [x] Naming locked: ursined / ursine / ursine-api / ursine-core / web | P0 | skea999 — 2026-10-16
-- [x] Architecture agreed (auth no-polkit/PAM/token, stateless no-DB, capabilities, asUser) | P0 | skea999 — 2026-10-16, see docs/architecture/overview.md
-- [x] PROJECT.md, CONTEXT.md, ROADMAP.md, handoff, session-state compiled | P0 | agent — 2026-10-16
-- [x] Harness fully aligned: hidden subagents (16/23), no model overrides, valid frontmatters, orchestrator can dispatch all agents, podman runtime, host isolation + temp-file + retention policies, .opencode-agents-version gitignored | P0 | agent — 2026-10-16
-- [x] Workflow updated to the new chains (Pattern 8 review gate with lens briefs, skill-chain with decision-grounding/code-change-impact/adr; 18/18 referenced skills verified present) | P0 | agent — 2026-10-16
+### Done — v0.1 skeleton (2026-10-19)
+- [x] Cargo workspace `src/{ursine-api,ursine-core,ursined,ursine}`; template `src/` subdirs removed | P0
+- [x] `ursine-api`: envelope with Bearer token, ModuleId, full Action surface, Principal/AsUser, SessionToken (redacted Debug), Capability::ALL, TriState serde, UrsineConfig | P0
+- [x] `ursine-core`: config (load/render/write atomic), capability Registry + `ensure_available`, auth trait + stub + PAM (feature), TokenStore (10 min sliding TTL), RateLimiter, JSONL audit, unix socket (std peer creds, 0666), dispatch (auth → wheel check → token → modules) | P0
+- [x] `ursined`: arg parsing, tracing, graceful SIGTERM/SIGINT, stub/PAM authenticator switch | P0
+- [x] Tests: **55 green** (21 api unit + 6 api integration via root `tests/ursine-api/` + 28 core unit) | P0
+- [x] Clippy `-D warnings` + `cargo fmt --check` green, including `--all-features` (pam) | P0
+- [x] E2E smoke in container: auth → 64-char token → system.status → capabilities.list (6) → bad token rejected → audit JSONL (3 lines) → clean shutdown; binary dynamic musl (`ldd`) | P0
+- [x] `flake.nix` (pkgsMusl, dynamic musl, x86_64, feature pam) + `flake.lock`; `nix flake show` evaluates green (full build runs in CI) | P0
+- [x] `.github/workflows/ci.yml` ACTIVE: matrix default/pam in alpine:3.22, clippy+fmt gate, nixos/nix flake check/build, release-on-tag | P0
+- [x] `ci/Containerfile.dev` dev image (rust:1-alpine + linux-pam-dev + clippy/rustfmt); all local builds containerized (podman, `--network=host`) | P0
+- [x] Dynamic musl decision: `.cargo/config.toml` `-crt-static` off (static musl cannot link libpam.so; Alpine-style) | P0
+
+### Done — planning (2026-10-16)
+- [x] Naming, architecture, intent v1-v6, capability map, 9 module specs
+- [x] Harness aligned (agents hidden, models removed, workflow Pattern 8, host isolation rules)
 
 ## Backlog
-- packages.nix module (v0.2 flagship) | P0
-- packages.apk, packages.flatpak | P0/P1
-- snapshots module (manual + pre-update auto) | P1
-- users module (accountsservice D-Bus) | P1
-- niri config.kdl editor + `niri validate` | P2
-- web static frontend + PAM login | P2
-- OIDC token issuance path | P2
-- APKBUILDs in feralos-aports | P2 (v1.0)
+- packages.nix (v0.2) → apk + flatpak (v2)
+- snapshots: btrbk read-write config (subvolumes + scheduler), restore flow
+- web + OIDC (v3), Incus UI (v4), ZFS+Pirateus (v5), multi-distro (v6)
+- APKBUILDs in feralos-aports (v1.0)
 
 ## Known Issues
 | Issue | Status | Workaround |
 |-------|--------|------------|
-| Dev machine: no rustc/cargo | open | Docker `rust:alpine` for builds (see getting-started) |
-| Dev machine: no libpam headers | open | `pam` behind cargo feature; stub auth in dev builds |
-| `.agents/`, `.opencode/`, `.githooks/` were missing from initial copy | resolved | harness re-aligned from `/home/gab/projects/skea-store` (2026-10-16) |
+| Nix flake full build never run locally (eval only) | open | first CI run validates; CI flake job is the gate |
+| PAM real auth path untested (no libpam on dev host; stub only) | open | test on FeralOS with `/etc/pam.d/ursine`; CI compiles the feature |
+| `.opencode/package.json` + lock tracked while `.opencode/.gitignore` exists | resolved | ignore lines dropped; files tracked intentionally |
+| Agent fixes (hidden/quote/no-model) diverge from skea-store template | open | promote upstream when skea999 decides |
 
 ---
 
