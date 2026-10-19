@@ -108,19 +108,14 @@ All code under `src/`, all tests under `tests/`, build output + generated files 
 src/ursine-api       shared protocol/config types (serde)
 src/ursine-core      module implementations (apk, flatpak, nix, pam, btrfs, caps)
 src/ursined          root daemon (dinit service)
-src/ursine           GTK4/libadwaita GUI
+src/ursine           libcosmic GUI (COSMIC toolkit, iced-based)
 tests/               integration tests (per area)
 artifacts/           build output (artifacts/target via .cargo/config.toml) + generated files
 ```
 
 There is NO `target/` directory — `.cargo/config.toml` sets `target-dir = "artifacts/target"`, so every cargo command (any crate, any container) writes under `artifacts/`.
-src/ursine-api       shared protocol/config types (serde)
-src/ursine-core      module implementations (apk, flatpak, nix, pam, btrfs, caps)
-src/ursined          root daemon (dinit service)
-src/ursine           GTK4/libadwaita GUI
-tests/               integration tests (per area)
-artifacts/           generated output (gitignored)
-```
+
+Build deps for the GUI (libcosmic): `cmake`, `fontconfig-dev`, `freetype-dev`, `libxkbcommon-dev`, `expat-dev`, `pkgconf`; runtime: Mesa (GL/Vulkan) + `fontconfig`/`freetype`.
 
 ## Workflow
 

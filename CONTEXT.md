@@ -11,7 +11,7 @@ The root process, dinit service, owner of ALL logic. Frontends are thin clients.
 _Avoid_: server, backend service, helper
 
 **Frontend**:
-GUI (`ursine`, GTK4/libadwaita) or web (`ursine-web`, static assets). No logic, no policy decisions.
+GUI (`ursine`, libcosmic — COSMIC toolkit, Rust UI) or web (`ursine-web`, v3, memory-safe stack). No logic, no policy decisions.
 _Avoid_: client app, app (ambiguous)
 
 **Module**:

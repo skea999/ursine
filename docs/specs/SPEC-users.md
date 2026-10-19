@@ -2,7 +2,7 @@
 
 ## Objective
 
-Users and group management via the accountsservice D-Bus API (`org.freedesktop.Accounts`) — already present on every FeralOS install (greetd/regreet). Ursine replaces the need for gnome-control-center's user panel with a lightweight libadwaita panel backed by the same daemon API.
+Users and group management via the accountsservice D-Bus API (`org.freedesktop.Accounts`) — already present on every FeralOS install (greetd/regreet). Ursine replaces the need for gnome-control-center's user panel with a lightweight libcosmic panel backed by the same daemon API.
 
 ## Tech Stack
 

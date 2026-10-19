@@ -5,7 +5,7 @@
 
 ## Vision
 
-The control center of FeralOS — Webmin-style, complete: one root daemon (`ursined`) with a unified API over every system area (packages: nix/apk/flatpak, users, snapshots, niri, printers, scanners, bluetooth, network, firewall, disks, later Incus/ZFS/Pirateus, later other distros), with interchangeable frontends: native GTK4 GUI first, web + OIDC in v3, Incus UI v4, ZFS+Pirateus v5, multi-distro v6. Modules self-disable via runtime capability detection. Confirmed intent: `docs/intent/ursine.md` (source of truth).
+The control center of FeralOS — Webmin-style, complete: one root daemon (`ursined`) with a unified API over every system area (packages: nix/apk/flatpak, users, snapshots, niri, printers, scanners, bluetooth, network, firewall, disks, later Incus/ZFS/Pirateus, later other distros), with interchangeable frontends: native libcosmic GUI first, web + OIDC in v3 (memory-safe stack), Incus UI v4, ZFS+Pirateus v5, multi-distro v6. Modules self-disable via runtime capability detection. Confirmed intent: `docs/intent/ursine.md` (source of truth).
 
 ## Users
 
@@ -29,13 +29,13 @@ Standalone tools exist (system-config-printer, blueman, nm-applet, firewalld-gui
 Single backend, thin frontends:
 
 - `ursined` — root daemon, dinit service. Owns ALL logic: modules for packages (apk/flatpak/nix), users (accountsservice), snapshots (btrfs/btrbk), niri config, capabilities detection. Stateless: the system itself is the database.
-- `ursine` — native GUI (GTK4/libadwaita, same stack as the Wayle shell), thin API client.
-- `ursine-web` — static assets served by the daemon itself; talks the same API. PAM login today, OIDC later.
+- `ursine` — native GUI (**libcosmic**, COSMIC toolkit based on iced — Rust UI), thin API client. Security decision 2026-10-19 over visual coherence with the GTK Wayle shell.
+- `ursine-web` — web frontend served by the daemon itself; talks the same API. PAM login today, OIDC later. Stack TBD in v3; **must be memory-safe** (`docs/specs/SPEC-web.md`).
 - `ursine-api` / `ursine-core` — shared crates: API types + module implementations.
 
 Key choices (full rationale in `docs/architecture/overview.md`):
 
-- Rust for everything (GUI must be Rust for GTK4/libadwaita; shared serde types make a second backend language a liability).
+- Rust for everything (GUI = libcosmic/iced, Rust UI; shared serde types make a second backend language a liability). Web frontend must also be memory-safe.
 - No polkit. Auth = PAM handshake once per session (desktop GUI and web login), then Bearer session token. Web will move to OIDC (JWT validated against IdP) without touching the API.
 - No database. Audit log = JSONL + logrotate. Config = `/etc/ursine/config.toml`.
 - Features auto-detect the machine at runtime (`"auto" | true | false` per module); compile-time cargo features trim the binary (web/OIDC optional).

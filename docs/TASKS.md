@@ -9,8 +9,8 @@
 - [ ] v0.3 spike: libcosmic pinned rev builds on musl (add dev deps: cmake, fontconfig-dev, freetype-dev, libxkbcommon-dev, expat-dev, pkgconf) + empty window + one socket call | P0 | agent
 - [ ] v0.3: store GUI (libcosmic): login, home cards, nix store view, snapshots panel | P0 | agent
 - [ ] `dinit/ursined` service file + PAM service `/etc/pam.d/ursine` (auth-only, pam_unix) shipped for packaging | P1 | agent
-- [ ] v0.3 store GUI (relm4): login, home cards, nix store, snapshots panel | P0 | agent
 - [ ] v0.4 users (accountsservice) + niri editor forms | P1 | agent
+- [ ] v3 (deferred): choose web GUI stack — **must be memory-safe** (Rust→WASM preferred: Leptos/Yew/Dioxus; TypeScript acceptable fallback). See `docs/specs/SPEC-web.md` | P2 | skea999
 
 ### In Progress
 - (empty)

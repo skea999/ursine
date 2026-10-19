@@ -12,7 +12,9 @@ ursined (root daemon, dinit service)          ← all logic, exactly once
 └─ web: static assets served by the daemon + WebSocket for progress
 
 ursine   (GUI, libcosmic / COSMIC toolkit — iced-based, Rust UI)
-ursine-web (static HTML/JS, zero server logic)
+ursine-web (web frontend, v3; STACK UNDECIDED — binding constraint: memory-safe.
+           Rust→WASM preferred (Leptos/Yew/Dioxus), TypeScript acceptable fallback;
+           see docs/specs/SPEC-web.md)
 ursine-api  (shared crate: request/response types, Capability, config model)
 ursine-core (shared crate: module implementations)
 ```
@@ -86,7 +88,8 @@ Capabilities API returns state + reason + fix, e.g.:
 - Scanning: sane-backends + sane-airscan + simple-scan — covered, no code needed.
 - FeralOS already ships: niri + Wayle (bar/notifications/OSD/wallpaper), Veila lock (PAM), Raffi launcher, oo7 secrets, greetd+regreet+accountsservice, elogind/turnstile, firewalld, flatpak, nix (multi-user daemon), podman+webmin (container), dinit (develop branch).
 - AppImage does not work on musl (glibc runtime) — irrelevant: we package apk.
-- Rust compiles natively on musl; GTK4/libadwaita available on Alpine.
+- Rust compiles natively on musl. libcosmic build deps exist on Alpine (`cmake`, `fontconfig-dev`, `freetype-dev`, `libxkbcommon-dev`, `expat-dev`, `pkgconf`); FeralOS already builds COSMIC components for musl (feralos-aports).
+- GUI toolkit decision (2026-10-19): **libcosmic** for the app — security over visual coherence with the GTK Wayle shell (no GTK/gdk-pixbuf/librsvg in the GUI process). Web GUI must also be memory-safe (stack TBD in v3).
 
 ## Build & CI (decided 2026-10-16)
 

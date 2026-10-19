@@ -14,7 +14,7 @@
 | v0.4 | Users + niri | Planned | accountsservice panel, niri config.kdl editor with `niri validate` |
 | **v1.0** | **v1 release** | — | **backend + GUI complete (nix, users, snapshots, niri), packaged in feralos-aports** |
 | v2 | Full coverage | Planned | apk + flatpak; printers (CUPS), scanners (SANE), bluetooth (BlueZ), network (NetworkManager), firewall (firewalld), disks (UDisks2) — all via D-Bus/CLI, capability-gated |
-| v3 | OIDC + web | Planned | OIDC auth, web interface (LAST frontend), same design language as GUI |
+| v3 | OIDC + web | Planned | OIDC auth, web interface (LAST frontend), same UX model; **memory-safe stack required** (Rust→WASM preferred; see SPEC-web) |
 | v4 | Incus UI | Planned | Incus management UI in the same product |
 | v5 | ZFS + Pirateus | Planned | ZFS + LINSTOR/Pirateus storage management (FeralOS hyperconverged stack) |
 | v6 | Multi-distro | Planned | package-manager/init abstraction for other distros; glibc revisited |

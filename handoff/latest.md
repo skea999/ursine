@@ -38,20 +38,22 @@ has no `(current)` marker -> current generation read from `profile-N-link`;
 `--delete-generations +N` requires **root** (users cannot lock store profiles).
 78 tests green. Remaining real-op e2e: FeralOS (daemon + non-root user).
 
-**Next (v0.3)**: packages.nix module — exec `nix profile ...` as `asUser` via `su -l`, parse `--json` outputs on committed fixtures, stream progress; then v0.3 store GUI (relm4). Also: dinit service + `/etc/pam.d/ursine` files for packaging.
+**GUI stack decision (2026-10-19, same session)**: desktop shell stays **Wayle (GTK4)**; the app moves to **libcosmic** (COSMIC toolkit, iced-based) — security over visual coherence (no GTK/gdk-pixbuf/librsvg in the GUI process). Pinned `libcosmic` rev `430f3d48a97d8779f9c1985473912e594ccca1ae`. Distro already mixes COSMIC apps (cosmic-edit/player) on niri, so mixed design languages accepted. **Web GUI (v3) must also be memory-safe** — stack undecided; Rust→WASM preferred (see `docs/specs/SPEC-web.md`). UX principles remain toolkit-independent.
+
+**Next (v0.3)**: libcosmic spike — add build deps to `ci/Containerfile.dev` (`cmake fontconfig-dev freetype-dev libxkbcommon-dev expat-dev pkgconf`, runtime `mesa`/`vulkan-loader`), empty window + one socket call (`capabilities.list`) on musl; then store screens. Also: dinit service + `/etc/pam.d/ursine` files for packaging.
 
 ## Session 2026-10-16 — INTENT CONFIRMED (NO CODE YET)
 
 **Confirmed Statement of Intent**: `docs/intent/ursine.md` — explicit yes from skea999. Version plan:
 
-- **v1**: backend skeleton + GUI GTK4/libadwaita (mandatory): nix packages, users, snapshots, niri editor
+- **v1**: backend skeleton + GUI libcosmic (mandatory; amended 2026-10-19 from GTK4): nix packages, users, snapshots, niri editor
 - **v2**: apk + flatpak; printers, scanners, bluetooth, network, firewall, disks (all D-Bus/CLI, capability-gated) — no OIDC
 - **v3**: OIDC + web (web = LAST frontend)
 - **v4**: Incus UI
 - **v5**: ZFS + Pirateus
 - **v6**: other distros (pkg/init abstraction, glibc revisited)
 
-**UI principles (binding)**: all UIs look as similar as possible (one design language, same layout/navigation/icons/terminology per CONTEXT.md); user-friendly (libadwaita HIG, capability-gated panels never broken-looking, confirm destructive actions, plain language).
+**UI principles (binding)**: all UIs behave as one product (same layout/navigation/terminology per CONTEXT.md); user-friendly (COSMIC conventions, capability-gated panels never broken-looking, confirm destructive actions, plain language). Visual theming follows each toolkit; pixel-identical across toolkits not required (amended 2026-10-19).
 
 Phasing ≠ exclusion: everything is in scope; only AppImage and glibc (pre-v6) are out.
 

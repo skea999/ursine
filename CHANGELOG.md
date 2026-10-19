@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased] — 2026-10-19
+
+### Changed
+- **GUI toolkit: GTK4/relm4 → libcosmic** (COSMIC toolkit, iced-based Rust UI), pinned rev `430f3d48a97d8779f9c1985473912e594ccca1ae`. Reason: security — remove GTK/gdk-pixbuf/librsvg C parsers from the GUI process; visual coherence with the GTK Wayle shell is best-effort (distro already mixes COSMIC apps on niri). UX principles remain toolkit-independent.
+- Web frontend (v3): stack still undecided, but **memory-safe is now a binding constraint** (Rust→WASM preferred; TypeScript acceptable fallback) — `docs/specs/SPEC-web.md`.
+- Docs aligned: SPEC-gui, SPEC-users, PROJECT, intent (dated amendment), architecture overview, getting-started, ROADMAP, TASKS, handoff.
+
 ## [0.1.0] — 2026-10-19
 
 ### Added

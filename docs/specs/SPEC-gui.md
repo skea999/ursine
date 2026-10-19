@@ -64,6 +64,13 @@ impl cosmic::Application for Ursine {
 - UI strings: user-friendly English v1, collected in one module for future i18n; terminology from CONTEXT.md (never "server", always "daemon"; never "backup", always "snapshot")
 - No logic: business decisions (what to run, validation beyond form constraints) come from the daemon; GUI only renders + collects
 
+## Web frontend (v3)
+
+Not part of v1. Same API, same UX model (navigation, terminology, capability
+gating, confirmations). **Binding constraint: the web GUI must be memory-safe**
+— Rust→WASM preferred, TypeScript acceptable fallback. Stack decision deferred
+to v3: see `docs/specs/SPEC-web.md`.
+
 ## Testing Strategy
 
 - Unit: `client.rs` protocol handling against a mock socket (dev); state transitions
