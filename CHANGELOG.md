@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — 2026-10-20
+## [0.3.0] — 2026-10-20
 
 ### Added
 - `README.md`: Nix flake install/input instructions and project overview.
