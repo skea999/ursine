@@ -23,6 +23,7 @@
 - [x] Real PAM smoke in Alpine CI container: correct password → token, wrong password → `unauthorized`, expired account → `unauthorized`, token call works, audit contains no password material | P1
 - [x] CI publish split from build: package job read-only, publish job write-only/tag/main, flake added to package needs, checksum verified, idempotent tag asset publish without overwrite | P0
 - [x] CI release gate: package skipped when workspace version is already tagged; PR packaging smoke only on build-input changes; Cargo registry/target cache; tag releases auto-pin `nix/binary.nix` and publish `ursine-flake-<tag>.tar.gz` | P0
+- [x] `v0.3.0` release: GitHub tag pipeline green; tarball + checksum + flake source archive published; `nix/binary.nix` auto-pinned in `bdbf6ce`; `verify-pin` green | P0
 - [x] `README.md` documents Nix build/input usage, release pin behavior, local dev flake, and project overview | P1
 - [x] systemd unit `[Install] WantedBy=multi-user.target` restored; audit dir enforced `0750` with parent/target checks; review findings triaged | P0
 
@@ -67,7 +68,7 @@
 | Nix flake full build never run locally (eval only) | open | first CI run validates; CI flake job is the gate |
 | PAM real auth path not yet tested on a FeralOS target | open | Alpine container PAM smoke green; run the PAM-feature build on FeralOS with a real user before v1.0 |
 | Full init activation not tested | open | `systemd-analyze verify` green, `dinitcheck` green; OpenRC start blocked by container read-only cgroups. Run on a disposable VM/real target. |
-| GitHub Actions package build/cache green; tag publish + auto-pin path not run | open | forced `workflow_dispatch` package + installer smoke green (cache miss then hit); tag a release to exercise publish/auto-pin/flake archive/verify-pin |
+| Tag release publish/auto-pin/verify-pin | resolved | `v0.3.0` run `39452993223` green; release assets + flake archive published; `nix/binary.nix` pinned in `bdbf6ce`; `verify-pin` green |
 | `.opencode/package.json` + lock tracked while `.opencode/.gitignore` exists | resolved | ignore lines dropped; files tracked intentionally |
 | Agent fixes (hidden/quote/no-model) diverge from skea-store template | open | promote upstream when skea999 decides |
 

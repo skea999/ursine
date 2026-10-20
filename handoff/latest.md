@@ -6,9 +6,9 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
-## Session 2026-10-20 — README + release CI gate (CI GREEN)
+## Session 2026-10-20 — README + release CI gate (v0.3.0 RELEASED)
 
-**Status**: `07ceab2` pushed to `main`. CI run `39443274243` (force_package) and `39447071012` (cache re-run) both green.
+**Status**: v0.3.0 tagged and released. Tag CI run `39452993223` green; `nix/binary.nix` auto-pinned on `main` in `bdbf6ce`; `verify-pin` green.
 
 - Added root `README.md`: intro, Nix install/input instructions, local dev flake, project overview.
 - CI `version` job reads `[workspace.package].version`; package runs only for tags/new versions. PR package smoke runs only for source/packaging path changes; `workflow_dispatch` has `force_package` override.
@@ -17,13 +17,13 @@ See `AGENTS.md` for project context and milestone history.
 - Added `verify-pin` job: after a tag release, fetches `main` and runs `nix flake check` against the auto-updated pin.
 - `getting-started` and packaging spec corrected: flake packages a pinned dynamic-musl release artifact, not a static/source build; `nix run` replaced with `nix build github:skea999/ursine#ursine`.
 - Validation: workflow YAML parses; version gate simulation returns `release=false` for current v0.1.0; Nix files parse; README links resolve; pin `sed` substitution tested.
-- GitHub Actions: first forced run (cache miss) green in ~18 min; package build + installer smoke green. Second forced run (cache hit) green; cache `cargo-release-Linux-cfd210d5...` restored 578 MB, package build ~6 min. `Stage release assets`/publish skipped for workflow_dispatch as designed.
-- `.agent-memory/2026/10/20.jsonl` updated and pushed with `07ceab2`.
+- GitHub Actions: first forced run (cache miss) green in ~18 min; second forced run (cache hit) green, cache `cargo-release-Linux-cfd210d5...` restored 578 MB. Tag `v0.3.0` run green: release assets `ursine-v0.3.0-x86_64-musl.tar.gz`, checksum, `ursine-flake-v0.3.0.tar.gz`, checksum; `nix/binary.nix` auto-pin `bdbf6ce`; `verify-pin` passed.
+- `.agent-memory/2026/10/20.jsonl` updated and pushed.
 
 **Next**:
-1. Bump workspace version before the next tag.
-2. Tag release to exercise auto-pin, flake archive, and `verify-pin`.
-3. Run PAM smoke on FeralOS and full OpenRC boot on a disposable VM.
+1. v0.3 store mutations/search + snapshots panel.
+2. Run PAM smoke on FeralOS and full OpenRC boot on a disposable VM.
+3. Use `github:skea999/ursine` as a flake input; update on future tags.
 
 ## Session 2026-10-20 — packaging review hardening (uncommitted)
 
