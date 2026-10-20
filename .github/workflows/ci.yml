@@ -236,7 +236,8 @@ jobs:
           cp artifacts/target/release/ursined artifacts/target/release/ursine artifacts/pkg/bin/
           cp install.sh artifacts/pkg/
           cp scripts/ursine-activate.sh artifacts/pkg/bin/ursine-activate
-          chmod 755 artifacts/pkg/bin/ursine-activate
+          cp scripts/ursine-deactivate.sh artifacts/pkg/bin/ursine-deactivate
+          chmod 755 artifacts/pkg/bin/ursine-activate artifacts/pkg/bin/ursine-deactivate
           cp -r packaging artifacts/pkg/
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             NAME="ursine-${GITHUB_REF_NAME}-x86_64-musl.tar.gz"
@@ -257,7 +258,9 @@ jobs:
           mkdir -p artifacts/smoke
           tar xzf "$ASSET" -C artifacts/smoke
           test -x artifacts/smoke/bin/ursine-activate
+          test -x artifacts/smoke/bin/ursine-deactivate
           sh -n artifacts/smoke/bin/ursine-activate
+          sh -n artifacts/smoke/bin/ursine-deactivate
           for init in systemd openrc dinit; do
             root="$PWD/artifacts/smoke/root-$init"
             case "$init" in
@@ -300,6 +303,11 @@ jobs:
               test -f "$root/etc/dinit.d/config/ursined.conf"
               ;;
             esac
+          done
+          for init in systemd openrc dinit; do
+            root="$PWD/artifacts/smoke/activate-$init"
+            artifacts/smoke/bin/ursine-deactivate --profile "$profile" --root "$root" --init "$init"
+            test ! -e "$root/etc/pam.d/ursine"
           done
       - name: Stage release assets
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
@@ -395,7 +403,7 @@ jobs:
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
       - name: Package flake source
         run: |
-          tar czf "artifacts/release/$FLAKE_ASSET" flake.nix flake.lock nix scripts/ursine-activate.sh README.md
+          tar czf "artifacts/release/$FLAKE_ASSET" flake.nix flake.lock nix scripts/ursine-activate.sh scripts/ursine-deactivate.sh README.md
           sha256sum "artifacts/release/$FLAKE_ASSET" > "artifacts/release/$FLAKE_ASSET.sha256"
       - name: Attach flake to tag release
         if: startsWith(github.ref, 'refs/tags/v')
