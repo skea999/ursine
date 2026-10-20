@@ -5,7 +5,7 @@
     "v0.1 SKELETON + v0.2 packages.nix DONE & GREEN (78 tests, CI all green, release latest published).",
     "GUI stack decided 2026-10-19: libcosmic (security > visual coherence with Wayle GTK shell). Web GUI must be memory-safe (stack TBD, SPEC-web). v0.3 login + home + store view DONE 2026-10-20 (81 tests green). NEXT: store mutations/search + snapshots panel.",
     "Packaging/CI 2026-10-20: cross-distro installer + PAM + systemd/OpenRC/dinit, README Nix docs, version-gated release job, Cargo cache, tag auto-pin of nix/binary.nix, flake source asset, verify-pin job.",
-    "Nix activation 2026-10-20: `scripts/ursine-activate.sh` + `nix run .#activate` detects systemd/OpenRC/dinit, symlinks PAM to the stable profile, renders the unit, and restarts. Staged tests green; host profile has v0.3.0; service activation pending root."
+    "Nix activation 2026-10-20: versioned `ursine-activate` + `ursine-deactivate` are dependencies of `ursine`; detect systemd/OpenRC/dinit, symlink PAM, render unit, restart/stop. Staged tests green; host profile upgraded with tools; service activation pending root."
   ],
   "next_actions": [
     "v0.3 next: store search/install/remove/upgrade UI with confirmations + per-user selector; snapshots panel (daemon snapshots module still NotImplemented \u2014 implement btrbk module first).",
@@ -13,7 +13,7 @@
     "PACKAGING PRIMITIVES GREEN 2026-10-20: installer auth gate (`--allow-stub`; cross-arch staging requires `--allow-unverified-auth`), mktemp temps, strict path + traversal rejection, PAM 0644 via temp+rename, systemd [Install], CI build/publish split + all-init staging smoke, audit dir 0750 and symlink rejection. Real PAM auth + expired account green; packaged installer all-init smoke + release tarball green. NEXT: FeralOS target login, runtime activation (`systemd-analyze`/OpenRC/dinit), first GitHub CI package/publish run.",
     "PRE-COMMIT: run final diff review, cargo gate + installer matrix already green; then commit/push/tag and verify CI/release checksum.",
     "PACKAGING/CI 2026-10-20: v0.3.0 tag pushed; tag CI green; release assets + flake archive published; nix/binary.nix auto-pinned on main in bdbf6ce; verify-pin green. For future releases bump Cargo.toml then tag vX.Y.Z.",
-    "NIX ACTIVATION 2026-10-20: scripts/ursine-activate.sh implemented and tested staged for systemd/OpenRC/dinit; `nix run .#activate` tested. NEXT: run it as root with the explicit profile (system profile recommended or `--profile /home/gab/.nix-profile`) to install PAM/unit and start ursined; then update flow is profile upgrade + rerun activation.",
+    "NIX ACTIVATION 2026-10-20: versioned tools implemented, profile upgraded; local path is `~/.nix-profile/bin/ursine-activate`. NEXT: run it with sudo to install PAM/unit and start ursined; update flow is `nix profile upgrade ursine` + rerun local activation; deactivate with `~/.nix-profile/bin/ursine-deactivate`.",
     "v0.4: users + niri. Then v1.0 packaging in feralos-aports.",
     "Optional: promote agent fixes (hidden/no-model/quote) to skea-store template (15 files differ)."
   ],

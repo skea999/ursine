@@ -19,12 +19,12 @@ See `AGENTS.md` for project context and milestone history.
 - Validation: workflow YAML parses; version gate simulation returns `release=false` for current v0.1.0; Nix files parse; README links resolve; pin `sed` substitution tested.
 - GitHub Actions: first forced run (cache miss) green in ~18 min; second forced run (cache hit) green, cache `cargo-release-Linux-cfd210d5...` restored 578 MB. Tag `v0.3.0` run green: release assets `ursine-v0.3.0-x86_64-musl.tar.gz`, checksum, `ursine-flake-v0.3.0.tar.gz`, checksum; `nix/binary.nix` auto-pin `bdbf6ce`; `verify-pin` passed.
 - `.agent-memory/2026/10/20.jsonl` updated and pushed.
-- Added `scripts/ursine-activate.sh` + `nix run .#activate`: detects systemd/OpenRC/dinit, symlinks PAM to the stable profile, renders the unit against `$PROFILE/bin/ursined`, and restarts the service. Idempotent; rerun after every `nix profile upgrade`. Staged tests for all three inits, dry-run, idempotency, PAM force/refusal, shellcheck, and `nix run .#activate` green.
+- Added versioned `ursine-activate` + `ursine-deactivate` Nix tools as a dependency of `ursine`: detect systemd/OpenRC/dinit, symlink PAM to the stable profile, render the unit against the profile, restart/stop the service, and remove PAM/unit files. Available as `bin/ursine-activate` and `bin/ursine-deactivate`; staged tests for all three inits, dry-run, idempotency, PAM force/refusal, shellcheck, package build, and `nix run` apps green.
 - Installed `ursine` v0.3.0 into the user Nix profile; `ursined 0.3.0 (auth: pam)`. Host system service/PAM not activated yet (needs root).
-- Simplified `README.md` to exactly 3 commands: registry add, default-profile install, `sudo nix run ...#activate`. The activation script infers the invoking user profile via `SUDO_USER`; tested with an isolated `HOME` profile, explicit rev, and refreshed remote flake.
+- Simplified `README.md` to exactly 3 commands: registry add, default-profile install, and local `sudo "$HOME/.nix-profile/bin/ursine-activate"`. Activation/deactivation tools are packaged with the profile and versioned; tested isolated HOME install and local profile scripts.
 
 **Next**:
-1. Activate the host service as root: `sudo nix run github:skea999/ursine#activate`.
+1. Activate the host service as root: `sudo "$HOME/.nix-profile/bin/ursine-activate"` (profile upgraded to the versioned-tools revision).
 2. v0.3 store mutations/search + snapshots panel.
 3. Run PAM smoke on FeralOS and full OpenRC boot on a disposable VM.
 
