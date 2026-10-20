@@ -21,9 +21,10 @@ See `AGENTS.md` for project context and milestone history.
 - `.agent-memory/2026/10/20.jsonl` updated and pushed.
 - Added `scripts/ursine-activate.sh` + `nix run .#activate`: detects systemd/OpenRC/dinit, symlinks PAM to the stable profile, renders the unit against `$PROFILE/bin/ursined`, and restarts the service. Idempotent; rerun after every `nix profile upgrade`. Staged tests for all three inits, dry-run, idempotency, PAM force/refusal, shellcheck, and `nix run .#activate` green.
 - Installed `ursine` v0.3.0 into the user Nix profile; `ursined 0.3.0 (auth: pam)`. Host system service/PAM not activated yet (needs root).
+- Simplified `README.md` to exactly 3 commands: registry add, default-profile install, `sudo nix run ...#activate`. The activation script infers the invoking user profile via `SUDO_USER`; tested with an isolated `HOME` profile, explicit rev, and refreshed remote flake.
 
 **Next**:
-1. Activate the host service as root (system profile or explicit `--profile`).
+1. Activate the host service as root: `sudo nix run github:skea999/ursine#activate`.
 2. v0.3 store mutations/search + snapshots panel.
 3. Run PAM smoke on FeralOS and full OpenRC boot on a disposable VM.
 
