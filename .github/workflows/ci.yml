@@ -2,7 +2,7 @@
 #
 # Jobs: test matrix (default/pam) · lint (clippy+fmt) · vet (cargo-vet) ·
 #       audit (RustSec) · sast (Semgrep) · flake (nix package check/build) ·
-#       package (release binaries in Alpine; publish tag / rolling latest).
+#       package (release binaries in Alpine) · publish (tag / rolling latest).
 #
 # Why binaries are built in Alpine, not Nix: nixpkgs does not cache musl
 # toolchains (stable included) — a source build takes hours. Alpine IS musl and
@@ -25,7 +25,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write # releases
+  contents: read
 
 env:
   CARGO_TERM_COLOR: never
@@ -139,14 +139,18 @@ jobs:
   # ── Package: musl release binaries (Alpine), publish tag or rolling latest ──
   package:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     container:
       image: rust:1-alpine
-    needs: [test, lint, vet, audit, sast]
+    needs: [test, lint, vet, audit, sast, flake]
     steps:
       - run: |
-          apk add --no-cache git nodejs linux-pam-dev github-cli tar \
+          apk add --no-cache git nodejs linux-pam-dev tar \
             cmake fontconfig-dev freetype-dev libxkbcommon-dev expat-dev pkgconf
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # gh invokes git; container ownership differs from the checkout dir owner.
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Build release binaries
@@ -155,27 +159,112 @@ jobs:
           cargo build --release -p ursine
           mkdir -p artifacts/pkg/bin
           cp artifacts/target/release/ursined artifacts/target/release/ursine artifacts/pkg/bin/
+          cp install.sh artifacts/pkg/
+          cp -r packaging artifacts/pkg/
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             NAME="ursine-${GITHUB_REF_NAME}-x86_64-musl.tar.gz"
           else
             NAME="ursine-latest-x86_64-musl.tar.gz"
           fi
           tar czf "$NAME" -C artifacts/pkg .
+          sha256sum "$NAME" > "$NAME.sha256"
           echo "ASSET=$NAME" >> "$GITHUB_ENV"
+          echo "CHECKSUM=$NAME.sha256" >> "$GITHUB_ENV"
           tar tzf "$NAME"
+          cat "$NAME.sha256"
+      - name: Smoke-test release installer
+        run: |
+          sh -n install.sh
+          sh -n packaging/openrc/ursined
+          sh -n packaging/dinit/ursined.wrapper
+          mkdir -p artifacts/smoke
+          tar xzf "$ASSET" -C artifacts/smoke
+          for init in systemd openrc dinit; do
+            root="$PWD/artifacts/smoke/root-$init"
+            case "$init" in
+            systemd)
+              artifacts/smoke/install.sh --destdir "$root" --prefix /usr --init systemd --no-start
+              test -f "$root/etc/systemd/system/ursined.service"
+              ;;
+            openrc)
+              artifacts/smoke/install.sh --destdir "$root" --prefix /usr --init openrc --no-start
+              test -x "$root/etc/init.d/ursined"
+              ;;
+            dinit)
+              artifacts/smoke/install.sh --destdir "$root" --prefix /usr --init dinit \
+                --unitdir /lib/dinit.d --libexecdir /usr/lib --no-start
+              test -f "$root/lib/dinit.d/ursined"
+              test -x "$root/usr/lib/dinit/ursined"
+              test -f "$root/etc/dinit.d/config/ursined.conf"
+              ;;
+            esac
+            test -f "$root/etc/pam.d/ursine"
+            test "$(stat -c '%a' "$root/etc/pam.d/ursine")" = "644"
+            test -x "$root/usr/bin/ursine"
+            test -x "$root/usr/sbin/ursined"
+            test "$("$root/usr/sbin/ursined" --version | grep -c 'auth: pam')" = "1"
+          done
+      - name: Stage release assets
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        run: |
+          mkdir -p artifacts/release
+          cp "$ASSET" "$CHECKSUM" artifacts/release/
+      - name: Upload release artifact
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ursine-release
+          path: artifacts/release
+          if-no-files-found: error
+          retention-days: 7
+
+  # ── Publish: write token isolated from build code ──────────────────────────
+  publish:
+    runs-on: ubuntu-latest
+    needs: [package]
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ursine-release
+          path: artifacts/release
+      - name: Resolve asset names
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            NAME="ursine-${GITHUB_REF_NAME}-x86_64-musl.tar.gz"
+          else
+            NAME="ursine-latest-x86_64-musl.tar.gz"
+          fi
+          echo "ASSET=$NAME" >> "$GITHUB_ENV"
+          echo "CHECKSUM=$NAME.sha256" >> "$GITHUB_ENV"
       - name: Publish versioned tag release
         if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: artifacts/release
         run: |
+          sha256sum -c "$CHECKSUM"
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" "$ASSET" --clobber
+          assets=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
+          for artifact in "$ASSET" "$CHECKSUM"; do
+            if printf '%s\n' "$assets" | grep -Fxq "$artifact"; then
+              echo "already published: $artifact"
+            else
+              gh release upload "$GITHUB_REF_NAME" "$artifact"
+            fi
+          done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish rolling `latest` (main)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: artifacts/release
         run: |
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest "$ASSET" \
+          gh release create latest "$ASSET" "$CHECKSUM" \
             --title "Development snapshot (latest)" \
             --notes "Automated musl build from $GITHUB_SHA on $(date -u +%Y-%m-%dT%H:%MZ)" \
             --prerelease

@@ -25,7 +25,17 @@
     "test-automator": {},
     "information-scan": {},
     "vulnerability-scan": {},
-    "codebase": {},
+    "codebase": {
+      "permission": {
+        "*": "allow",
+        "bash": {
+          "*": "allow",
+          "nix profile add*": "ask",
+          "sudo *": "deny",
+          "doas *": "deny"
+        }
+      }
+    },
     "docs": {},
     "documentation-engineer": {},
     "performance-engineer": {},

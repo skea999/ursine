@@ -44,7 +44,8 @@ fn main() -> std::process::ExitCode {
                 config_path = PathBuf::from(p);
             }
             "--version" => {
-                println!("ursined {}", env!("CARGO_PKG_VERSION"));
+                let auth = if cfg!(feature = "pam") { "pam" } else { "stub" };
+                println!("ursined {} (auth: {auth})", env!("CARGO_PKG_VERSION"));
                 return std::process::ExitCode::SUCCESS;
             }
             "--help" | "-h" => {

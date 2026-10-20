@@ -1,5 +1,10 @@
 # Getting Started
 
+## Install a release
+
+See [installation.md](installation.md) for the cross-distro installer, PAM
+service and systemd/OpenRC/dinit units. This guide covers building from source.
+
 ## Prerequisites
 
 - [opencode](https://opencode.ai) CLI

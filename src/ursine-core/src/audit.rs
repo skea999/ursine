@@ -3,6 +3,8 @@
 //! Secrets never appear here (no passwords, no tokens).
 
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -61,10 +63,53 @@ impl AuditLog {
     /// Open (or create) the log; parent directories are created.
     pub fn open(path: PathBuf, clock: std::sync::Arc<dyn Clock>) -> Result<Self, CoreError> {
         if let Some(dir) = path.parent() {
+            if dir == std::path::Path::new("/") {
+                return Err(CoreError::config(
+                    "audit path must not be at filesystem root",
+                ));
+            }
+            if let Ok(meta) = std::fs::symlink_metadata(dir) {
+                if meta.file_type().is_symlink() || !meta.is_dir() {
+                    return Err(CoreError::config(format!(
+                        "audit parent is not a directory: {}",
+                        dir.display()
+                    )));
+                }
+                #[cfg(unix)]
+                if meta.permissions().mode() & 0o002 != 0 {
+                    return Err(CoreError::config(format!(
+                        "audit parent is world-writable: {}",
+                        dir.display()
+                    )));
+                }
+            }
             std::fs::create_dir_all(dir).map_err(|e| {
                 CoreError::config(format!("create audit dir {}: {e}", dir.display()))
             })?;
+            #[cfg(unix)]
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o750)).map_err(|e| {
+                CoreError::config(format!("secure audit dir {}: {e}", dir.display()))
+            })?;
         }
+        if let Ok(meta) = std::fs::symlink_metadata(&path) {
+            if meta.file_type().is_symlink() || !meta.is_file() {
+                return Err(CoreError::config(format!(
+                    "audit path is not a regular file: {}",
+                    path.display()
+                )));
+            }
+        }
+        #[cfg(unix)]
+        let file = {
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .mode(0o600)
+                .open(&path)?;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            file
+        };
+        #[cfg(not(unix))]
         let file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -163,5 +208,10 @@ mod tests {
         assert_eq!(v2["as_user"], "other");
         assert!(!raw.to_lowercase().contains("password"));
         assert!(!raw.contains("token"));
+        #[cfg(unix)]
+        {
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
     }
 }

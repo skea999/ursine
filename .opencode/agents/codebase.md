@@ -4,46 +4,14 @@ mode: all
 temperature: 0.1
 steps: 50
 permission:
-  "*": "deny"
-  edit: "allow"
+  "*": "allow"
   bash:
+    "*": "allow"
+    "nix profile add*": "ask"
+    "sudo *": "deny"
+    "doas *": "deny"
+  external_directory:
     "*": "ask"
-    "rm -rf *": "deny"
-    "git push*--force*": "deny"
-    "git push -f*": "deny"
-    "git push * -f*": "deny"
-  glob: "allow"
-  grep: "allow"
-  read: "allow"
-  webfetch: "allow"
-  todowrite: "allow"
-  question: "allow"
-  skill:
-    "*": "deny"
-    "dotnet": "allow"
-    "python": "allow"
-    "typescript": "allow"
-    "flutter": "allow"
-    "go": "allow"
-    "java-spring": "allow"
-    "node-express": "allow"
-    "react-next": "allow"
-    "ux-responsive": "allow"
-    "ruby-rails": "allow"
-    "rust": "allow"
-    "sql-migrations": "allow"
-    "legal-advisor": "allow"
-    "code-change-impact": "allow"
-    "refactoring": "allow"
-    "decision-grounding": "allow"
-  task:
-    "*": "deny"
-    "review": "allow"
-    "docs": "allow"
-    "general": "allow"
-    "explore": "allow"
-    "legal-advisor": "allow"
-    "researcher": "allow"
 ---
 
 # Codebase Development Agent

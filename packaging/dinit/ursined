@@ -1,0 +1,15 @@
+# dinit service: ursined (Ursine control daemon)
+#
+# FeralOS convention: the service file lives in the dinit service directory,
+# the command is a small wrapper under /usr/lib/dinit, and user-tunable flags
+# live in /etc/dinit.d/config/ursined.conf. Paths are substituted by
+# install.sh; do not edit the @PLACEHOLDER@ tokens in the repository copy.
+type = process
+smooth-recovery = true
+log-type = file
+logfile = @LOCALSTATEDIR@/log/ursine/ursined.log
+command = @LIBEXECDIR@/dinit/ursined
+env-file = @DINIT_CONFIG_DIR@/ursined.conf
+depends-on = local.target
+waits-for = dbus
+before = login.target

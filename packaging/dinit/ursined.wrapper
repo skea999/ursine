@@ -1,0 +1,8 @@
+#!/bin/sh
+# shellcheck shell=sh disable=SC2086
+# dinit wrapper for ursined: dinit loads the env-file, then this wrapper execs
+# the daemon with the configured extra arguments.
+#
+# Paths are substituted by install.sh; do not edit the @PLACEHOLDER@ tokens in
+# the repository copy.
+exec "@SBINDIR@/ursined" --config "@SYSCONFDIR@/ursine/config.toml" ${URSINED_OPTS}

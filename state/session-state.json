@@ -1,16 +1,16 @@
 {
-  "goal": "Ursine — FeralOS complete control center (Webmin-style): root daemon + libcosmic GUI (v1), full module coverage (v2), OIDC+web (v3, memory-safe stack), Incus UI (v4), ZFS+Pirateus (v5), multi-distro (v6). Intent source of truth: docs/intent/ursine.md.",
-  "status": "v0.2-done",
+  "goal": "Ursine \u2014 FeralOS complete control center (Webmin-style): root daemon + libcosmic GUI (v1), full module coverage (v2), OIDC+web (v3, memory-safe stack), Incus UI (v4), ZFS+Pirateus (v5), multi-distro (v6). Intent source of truth: docs/intent/ursine.md.",
+  "status": "v0.3-in-progress",
   "active_goals": [
     "v0.1 SKELETON + v0.2 packages.nix DONE & GREEN (78 tests, CI all green, release latest published).",
-    "GUI stack decided 2026-10-19: libcosmic (security > visual coherence with Wayle GTK shell). Web GUI must be memory-safe (stack TBD, SPEC-web). NEXT: v0.3 libcosmic musl spike."
+    "GUI stack decided 2026-10-19: libcosmic (security > visual coherence with Wayle GTK shell). Web GUI must be memory-safe (stack TBD, SPEC-web). v0.3 login + home + store view DONE 2026-10-20 (81 tests green). NEXT: store mutations/search + snapshots panel."
   ],
   "next_actions": [
-    "v0.3 spike: add libcosmic build deps to ci/Containerfile.dev (cmake fontconfig-dev freetype-dev libxkbcommon-dev expat-dev pkgconf; runtime mesa/vulkan-loader), empty window + capabilities.list over socket on musl.",
-    "v0.3: store GUI (libcosmic): login, home cards, nix store view, snapshots panel.",
+    "v0.3 next: store search/install/remove/upgrade UI with confirmations + per-user selector; snapshots panel (daemon snapshots module still NotImplemented \u2014 implement btrbk module first).",
+    "v0.3 polish: show daemon version from system.status on Home; proactive token-expiry timer (reactive sign-out already handled).",
+    "PACKAGING PRIMITIVES GREEN 2026-10-20: installer auth gate (`--allow-stub`; cross-arch staging requires `--allow-unverified-auth`), mktemp temps, strict path + traversal rejection, PAM 0644 via temp+rename, systemd [Install], CI build/publish split + all-init staging smoke, audit dir 0750 and symlink rejection. Real PAM auth + expired account green; packaged installer all-init smoke + release tarball green. NEXT: FeralOS target login, runtime activation (`systemd-analyze`/OpenRC/dinit), first GitHub CI package/publish run.",
+    "PRE-COMMIT: run final diff review, cargo gate + installer matrix already green; then commit/push/tag and verify CI/release checksum.",
     "v0.4: users + niri. Then v1.0 packaging in feralos-aports.",
-    "Add PAM service file /etc/pam.d/ursine to packaging (feralos-aports) — auth-only (pam_unix).",
-    "Add dinit service file dinit/ursined to repo + packaging.",
     "Optional: promote agent fixes (hidden/no-model/quote) to skea-store template (15 files differ)."
   ],
   "key_decisions": [
@@ -19,32 +19,38 @@
     "Capabilities runtime-detected, never persisted; ensure_available() per request; capabilities.refresh + config.init APIs.",
     "asUser param for per-user ops (flatpak --user, nix profile); default = principal; apk/--system always root.",
     "Cargo features web/oidc trim binary (~2-3 MB) and idle RSS (~3-6 MB target); daemon always on via dinit, event-driven, no polling.",
-    "Modules v1: packages (nix first — unique gap), snapshots (owned by packages/store: manual + pre-update auto), users (accountsservice), niri config editor.",
-    "Do NOT build printers/scanners/bluetooth/network/firewall/disks — already packaged on Alpine (see docs/PROJECT.md).",
-    "Rust everywhere: GUI is libcosmic (COSMIC toolkit, iced-based Rust UI) — supersedes the GTK4/relm4 choice; shared serde types make a second backend language a liability. Web GUI must also be memory-safe (Rust→WASM preferred).",
+    "Modules v1: packages (nix first \u2014 unique gap), snapshots (owned by packages/store: manual + pre-update auto), users (accountsservice), niri config editor.",
+    "Do NOT build printers/scanners/bluetooth/network/firewall/disks \u2014 already packaged on Alpine (see docs/PROJECT.md).",
+    "Rust everywhere: GUI is libcosmic (COSMIC toolkit, iced-based Rust UI) \u2014 supersedes the GTK4/relm4 choice; shared serde types make a second backend language a liability. Web GUI must also be memory-safe (Rust\u2192WASM preferred).",
     "Build policy: musl everywhere incl. nix (pkgsMusl/pkgsStatic, never glibc). Local builds via Docker + Alpine images (rust:alpine). CI: test every cargo feature combination; build and publish nix flake (repo-resident, github:skea999/ursine; Release artifacts on tag).",
+    "Packaging (2026-10-20): release tarball owns install.sh + packaging/ (PAM + systemd/OpenRC/dinit). Installer needs root for /etc; Nix profile cannot install PAM/units, so NixOS needs a declarative module (not yet written) and non-NixOS uses the tarball installer. DESTDIR + explicit --init is the package-build path.",
     "Agents wired: opencode.json instructions load CONTEXT/architecture/PROJECT/handoff/TASKS into every agent; .opencode/rules/ursine.md holds binding project invariants (via opencode-rules plugin).",
     "INTENT CONFIRMED: version plan v1 (backend+GUI: nix, users, snapshots, niri) / v2 (apk, flatpak, printers, scanners, bluetooth, network, firewall, disks) / v3 (OIDC + web, LAST frontend) / v4 (Incus UI) / v5 (ZFS + Pirateus) / v6 (other distros). Phasing != exclusion: everything is in scope.",
-    "UI principles (binding, amended 2026-10-19): all UIs behave as one product (same layout/navigation/terminology; visual theme follows each toolkit — pixel-identical theming across toolkits NOT required, security wins) and must be user-friendly (COSMIC conventions, capability-gated panels never shown broken, confirm destructive actions, plain language).",
-    "CI FULLY CONTAINERIZED (skea999 correction): every GitHub Actions job runs in a Docker container — cargo matrix in alpine:3.22 (apk add rust cargo git nodejs; linux-pam-dev only on pam jobs), flake/release jobs in nixos/nix container. No rustup/cargo/nix ever installed on host runners.",
+    "UI principles (binding, amended 2026-10-19): all UIs behave as one product (same layout/navigation/terminology; visual theme follows each toolkit \u2014 pixel-identical theming across toolkits NOT required, security wins) and must be user-friendly (COSMIC conventions, capability-gated panels never shown broken, confirm destructive actions, plain language).",
+    "CI FULLY CONTAINERIZED (skea999 correction): every GitHub Actions job runs in a Docker container \u2014 cargo matrix in alpine:3.22 (apk add rust cargo git nodejs; linux-pam-dev only on pam jobs), flake/release jobs in nixos/nix container. No rustup/cargo/nix ever installed on host runners.",
     "GUI stack FINAL (2026-10-19, supersedes relm4/GTK): libcosmic pinned rev 430f3d48a97d8779f9c1985473912e594ccca1ae (COSMIC toolkit, iced-based). Rationale: Wayle/GTK C parsers (gtk/gdk-pixbuf/librsvg) out of the GUI process; UI Rust end-to-end. Distro already mixes COSMIC apps on niri; visual coherence best-effort. Skills installed via npx skills add: apollographql/skills@rust-best-practices, wshobson/agents@rust-async-patterns, victorzhuk/skills@z-rust-gtk4, gotar/opencode-config@gtk-ui-ux-engineer (GTK skills now less relevant; harness stays updatable via official channels).",
     "HARDENING POLICIES merged from template state (skea999): dedup/security/dependency checks also containerized; project root mounted READ-ONLY in containers (only artifacts/ writable); temp files only artifacts/<tool-or-task>/, never host /tmp; keep last 3 artifact versions per subfolder; changelog convention (CHANGELOG.md only); agents flat in .opencode/agents/ (re-promote after installer runs); context-mode global plugin (never mcp.context-mode); ast-grep host-apk + global skills, per-project rules via sgconfig.yml.",
     "Container runtime = PODMAN (host has podman 5.8.8, no docker). Scripts auto-detect (CONTAINER_RUNTIME env, podman, docker). .opencode-agents-version gitignored (root stays clean); .opencode/package.json+lock stay tracked (ignore lines dropped).",
-    "Workflow aligned to updated harness: complex chain = @orchestrator→@planner→@codebase→Pattern 8 Pre-Commit Review Gate (Tier 1 cargo build/test/clippy/fmt → Tier 2 @review lens briefs requirements|code|security|ux-responsive, max 2 cycles)→@debugger→@docs; skill-chain per simple tasks; all 18 referenced skills verified present in .agents/skills/. READY TO WRITE CODE (pending spec approval + go signal).",
-    "Build: dynamic musl (crt-static off) via .cargo/config.toml — static musl cannot link libpam.so; Alpine-style dynamic musl. Nix flake uses pkgsMusl (NOT pkgsStatic). Dev/CI image: ci/Containerfile.dev (rust:1-alpine + linux-pam-dev + clippy/rustfmt). pam crate pinned to 0.7 (pam-sys 0.5 pregenerated bindings; 0.8 pulls bindgen/clang).",
+    "Workflow aligned to updated harness: complex chain = @orchestrator\u2192@planner\u2192@codebase\u2192Pattern 8 Pre-Commit Review Gate (Tier 1 cargo build/test/clippy/fmt \u2192 Tier 2 @review lens briefs requirements|code|security|ux-responsive, max 2 cycles)\u2192@debugger\u2192@docs; skill-chain per simple tasks; all 18 referenced skills verified present in .agents/skills/. READY TO WRITE CODE (pending spec approval + go signal).",
+    "Build: dynamic musl (crt-static off) via .cargo/config.toml \u2014 static musl cannot link libpam.so; Alpine-style dynamic musl. Nix flake uses pkgsMusl (NOT pkgsStatic). Dev/CI image: ci/Containerfile.dev (rust:1-alpine + linux-pam-dev + clippy/rustfmt). pam crate pinned to 0.7 (pam-sys 0.5 pregenerated bindings; 0.8 pulls bindgen/clang).",
     "CI ACTIVE: .github/workflows/ci.yml uncommented; matrix default/pam; alpine:3.22 (FeralOS target); nixos/nix container for flake check/build; release on tags attaches musl binaries."
   ],
   "risks": [
     "Root-access software: auth bugs are critical. Small auth surface, audit every action, short token TTL.",
     "asUser execution (su/setuid from root daemon) needs hardening review + integration tests.",
     "Dev machine lacks libpam headers; pam must be feature-gated with stub fallback.",
+    "Release binaries are dynamic musl; Debian glibc staging works, but the musl daemon cannot execute there without a musl loader (glibc artifacts are v6).",
+    "PAM real login tested in Alpine CI container (including expired account): correct password -> token, wrong password/expired -> unauthorized, audit has no password material. FeralOS target login still pending.",
+    "Systemd/OpenRC/dinit activation and GitHub CI package/publish have not run on a real target. `systemd-analyze verify` and `dinitcheck` green; OpenRC start blocked by container read-only cgroups. Installer staging covers all three units; local PAM tarball smoke green.",
     "Scope is now large (v1-v6): discipline via capability-gated modules and thin frontends; never let per-module logic leak into frontends.",
-    ".opencode/package.json + package-lock.json tracked while .opencode/.gitignore ignores them — decide: git rm --cached or drop ignore lines.",
-    ".opencode-agents-version marker (2.6.0) untracked at root — decide: track or gitignore.",
-    "After every 'npx agents-opencode --update': manifest may regenerate researcher.md and clobber the updated version — restore via git checkout if diff shows changes.",
-    "Agent fixes diverge from template: hidden:true on 15 subagents + quoted description in code-reviewer.md + no model overrides in opencode.json. After 'npx agents-opencode --update' or next template sync these may be clobbered — re-apply (or promote the fix upstream to skea-store).",
+    ".opencode/package.json + package-lock.json tracked while .opencode/.gitignore ignores them \u2014 decide: git rm --cached or drop ignore lines.",
+    ".opencode-agents-version marker (2.6.0) untracked at root \u2014 decide: track or gitignore.",
+    "After every 'npx agents-opencode --update': manifest may regenerate researcher.md and clobber the updated version \u2014 restore via git checkout if diff shows changes.",
+    "Agent fixes diverge from template: hidden:true on 15 subagents + quoted description in code-reviewer.md + no model overrides in opencode.json. After 'npx agents-opencode --update' or next template sync these may be clobbered \u2014 re-apply (or promote the fix upstream to skea-store).",
     "Nix build not yet executed locally (eval green); first CI run will be the real build validation. Flake.lock tracked; src needs git-tracked files (nix sees only tracked files).",
-    "Wayle shell remains GTK4 (C toolkit) by upstream choice — accepted risk; no migration planned upstream. GUI app avoids GTK. Web GUI memory-safe constraint must hold in v3 (Rust→WASM preferred).",
-    "GUI token risk: a compromised user-level process (or the GUI itself) could use the Bearer token until TTL expiry. Planned hardening: absolute token lifetime cap + PAM re-auth for destructive actions."
+    "Wayle shell remains GTK4 (C toolkit) by upstream choice \u2014 accepted risk; no migration planned upstream. GUI app avoids GTK. Web GUI memory-safe constraint must hold in v3 (Rust\u2192WASM preferred).",
+    "GUI token risk: a compromised user-level process (or the GUI itself) could use the Bearer token until TTL expiry. Planned hardening: absolute token lifetime cap + PAM re-auth for destructive actions.",
+    "PAM relies on pam_unix + pam_acct_mgmt; no pam_faillock configured, daemon has only in-RAM rate limiting (5 failures/min).",
+    "Installer staged auth is fail-closed only when the target cannot execute: cross-arch packaging needs --allow-unverified-auth and remains unverified until the target runs."
   ]
 }

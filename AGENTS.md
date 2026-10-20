@@ -102,6 +102,12 @@ External skills:
 - `docs/global-setup.md` — plugin paths, opencode environment
 - `docs/update.md` — update commands for all components
 
+## Milestones
+
+- **2026-10-20 — packaging primitives**: cross-distro `install.sh` (path overrides, `DESTDIR`, auth gate, strict paths), `/etc/pam.d/ursine` (auth + account), systemd/OpenRC/dinit units (FeralOS wrapper/config for dinit); release tarball + CI staging smoke for all three inits. Alpine real PAM (including expired account) green; Rust gate green; review-hardened. FeralOS target login still pending.
+- **2026-10-20 — v0.3 GUI**: login, capability-gated home, store view; 81 tests green; uncommitted.
+- **2026-10-19 — v0.1/v0.2**: workspace, daemon, PAM handshake, packages_nix module, release v0.1.0 and CI.
+
 ## Deferred (stack decided — remaining)
 
-GUI web asset toolchain decision (when web/ starts), CI activation (uncomment ci.yml), APKBUILDs in feralos-aports (v1.0).
+GUI web asset toolchain decision (when web/ starts), APKBUILDs in feralos-aports (v1.0).

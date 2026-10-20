@@ -29,7 +29,7 @@ BLOCKED=0
 for FILE in $FILES; do
   [ -f "$FILE" ] || continue
   for PATTERN in "${PATTERNS[@]}"; do
-    if git show ":${FILE}" | grep -qiE "$PATTERN"; then
+    if git show ":${FILE}" | grep -qiE -- "$PATTERN"; then
       echo "⚠️  BLOCKED: $FILE matches secret pattern"
       BLOCKED=1
     fi

@@ -1,0 +1,24 @@
+[Unit]
+Description=Ursine control daemon
+Documentation=https://github.com/skea999/ursine
+After=local-fs.target
+After=dbus.service
+Wants=dbus.service
+
+[Service]
+Type=simple
+ExecStart=@SBINDIR@/ursined --config @SYSCONFDIR@/ursine/config.toml
+Restart=on-failure
+RestartSec=2
+User=root
+Group=root
+PrivateTmp=true
+
+# This root daemon intentionally runs system package managers (apk, flatpak,
+# nix) and changes /etc, /usr, /var and user homes. ProtectSystem=strict and
+# ProtectHome=true break those actions. Add them again only after the module
+# work is split into narrowly-scoped privileged helpers.
+# The audit file is explicitly 0600; socket permissions are 0666 by protocol.
+
+[Install]
+WantedBy=multi-user.target

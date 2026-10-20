@@ -31,11 +31,17 @@ impl Authenticator for PamAuthenticator {
         let conv = Conversation::with_credentials(user, password);
         let mut ctx = Context::new(PAM_SERVICE, Some(user), conv)
             .map_err(|e| AuthError::Internal(format!("pam init: {e}")))?;
-        match ctx.authenticate(Flag::NONE) {
-            Ok(()) => Ok(Principal::local(user, local_groups(user))),
+        match ctx.authenticate(Flag::DISALLOW_NULL_AUTHTOK) {
+            Ok(()) => {}
             // Any authentication failure collapses to Invalid: no oracle for
             // user enumeration.
-            Err(_) => Err(AuthError::Invalid),
+            Err(_) => return Err(AuthError::Invalid),
         }
+        // Account phase enforces expiry/lock policy from the PAM account
+        // stack. Keep it identical to auth failures to avoid an oracle.
+        if ctx.acct_mgmt(Flag::NONE).is_err() {
+            return Err(AuthError::Invalid);
+        }
+        Ok(Principal::local(user, local_groups(user)))
     }
 }

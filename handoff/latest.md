@@ -6,6 +6,71 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-20 — packaging review hardening (uncommitted)
+
+**Status**: packaging primitives are review-hardened and locally green; no commit/push yet.
+
+- Fixed review blockers/major findings: restored systemd `[Install] WantedBy=multi-user.target`; split CI build (`contents: read`, checkout `persist-credentials: false`) from a separate publish job (`contents: write`, tags/main only); added `flake` to package `needs`; removed tag `--clobber`; CI now stages and executes systemd/OpenRC/dinit installs and asserts PAM mode `0644` + `auth: pam`.
+- Installer hardening: auth gate (stub refused unless `--allow-stub`; cross-arch staging refused unless `--allow-unverified-auth`), `mktemp` temp files, strict path allowlist plus `.`/`..` rejection, PAM mode set on temp before rename (no final-path chmod/chown race), non-root staging ownership warning, config dir `0750`.
+- Audit dir is enforced `0750` (rejects root, symlink and world-writable parent); audit file remains `0600` and rejects symlink/non-regular targets.
+- Verification: real PAM smoke incl. expired account green (`auth_ok`, bad/expired `unauthorized`, 6 capabilities, no password in audit); installer matrix systemd/OpenRC/dinit green with PAM `0644`, `[Install]`, no temp leftovers; hostile/traversal path rejection and unverified-auth gate green; shellcheck green; Rust gate 81 tests + clippy `-D warnings` + fmt green (`artifacts/logs/rust-gate-final3.log`). Init validation: `systemd-analyze verify` and `dinitcheck` green; OpenRC reached service dependency/cgroup setup but the container has read-only cgroups.
+- Release tarball rebuilt from current PAM daemon + GUI: `artifacts/release-final/ursine-test-x86_64-musl.tar.gz`, sha256 `e144a2039c3daaa503e476652d78750645be84ad93d02d1887aedee9ccc9c367`; packaged installer staged systemd/OpenRC/dinit, PAM/version/unit checks green.
+- Docs updated: installation guide now covers auth gate, `--allow-stub`, strict paths, staging ownership, and musl/glibc caveat.
+
+**Next**:
+1. Boot-test OpenRC on a disposable VM/real target (`systemd-analyze verify` and `dinitcheck` are green).
+2. Run first GitHub CI package/publish job and verify tarball + checksum asset.
+3. Test PAM login on FeralOS with a real user before v1.0.
+4. Complete Pre-Commit Review Gate, then commit/push/tag. No commit yet.
+
+## Session 2026-10-20 — packaging primitives GREEN (uncommitted)
+
+**Status**: cross-distro installer, PAM service and systemd/OpenRC/dinit units are implemented and staged-tested. Real PAM login is green in an Alpine container; FeralOS target login still pending.
+
+- New `install.sh` (POSIX sh): absolute path overrides, `DESTDIR`, PAM `pam_unix.so` detection with distro hints, conflict refusal + `--force` backup, automatic enable/start. `--check` prints the plan.
+- New `packaging/`: `pam.d/ursine`, `systemd/ursined.service`, `openrc/ursined`, `dinit/{ursined,ursined.wrapper,ursined.conf}`. dinit follows FeralOS ADR-008 wrapper/config and ADR-009 conventions.
+- Release tarball now includes `install.sh` + `packaging/`; CI package job smoke-tests a staged systemd install and checks PAM/GUI/daemon/unit paths.
+- Dev flake now stages `packaging/` and `install.sh` beside `bin/`; first `nix build` in `nixos/nix` container succeeded with dummy binaries. `scripts/build-gui-dev.sh` built real release binaries, staged them, and the staged daemon executed; the flake build was not rerun with those binaries.
+- Tests: Alpine 3.24 container staging for systemd/OpenRC/dinit + rerun; tarball-layout install; binaries-only install; Debian PAM hint; shell syntax. Rust gate `cargo test --workspace --all-features` + clippy `-D warnings` + fmt green in `ursine-ci:1`.
+- Real PAM smoke in `ursine-ci:1`: test user in `wheel`, `/etc/pam.d/ursine` from the asset, correct password → token, wrong password → `unauthorized`, token `capabilities.list` → 6 entries, audit has no password material.
+- Docs: `docs/guides/installation.md` (new), getting-started, SPEC-packaging-infra, TASKS, CHANGELOG. State updated. Changes NOT committed.
+
+**Next**:
+1. Test the real PAM login path on FeralOS with a user and `/etc/pam.d/ursine`.
+2. Run Pre-Commit Review Gate, then commit/push/tag; verify GitHub CI and release tarball.
+3. Test installer in a non-Alpine container (Debian) and verify `systemd-analyze`/OpenRC/dinit runtime behavior.
+4. Decide NixOS module (`security.pam.services.ursine`) vs installer-only for Nix users.
+
+## Session 2026-10-20 — v0.3 GUI store view GREEN (uncommitted)
+
+**Status**: read-only nix store screen wired to the real `packages_nix` module.
+
+- `store.rs`: installed profile packages + generation history; Home ↔ Store navigation; Open disabled when the Nix capability is missing; busy/empty/error states.
+- Client: per-call timeout; profile calls use 75 s (daemon allows 60 s); generations payload parsed and unit-tested.
+- Session handling: expired/revoked token on any call signs out and returns to login with "Session expired"; home label corrected to "session lifetime".
+- Gate: `cargo build --workspace`, 81 tests (3 GUI + 23 api + 6 integration + 49 core), `cargo clippy --workspace --all-features -- -D warnings`, `cargo fmt --check` — all green in `ursine-ci:1`.
+- Docs corrected: module is `packages_nix`, not `packages`. Changes NOT committed.
+
+**Next**:
+1. Store mutations/search (`install`, `remove`, `upgrade`, `search`) with confirmation + progress; per-user selector.
+2. Snapshots panel: daemon snapshots module still returns `NotImplemented` — implement the btrbk module first.
+3. GUI smoke test on a display, then Pre-Commit Review Gate and commit.
+
+## Session 2026-10-20 — v0.3 GUI login + home GREEN (uncommitted)
+
+**Status**: the libcosmic GUI now drives the real protocol: PAM login and capability-gated home.
+
+- New modules: `src/ursine/src/{client,app,login,home}.rs`; `main.rs` is a thin entrypoint. `client` wraps a blocking Unix-socket round-trip in `spawn_blocking` (5 s timeout, `URSINE_SOCKET` override); `app` owns `App`/`Session`/`Message`; login uses `text_input(...).password()`; home mirrors daemon `required_caps` and shows each capability's reason/fix.
+- Session token RAM-only; password cleared on success; sign-out clears session and capability data.
+- Gate: `cargo build --workspace`, `cargo test --workspace --all-features` (80 tests: 2 GUI + 23 api + 6 integration + 49 core), `cargo clippy --workspace --all-features -- -D warnings`, `cargo fmt --check` — all green in `ursine-ci:1`.
+- Permissions fixed: `.opencode/agents/codebase.md` frontmatter is the effective channel (wins over `opencode.json`); minimal set keeps `bash` allow, `nix profile add*` ask, sudo/doas deny, `external_directory` ask. The current session still runs the old set until restart.
+- Docs/state updated (TASKS, CHANGELOG, session-state, this handoff). Changes NOT committed.
+
+**Next**:
+1. Nix store view (`packages_nix.list_installed` / `packages_nix.generations`) + snapshots panel; wire home module rows to real views.
+2. Show daemon version from `system.status`; handle token expiry with a re-login prompt.
+3. Run a real GUI smoke test against `ursined` (stub auth) on a machine with a display, then Pre-Commit Review Gate and commit.
+
 ## Session 2026-10-19 — v0.1 SKELETON GREEN (code written, committed pending)
 
 **Status**: workspace + daemon skeleton complete, all checks green in container.

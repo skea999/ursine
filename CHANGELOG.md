@@ -1,13 +1,21 @@
 # Changelog
 
-## [Unreleased] — 2026-10-19
+## [Unreleased] — 2026-10-20
 
 ### Added
+- Cross-distro release installer (`install.sh`): absolute-path overrides plus `DESTDIR` staging, automatic `/etc/pam.d/ursine` install with `pam_unix.so` detection and distro-specific hints, conflict refusal with `--force` backup, and automatic enable/start. Init units for **systemd, OpenRC and dinit** (FeralOS wrapper/config convention); `--init` forces the target when packaging.
+- Release tarballs now include `install.sh` and `packaging/`; CI stages systemd, OpenRC and dinit installs, asserts PAM `0644`, and runs the staged daemon to require `auth: pam`.
+- Installer safety: refuses stub-auth daemons unless `--allow-stub`, requires `--allow-unverified-auth` for cross-architecture staging, uses `mktemp` temp files, restricts paths to `[A-Za-z0-9/._+-]` and rejects `.`/`..` components, sets PAM mode on the temp file before rename, and warns on non-root staged ownership.
+- PAM service asset `packaging/pam.d/ursine`: auth + account only (`pam_unix.so`), no session, installed root:root 0644.
+- v0.3 GUI store view: installed nix profile packages and generation history (`packages_nix.list_installed` / `packages_nix.generations`), Home ↔ Store navigation, capability-gated Open action, busy/empty/error states, 75 s profile-call timeout; expired sessions return to login.
+- v0.3 GUI driven by the protocol: login screen (PAM handshake, friendly auth errors) and capability-gated home (module rows with missing-capability reasons/fixes, refresh, sign out). Client is a thin Unix-socket transport with 5 s timeout; session token stays in RAM. 80 tests green; clippy/fmt clean.
 - v0.3 libcosmic spike: pinned rev builds on musl; minimal window + real socket round-trip (`capabilities.list`); `URSINE_SOCKET` override; dev image and CI `gui` job updated with libcosmic build deps.
 
 ### Changed
 - **GUI toolkit: GTK4/relm4 → libcosmic** (COSMIC toolkit, iced-based Rust UI), pinned rev `430f3d48a97d8779f9c1985473912e594ccca1ae`. Reason: security — remove GTK/gdk-pixbuf/librsvg C parsers from the GUI process; visual coherence with the GTK Wayle shell is best-effort (distro already mixes COSMIC apps on niri). UX principles remain toolkit-independent.
 - Web frontend (v3): stack still undecided, but **memory-safe is now a binding constraint** (Rust→WASM preferred; TypeScript acceptable fallback) — `docs/specs/SPEC-web.md`.
+- CI release publishing split from the build job: build keeps `contents: read`; a separate publish job holds `contents: write` for tags/main, requires the flake job, verifies checksums, and publishes only missing tag assets without overwriting existing ones.
+- Audit directory is enforced `0750` (rejects root, symlink and world-writable parent); audit file remains `0600` and rejects symlink/non-regular targets.
 - Docs aligned: SPEC-gui, SPEC-users, PROJECT, intent (dated amendment), architecture overview, getting-started, ROADMAP, TASKS, handoff.
 
 ## [0.1.0] — 2026-10-19

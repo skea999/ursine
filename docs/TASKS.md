@@ -1,18 +1,34 @@
 # Tasks — Ursine
 
-**Milestone**: v0.2 — packages.nix (DONE) → v0.3 store GUI
-**Updated**: 2026-10-19
+**Milestone**: v0.3 — store GUI (login + home + store view DONE)
+**Updated**: 2026-10-20
 
 ## Current Sprint
 
 ### Todo
-- [ ] v0.3: store GUI (libcosmic): login (PAM prompt), home cards, nix store view, snapshots panel | P0 | agent
-- [ ] `dinit/ursined` service file + PAM service `/etc/pam.d/ursine` (auth-only, pam_unix) shipped for packaging | P1 | agent
+- [ ] v0.3: store GUI (libcosmic): search/install/remove/upgrade + snapshots panel (snapshots daemon module still `NotImplemented`) | P0 | agent
 - [ ] v0.4 users (accountsservice) + niri editor forms | P1 | agent
 - [ ] v3 (deferred): choose web GUI stack — **must be memory-safe** (Rust→WASM preferred: Leptos/Yew/Dioxus; TypeScript acceptable fallback). See `docs/specs/SPEC-web.md` | P2 | skea999
 
 ### In Progress
 - (empty)
+
+### Done — packaging primitives (2026-10-20)
+- [x] Cross-distro `install.sh`: absolute-path overrides + `DESTDIR` staging, PAM `pam_unix.so` detection with distro-specific install hints, conflict refusal + backup, automatic enable/start; **P1** | P1
+- [x] Installer hardening: `ursined --version` auth gate (stub refused unless `--allow-stub`; cross-arch staging refused unless `--allow-unverified-auth`), `mktemp` temps, strict path allowlist + `.`/`..` rejection, PAM `0644` via temp + rename, `0750` config dir, staging ownership warning | P0
+- [x] PAM service `packaging/pam.d/ursine` (auth + account, no session); release tarball installs it as root:root 0644 | P1
+- [x] Init units: `packaging/systemd/ursined.service`, `packaging/openrc/ursined`, `packaging/dinit/{ursined,ursined.wrapper,ursined.conf}` (FeralOS wrapper/config convention, `/lib/dinit.d` example) | P1
+- [x] Release tarball includes `install.sh` + `packaging/`; CI smoke-tests systemd/OpenRC/dinit staging, asserts PAM mode and `auth: pam` | P0
+- [x] Staging tests for systemd/OpenRC/dinit, idempotent rerun, conflict + `--force` backup; shell syntax + shellcheck green | P1
+- [x] Real PAM smoke in Alpine CI container: correct password → token, wrong password → `unauthorized`, expired account → `unauthorized`, token call works, audit contains no password material | P1
+- [x] CI publish split from build: package job read-only, publish job write-only/tag/main, flake added to package needs, checksum verified, idempotent tag asset publish without overwrite | P0
+- [x] systemd unit `[Install] WantedBy=multi-user.target` restored; audit dir enforced `0750` with parent/target checks; review findings triaged | P0
+
+### Done — v0.3 GUI store view (2026-10-20)
+- [x] `store.rs`: installed profile packages + generation history via `packages_nix.list_installed` / `packages_nix.generations`; Home ↔ Store navigation; Open disabled when the Nix capability is missing; busy/empty/error states; 75 s profile timeout; expired token returns to login; 81 tests green, clippy `-D warnings`, fmt clean | P0
+
+### Done — v0.3 GUI login + home (2026-10-20)
+- [x] GUI split into `app.rs` / `client.rs` / `login.rs` / `home.rs`; thin Unix-socket client (`auth` + `call`, 5 s timeout, `spawn_blocking`); login screen (username default from `USER`, password field, friendly auth errors); capability-gated home mirroring the daemon gate, with missing-capability reasons/fixes, refresh and sign out; session token RAM-only; 80 tests green, clippy `-D warnings`, fmt clean in dev container | P0
 
 ### Done — v0.3 libcosmic spike (2026-10-19)
 - [x] libcosmic pinned rev builds on musl; minimal window + real socket round-trip (`capabilities.list`, unauthenticated → expected `unauthorized`); env `URSINE_SOCKET` override; build deps added to `ci/Containerfile.dev`; CI `gui` job (build + clippy) added; daemon jobs exclude the GUI for speed | P0
@@ -47,7 +63,9 @@
 | Issue | Status | Workaround |
 |-------|--------|------------|
 | Nix flake full build never run locally (eval only) | open | first CI run validates; CI flake job is the gate |
-| PAM real auth path untested (no libpam on dev host; stub only) | open | test on FeralOS with `/etc/pam.d/ursine`; CI compiles the feature |
+| PAM real auth path not yet tested on a FeralOS target | open | Alpine container PAM smoke green; run the PAM-feature build on FeralOS with a real user before v1.0 |
+| Full init activation not tested | open | `systemd-analyze verify` green, `dinitcheck` green; OpenRC start blocked by container read-only cgroups. Run on a disposable VM/real target. |
+| GitHub Actions package/publish and checksum path not run | open | local Alpine release tarball smoke green; first CI run validates |
 | `.opencode/package.json` + lock tracked while `.opencode/.gitignore` exists | resolved | ignore lines dropped; files tracked intentionally |
 | Agent fixes (hidden/quote/no-model) diverge from skea-store template | open | promote upstream when skea999 decides |
 
