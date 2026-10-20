@@ -11,7 +11,20 @@
 # path, so the upgraded binary is used after the restart.
 set -eu
 
-PROFILE=${URSINE_PROFILE:-/nix/var/nix/profiles/ursine}
+PROFILE=${URSINE_PROFILE:-}
+if [ -z "$PROFILE" ]; then
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+        user_home=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6) || user_home=
+        [ -n "$user_home" ] || user_home="/home/$SUDO_USER"
+        if [ -x "$user_home/.nix-profile/bin/ursined" ]; then
+            PROFILE="$user_home/.nix-profile"
+        fi
+    fi
+    if [ -z "$PROFILE" ] && [ -x "${HOME:-}/.nix-profile/bin/ursined" ]; then
+        PROFILE="${HOME}/.nix-profile"
+    fi
+    [ -n "$PROFILE" ] || PROFILE=/nix/var/nix/profiles/ursine
+fi
 ROOT=
 INIT=
 START=1

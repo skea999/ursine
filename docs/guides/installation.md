@@ -6,30 +6,28 @@ Linux distribution; only paths and the init system are detected or selected.
 
 ## Nix profile
 
-Nix can install the binaries, but system files must be activated explicitly:
-
 ```bash
-sudo nix profile add --profile /nix/var/nix/profiles/ursine \
-  github:skea999/ursine#ursine
-sudo nix run github:skea999/ursine#activate -- \
-  --profile /nix/var/nix/profiles/ursine
+# 1. Add the flake
+nix registry add ursine github:skea999/ursine
+
+# 2. Install in the default profile
+nix profile add ursine#ursine
+
+# 3. Bootstrap the service (detects systemd, OpenRC or dinit)
+sudo nix run github:skea999/ursine#activate
 ```
 
-`ursine-activate` detects systemd, OpenRC or dinit, writes `/etc/pam.d/ursine`
-as a symlink into the profile, renders the unit with
-`ExecStart=/nix/var/nix/profiles/ursine/bin/ursined`, and restarts the service.
-Re-run it after every upgrade:
+`ursine-activate` writes `/etc/pam.d/ursine` as a symlink into the profile,
+renders the init unit with the profile's `bin/ursined`, and restarts the
+service. Re-run it after every upgrade:
 
 ```bash
-sudo nix profile upgrade --profile /nix/var/nix/profiles/ursine ursine
-sudo nix run github:skea999/ursine#activate -- \
-  --profile /nix/var/nix/profiles/ursine
+nix profile upgrade ursine
+sudo nix run github:skea999/ursine#activate
 ```
 
-Use `--init`, `--no-start`, or `--root <dir>` for staged tests. The activation
+Use `--init`, `--no-start`, or `--root <dir>` for advanced/staged tests. The
 script is idempotent and refreshes changed PAM/unit assets.
-
-If the package is in a user profile, pass `--profile /home/<user>/.nix-profile`.
 
 ## Release tarball
 
