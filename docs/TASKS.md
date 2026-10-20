@@ -67,7 +67,7 @@
 | Nix flake full build never run locally (eval only) | open | first CI run validates; CI flake job is the gate |
 | PAM real auth path not yet tested on a FeralOS target | open | Alpine container PAM smoke green; run the PAM-feature build on FeralOS with a real user before v1.0 |
 | Full init activation not tested | open | `systemd-analyze verify` green, `dinitcheck` green; OpenRC start blocked by container read-only cgroups. Run on a disposable VM/real target. |
-| GitHub Actions package/publish and checksum path not run | open | local Alpine release tarball smoke green; first CI run validates |
+| GitHub Actions package build/cache green; tag publish + auto-pin path not run | open | forced `workflow_dispatch` package + installer smoke green (cache miss then hit); tag a release to exercise publish/auto-pin/flake archive/verify-pin |
 | `.opencode/package.json` + lock tracked while `.opencode/.gitignore` exists | resolved | ignore lines dropped; files tracked intentionally |
 | Agent fixes (hidden/quote/no-model) diverge from skea-store template | open | promote upstream when skea999 decides |
 

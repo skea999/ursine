@@ -6,9 +6,9 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
-## Session 2026-10-20 — README + release CI gate (uncommitted)
+## Session 2026-10-20 — README + release CI gate (CI GREEN)
 
-**Status**: commit `38d8ac0` contains packaging/v0.3 GUI/permissions. README and CI release changes are pending commit/push.
+**Status**: `07ceab2` pushed to `main`. CI run `39443274243` (force_package) and `39447071012` (cache re-run) both green.
 
 - Added root `README.md`: intro, Nix install/input instructions, local dev flake, project overview.
 - CI `version` job reads `[workspace.package].version`; package runs only for tags/new versions. PR package smoke runs only for source/packaging path changes; `workflow_dispatch` has `force_package` override.
@@ -17,12 +17,13 @@ See `AGENTS.md` for project context and milestone history.
 - Added `verify-pin` job: after a tag release, fetches `main` and runs `nix flake check` against the auto-updated pin.
 - `getting-started` and packaging spec corrected: flake packages a pinned dynamic-musl release artifact, not a static/source build; `nix run` replaced with `nix build github:skea999/ursine#ursine`.
 - Validation: workflow YAML parses; version gate simulation returns `release=false` for current v0.1.0; Nix files parse; README links resolve; pin `sed` substitution tested.
-- `.agent-memory/2026/10/20.jsonl` updated and must be included in the push.
+- GitHub Actions: first forced run (cache miss) green in ~18 min; package build + installer smoke green. Second forced run (cache hit) green; cache `cargo-release-Linux-cfd210d5...` restored 578 MB, package build ~6 min. `Stage release assets`/publish skipped for workflow_dispatch as designed.
+- `.agent-memory/2026/10/20.jsonl` updated and pushed with `07ceab2`.
 
 **Next**:
-1. Stage/commit README, CI, docs, and agent memory; push `main`.
-2. Run `workflow_dispatch` with `force_package=true`, then verify package/cache.
-3. Bump workspace version before the next tag; tag triggers auto-pin + flake asset + verify-pin.
+1. Bump workspace version before the next tag.
+2. Tag release to exercise auto-pin, flake archive, and `verify-pin`.
+3. Run PAM smoke on FeralOS and full OpenRC boot on a disposable VM.
 
 ## Session 2026-10-20 — packaging review hardening (uncommitted)
 
