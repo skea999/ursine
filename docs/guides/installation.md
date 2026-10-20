@@ -29,6 +29,8 @@ sudo nix run github:skea999/ursine#activate -- \
 Use `--init`, `--no-start`, or `--root <dir>` for staged tests. The activation
 script is idempotent and refreshes changed PAM/unit assets.
 
+If the package is in a user profile, pass `--profile /home/<user>/.nix-profile`.
+
 ## Release tarball
 
 ```bash

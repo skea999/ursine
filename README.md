@@ -50,6 +50,10 @@ The activation script is idempotent; re-run it after every upgrade. It installs
 automatically. `--init systemd|openrc|dinit`, `--no-start`, and
 `--root <dir>` are available for scripting and staged tests.
 
+If the package was installed into your user profile instead, pass the absolute
+profile path: `--profile /home/<user>/.nix-profile`. The activation script still
+runs as root; the unit points at that stable profile.
+
 The generated init unit and PAM policy are the only system integration. The
 Nix package itself never writes outside the Nix store.
 
