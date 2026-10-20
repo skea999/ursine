@@ -6,7 +6,7 @@ Everything that makes Ursine buildable, testable, releasable and packagable — 
 
 ## Tech Stack
 
-- Nix flake: packages the **pinned musl release artifact** (`nix/binary.nix`: URL + sha256) — a `stdenvNoCC` derivation, no compilation. WHY: nixpkgs does not cache `pkgsMusl`/`pkgsStatic` toolchains (stable branches included — verified on nixos-26.05), so a from-source musl build compiles musl+rustc for hours on every run. Binaries are built in the Alpine CI container (same libc, fast) and the flake makes them consumable reproducibly (`nix build github:skea999/ursine#ursine`). The tarball also contains `install.sh` and `packaging/`, so the flake output can install the PAM service and init unit with root. CI updates the pin on every `v*` tag; the pinned v0.1.0 artifact predates this layout, so the next tagged release carries it.
+- Nix flake: packages the **pinned musl release artifact** (`nix/binary.nix`: URL + sha256) — a `stdenvNoCC` derivation, no compilation. WHY: nixpkgs does not cache `pkgsMusl`/`pkgsStatic` toolchains (stable branches included — verified on nixos-26.05), so a from-source musl build compiles musl+rustc for hours on every run. Binaries are built in the Alpine CI container (same libc, fast) and the flake makes them consumable reproducibly (`nix build github:skea999/ursine#ursine`). The tarball also contains `install.sh` and `packaging/`, and the flake exposes `apps.activate` (`scripts/ursine-activate.sh`) to install the PAM service and init unit against a stable profile. CI updates the pin on every `v*` tag; the pinned v0.3.0 tarball predates the activation script, so the next tagged release carries it.
 - Binaries are **dynamic musl** (never static): PAM loads `pam_unix.so` via `dlopen`; static musl has no dlopen. glibc variants are a v6 concern (two artifacts from the same source).
 - **Release checklist**: CI updates `nix/binary.nix` version/url/sha256 on every `v*` tag; manual bump remains the fallback (`sha256sum` of the tarball). The tarball must contain `bin/`, `install.sh` and `packaging/`; CI smoke-tests the installer into a staging root.
 - **CI fully containerized (binding)**: every job runs inside a container on GitHub-hosted runners — NO build toolchain installed on the host:
@@ -54,6 +54,7 @@ flake.lock
 .github/workflows/ci.yml   test matrix + flake + release (installer smoke test)
 .cargo/config.toml         target-dir = "artifacts/target" + musl dynamic (-crt-static off)
 ci/Containerfile.dev       dev/CI image: rust:1-alpine + linux-pam-dev + clippy/rustfmt
+scripts/ursine-activate.sh Nix profile activation: init detection, PAM symlink, unit render, restart
 scripts/clean-artifacts.sh keep LAST 3 nix out-links + nix-collect-garbage (-d); --all = + cargo clean
 install.sh                 cross-distro installer: paths, PAM, systemd/OpenRC/dinit
 packaging/

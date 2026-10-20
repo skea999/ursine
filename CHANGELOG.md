@@ -4,6 +4,7 @@
 
 ### Added
 - `README.md`: Nix flake install/input instructions and project overview.
+- Nix activation script (`scripts/ursine-activate.sh`): detects systemd/OpenRC/dinit, installs PAM as a profile symlink, renders the init unit against the stable Nix profile, and restarts the daemon. Idempotent; re-run after every profile upgrade so PAM/unit changes apply.
 - CI release gate reads the workspace version; the expensive `package` job runs only for a tag or a new version, while PR packaging smoke runs only when build inputs change. Cargo registry and `artifacts/target` use GitHub Actions cache.
 - Tag releases update `nix/binary.nix` on `main` and attach `ursine-flake-<tag>.tar.gz`; `nix flake update` follows the release pin.
 - Cross-distro release installer (`install.sh`): absolute-path overrides plus `DESTDIR` staging, automatic `/etc/pam.d/ursine` install with `pam_unix.so` detection and distro-specific hints, conflict refusal with `--force` backup, and automatic enable/start. Init units for **systemd, OpenRC and dinit** (FeralOS wrapper/config convention); `--init` forces the target when packaging.

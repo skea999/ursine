@@ -55,6 +55,10 @@
           type = "app";
           program = "${ursine}/bin/ursined";
         };
+        activate = {
+          type = "app";
+          program = "${ursine}/bin/ursine-activate";
+        };
       };
     };
 }

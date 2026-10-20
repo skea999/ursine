@@ -37,7 +37,8 @@ mkdir -p "$out/bin"
 
 cp "$root/artifacts/target/release/ursined" "$out/bin/ursined"
 cp "$root/artifacts/target/release/ursine" "$out/bin/ursine"
-chmod 755 "$out/bin/ursined" "$out/bin/ursine"
+cp "$root/scripts/ursine-activate.sh" "$out/bin/ursine-activate"
+chmod 755 "$out/bin/ursined" "$out/bin/ursine" "$out/bin/ursine-activate"
 
 rm -rf "$out/packaging"
 cp -R "$root/packaging" "$out/packaging"

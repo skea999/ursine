@@ -33,6 +33,9 @@
           mkdir -p $out
           tar xzf $src -C $out
           chmod +x $out/bin/ursined $out/bin/ursine
+          if [ -e $out/bin/ursine-activate ]; then
+            chmod +x $out/bin/ursine-activate
+          fi
         '';
 
         meta = {
@@ -46,6 +49,13 @@
       packages.${system} = {
         default = ursine;
         inherit ursine;
+      };
+
+      apps.${system}.activate = {
+        type = "app";
+        program = "${pkgs.writeShellScript "ursine-activate" ''
+          exec ${pkgs.bash}/bin/bash ${./scripts/ursine-activate.sh} "$@"
+        ''}";
       };
 
       # `nix build --out-link artifacts/result` → artifacts/result/bin/{ursined,ursine}

@@ -4,6 +4,31 @@ Ursine ships as a release tarball containing both binaries, the PAM service and
 init units for systemd, OpenRC and dinit. The installer is the same on every
 Linux distribution; only paths and the init system are detected or selected.
 
+## Nix profile
+
+Nix can install the binaries, but system files must be activated explicitly:
+
+```bash
+sudo nix profile add --profile /nix/var/nix/profiles/ursine \
+  github:skea999/ursine#ursine
+sudo nix run github:skea999/ursine#activate -- \
+  --profile /nix/var/nix/profiles/ursine
+```
+
+`ursine-activate` detects systemd, OpenRC or dinit, writes `/etc/pam.d/ursine`
+as a symlink into the profile, renders the unit with
+`ExecStart=/nix/var/nix/profiles/ursine/bin/ursined`, and restarts the service.
+Re-run it after every upgrade:
+
+```bash
+sudo nix profile upgrade --profile /nix/var/nix/profiles/ursine ursine
+sudo nix run github:skea999/ursine#activate -- \
+  --profile /nix/var/nix/profiles/ursine
+```
+
+Use `--init`, `--no-start`, or `--root <dir>` for staged tests. The activation
+script is idempotent and refreshes changed PAM/unit assets.
+
 ## Release tarball
 
 ```bash

@@ -19,11 +19,13 @@ See `AGENTS.md` for project context and milestone history.
 - Validation: workflow YAML parses; version gate simulation returns `release=false` for current v0.1.0; Nix files parse; README links resolve; pin `sed` substitution tested.
 - GitHub Actions: first forced run (cache miss) green in ~18 min; second forced run (cache hit) green, cache `cargo-release-Linux-cfd210d5...` restored 578 MB. Tag `v0.3.0` run green: release assets `ursine-v0.3.0-x86_64-musl.tar.gz`, checksum, `ursine-flake-v0.3.0.tar.gz`, checksum; `nix/binary.nix` auto-pin `bdbf6ce`; `verify-pin` passed.
 - `.agent-memory/2026/10/20.jsonl` updated and pushed.
+- Added `scripts/ursine-activate.sh` + `nix run .#activate`: detects systemd/OpenRC/dinit, symlinks PAM to the stable profile, renders the unit against `$PROFILE/bin/ursined`, and restarts the service. Idempotent; rerun after every `nix profile upgrade`. Staged tests for all three inits, dry-run, idempotency, PAM force/refusal, shellcheck, and `nix run .#activate` green.
+- Installed `ursine` v0.3.0 into the user Nix profile; `ursined 0.3.0 (auth: pam)`. Host system service/PAM not activated yet (needs root).
 
 **Next**:
-1. v0.3 store mutations/search + snapshots panel.
-2. Run PAM smoke on FeralOS and full OpenRC boot on a disposable VM.
-3. Use `github:skea999/ursine` as a flake input; update on future tags.
+1. Activate the host service as root (system profile or explicit `--profile`).
+2. v0.3 store mutations/search + snapshots panel.
+3. Run PAM smoke on FeralOS and full OpenRC boot on a disposable VM.
 
 ## Session 2026-10-20 — packaging review hardening (uncommitted)
 

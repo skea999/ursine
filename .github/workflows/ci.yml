@@ -235,6 +235,8 @@ jobs:
           mkdir -p artifacts/pkg/bin
           cp artifacts/target/release/ursined artifacts/target/release/ursine artifacts/pkg/bin/
           cp install.sh artifacts/pkg/
+          cp scripts/ursine-activate.sh artifacts/pkg/bin/ursine-activate
+          chmod 755 artifacts/pkg/bin/ursine-activate
           cp -r packaging artifacts/pkg/
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             NAME="ursine-${GITHUB_REF_NAME}-x86_64-musl.tar.gz"
@@ -254,6 +256,8 @@ jobs:
           sh -n packaging/dinit/ursined.wrapper
           mkdir -p artifacts/smoke
           tar xzf "$ASSET" -C artifacts/smoke
+          test -x artifacts/smoke/bin/ursine-activate
+          sh -n artifacts/smoke/bin/ursine-activate
           for init in systemd openrc dinit; do
             root="$PWD/artifacts/smoke/root-$init"
             case "$init" in
@@ -278,6 +282,24 @@ jobs:
             test -x "$root/usr/bin/ursine"
             test -x "$root/usr/sbin/ursined"
             test "$("$root/usr/sbin/ursined" --version | grep -c 'auth: pam')" = "1"
+          done
+          profile="$PWD/artifacts/smoke/profile"
+          mkdir -p "$profile"
+          cp -R artifacts/smoke/bin artifacts/smoke/packaging "$profile/"
+          for init in systemd openrc dinit; do
+            root="$PWD/artifacts/smoke/activate-$init"
+            artifacts/smoke/bin/ursine-activate --profile "$profile" --root "$root" --init "$init" --no-start
+            test -f "$root/etc/pam.d/ursine"
+            test "$(readlink "$root/etc/pam.d/ursine")" = "$profile/packaging/pam.d/ursine"
+            case "$init" in
+            systemd) test -f "$root/etc/systemd/system/ursined.service" ;;
+            openrc) test -x "$root/etc/init.d/ursined" ;;
+            dinit)
+              test -f "$root/lib/dinit.d/ursined"
+              test -x "$root/usr/lib/dinit/ursined"
+              test -f "$root/etc/dinit.d/config/ursined.conf"
+              ;;
+            esac
           done
       - name: Stage release assets
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
@@ -373,7 +395,7 @@ jobs:
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
       - name: Package flake source
         run: |
-          tar czf "artifacts/release/$FLAKE_ASSET" flake.nix flake.lock nix README.md
+          tar czf "artifacts/release/$FLAKE_ASSET" flake.nix flake.lock nix scripts/ursine-activate.sh README.md
           sha256sum "artifacts/release/$FLAKE_ASSET" > "artifacts/release/$FLAKE_ASSET.sha256"
       - name: Attach flake to tag release
         if: startsWith(github.ref, 'refs/tags/v')
