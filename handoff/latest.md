@@ -6,6 +6,24 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-20 — README + release CI gate (uncommitted)
+
+**Status**: commit `38d8ac0` contains packaging/v0.3 GUI/permissions. README and CI release changes are pending commit/push.
+
+- Added root `README.md`: intro, Nix install/input instructions, local dev flake, project overview.
+- CI `version` job reads `[workspace.package].version`; package runs only for tags/new versions. PR package smoke runs only for source/packaging path changes; `workflow_dispatch` has `force_package` override.
+- Added Cargo registry/target cache (`actions/cache`) to the release package job.
+- Tag releases verify the published checksum, update `nix/binary.nix` on `main`, and attach `ursine-flake-<tag>.tar.gz` (`flake.nix`, `flake.lock`, `nix/`, `README.md`).
+- Added `verify-pin` job: after a tag release, fetches `main` and runs `nix flake check` against the auto-updated pin.
+- `getting-started` and packaging spec corrected: flake packages a pinned dynamic-musl release artifact, not a static/source build; `nix run` replaced with `nix build github:skea999/ursine#ursine`.
+- Validation: workflow YAML parses; version gate simulation returns `release=false` for current v0.1.0; Nix files parse; README links resolve; pin `sed` substitution tested.
+- `.agent-memory/2026/10/20.jsonl` updated and must be included in the push.
+
+**Next**:
+1. Stage/commit README, CI, docs, and agent memory; push `main`.
+2. Run `workflow_dispatch` with `force_package=true`, then verify package/cache.
+3. Bump workspace version before the next tag; tag triggers auto-pin + flake asset + verify-pin.
+
 ## Session 2026-10-20 — packaging review hardening (uncommitted)
 
 **Status**: packaging primitives are review-hardened and locally green; no commit/push yet.

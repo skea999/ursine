@@ -3,6 +3,9 @@
 ## [Unreleased] — 2026-10-20
 
 ### Added
+- `README.md`: Nix flake install/input instructions and project overview.
+- CI release gate reads the workspace version; the expensive `package` job runs only for a tag or a new version, while PR packaging smoke runs only when build inputs change. Cargo registry and `artifacts/target` use GitHub Actions cache.
+- Tag releases update `nix/binary.nix` on `main` and attach `ursine-flake-<tag>.tar.gz`; `nix flake update` follows the release pin.
 - Cross-distro release installer (`install.sh`): absolute-path overrides plus `DESTDIR` staging, automatic `/etc/pam.d/ursine` install with `pam_unix.so` detection and distro-specific hints, conflict refusal with `--force` backup, and automatic enable/start. Init units for **systemd, OpenRC and dinit** (FeralOS wrapper/config convention); `--init` forces the target when packaging.
 - Release tarballs now include `install.sh` and `packaging/`; CI stages systemd, OpenRC and dinit installs, asserts PAM `0644`, and runs the staged daemon to require `auth: pam`.
 - Installer safety: refuses stub-auth daemons unless `--allow-stub`, requires `--allow-unverified-auth` for cross-architecture staging, uses `mktemp` temp files, restricts paths to `[A-Za-z0-9/._+-]` and rejects `.`/`..` components, sets PAM mode on the temp file before rename, and warns on non-root staged ownership.

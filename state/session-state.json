@@ -3,13 +3,15 @@
   "status": "v0.3-in-progress",
   "active_goals": [
     "v0.1 SKELETON + v0.2 packages.nix DONE & GREEN (78 tests, CI all green, release latest published).",
-    "GUI stack decided 2026-10-19: libcosmic (security > visual coherence with Wayle GTK shell). Web GUI must be memory-safe (stack TBD, SPEC-web). v0.3 login + home + store view DONE 2026-10-20 (81 tests green). NEXT: store mutations/search + snapshots panel."
+    "GUI stack decided 2026-10-19: libcosmic (security > visual coherence with Wayle GTK shell). Web GUI must be memory-safe (stack TBD, SPEC-web). v0.3 login + home + store view DONE 2026-10-20 (81 tests green). NEXT: store mutations/search + snapshots panel.",
+    "Packaging/CI 2026-10-20: cross-distro installer + PAM + systemd/OpenRC/dinit, README Nix docs, version-gated release job, Cargo cache, tag auto-pin of nix/binary.nix, flake source asset, verify-pin job."
   ],
   "next_actions": [
     "v0.3 next: store search/install/remove/upgrade UI with confirmations + per-user selector; snapshots panel (daemon snapshots module still NotImplemented \u2014 implement btrbk module first).",
     "v0.3 polish: show daemon version from system.status on Home; proactive token-expiry timer (reactive sign-out already handled).",
     "PACKAGING PRIMITIVES GREEN 2026-10-20: installer auth gate (`--allow-stub`; cross-arch staging requires `--allow-unverified-auth`), mktemp temps, strict path + traversal rejection, PAM 0644 via temp+rename, systemd [Install], CI build/publish split + all-init staging smoke, audit dir 0750 and symlink rejection. Real PAM auth + expired account green; packaged installer all-init smoke + release tarball green. NEXT: FeralOS target login, runtime activation (`systemd-analyze`/OpenRC/dinit), first GitHub CI package/publish run.",
     "PRE-COMMIT: run final diff review, cargo gate + installer matrix already green; then commit/push/tag and verify CI/release checksum.",
+    "PACKAGING/CI 2026-10-20: commit/push current changes (including .agent-memory); run workflow_dispatch force_package to validate package+cache; bump workspace version before the next tag. Tag releases auto-pin nix/binary.nix and publish ursine-flake-<tag>.tar.gz; verify-pin validates main.",
     "v0.4: users + niri. Then v1.0 packaging in feralos-aports.",
     "Optional: promote agent fixes (hidden/no-model/quote) to skea-store template (15 files differ)."
   ],
@@ -41,7 +43,7 @@
     "Dev machine lacks libpam headers; pam must be feature-gated with stub fallback.",
     "Release binaries are dynamic musl; Debian glibc staging works, but the musl daemon cannot execute there without a musl loader (glibc artifacts are v6).",
     "PAM real login tested in Alpine CI container (including expired account): correct password -> token, wrong password/expired -> unauthorized, audit has no password material. FeralOS target login still pending.",
-    "Systemd/OpenRC/dinit activation and GitHub CI package/publish have not run on a real target. `systemd-analyze verify` and `dinitcheck` green; OpenRC start blocked by container read-only cgroups. Installer staging covers all three units; local PAM tarball smoke green.",
+    "Systemd/OpenRC/dinit activation and GitHub CI package/publish have not run on a real target. `systemd-analyze verify` and `dinitcheck` green; OpenRC start blocked by container read-only cgroups. The version gate, Cargo cache, tag auto-pin, flake source asset, and verify-pin job are also unrun until the next push/tag.",
     "Scope is now large (v1-v6): discipline via capability-gated modules and thin frontends; never let per-module logic leak into frontends.",
     ".opencode/package.json + package-lock.json tracked while .opencode/.gitignore ignores them \u2014 decide: git rm --cached or drop ignore lines.",
     ".opencode-agents-version marker (2.6.0) untracked at root \u2014 decide: track or gitignore.",

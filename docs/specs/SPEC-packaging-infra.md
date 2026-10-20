@@ -6,9 +6,9 @@ Everything that makes Ursine buildable, testable, releasable and packagable — 
 
 ## Tech Stack
 
-- Nix flake: packages the **pinned musl release artifact** (`nix/binary.nix`: URL + sha256) — a `stdenvNoCC` derivation, no compilation. WHY: nixpkgs does not cache `pkgsMusl`/`pkgsStatic` toolchains (stable branches included — verified on nixos-26.05), so a from-source musl build compiles musl+rustc for hours on every run. Binaries are built in the Alpine CI container (same libc, fast) and the flake makes them consumable reproducibly (`nix run github:skea999/ursine`). The tarball also contains `install.sh` and `packaging/`, so the flake output can install the PAM service and init unit with root. The pinned v0.1.0 artifact predates this layout; the next tagged release carries it.
+- Nix flake: packages the **pinned musl release artifact** (`nix/binary.nix`: URL + sha256) — a `stdenvNoCC` derivation, no compilation. WHY: nixpkgs does not cache `pkgsMusl`/`pkgsStatic` toolchains (stable branches included — verified on nixos-26.05), so a from-source musl build compiles musl+rustc for hours on every run. Binaries are built in the Alpine CI container (same libc, fast) and the flake makes them consumable reproducibly (`nix build github:skea999/ursine#ursine`). The tarball also contains `install.sh` and `packaging/`, so the flake output can install the PAM service and init unit with root. CI updates the pin on every `v*` tag; the pinned v0.1.0 artifact predates this layout, so the next tagged release carries it.
 - Binaries are **dynamic musl** (never static): PAM loads `pam_unix.so` via `dlopen`; static musl has no dlopen. glibc variants are a v6 concern (two artifacts from the same source).
-- **Release checklist**: bump `nix/binary.nix` version/url/sha256 on every tag (`sha256sum` of the tarball). The tarball must contain `bin/`, `install.sh` and `packaging/`; CI smoke-tests the installer into a staging root.
+- **Release checklist**: CI updates `nix/binary.nix` version/url/sha256 on every `v*` tag; manual bump remains the fallback (`sha256sum` of the tarball). The tarball must contain `bin/`, `install.sh` and `packaging/`; CI smoke-tests the installer into a staging root.
 - **CI fully containerized (binding)**: every job runs inside a container on GitHub-hosted runners — NO build toolchain installed on the host:
   - cargo jobs: `container: alpine:3.22` (FeralOS target branch) + `apk add rust cargo git nodejs` (`nodejs` required so JS actions like checkout run inside the musl container); `linux-pam-dev` added only for `pam` matrix jobs
   - flake/release jobs: `container: nixos/nix` (git present / `nix-env -iA nixpkgs.git` if missing) — nix itself runs INSIDE the container
@@ -22,9 +22,12 @@ Everything that makes Ursine buildable, testable, releasable and packagable — 
    - `apk add rust cargo git nodejs` (+ `linux-pam-dev` on pam jobs)
    - `cargo test --workspace --no-default-features` / `--features pam` / `--features full`
    - gate: `cargo clippy --workspace --all-features -- -D warnings` + `cargo fmt --check`
-2. `flake`: **container** `nixos/nix` → `nix flake check` + `nix build --out-link artifacts/result` on push/PR — builds the pinned binary package in seconds (out-link rule: nothing but source files ever appears at repo root)
-3. `package` job (alpine rust image) builds release binaries → versioned GitHub Release on tags, rolling `latest` prerelease on main. Flake consumption: `github:skea999/ursine` (pinned via `nix/binary.nix`)
-4. NO job installs rustup/cargo/nix on the host runner; actions that need node work because containers provide `nodejs` (alpine) or ship it (nix image)
+2. `version` gate: reads `Cargo.toml`; on a tag it must equal `v<version>`. The expensive `package` job runs only for a tag or a version without an existing tag; PRs run it only when build inputs change. Cargo registry and `artifacts/target` are cached with `actions/cache`.
+3. `flake`: **container** `nixos/nix` → `nix flake check` + `nix build --out-link artifacts/result` on push/PR — builds the pinned binary package in seconds (out-link rule: nothing but source files ever appears at repo root)
+4. `package` job (alpine rust image) builds release binaries → versioned GitHub Release on tags, rolling `latest` prerelease on main. It is skipped when the workspace version is already tagged, unless a PR changes build inputs.
+5. `publish` verifies the published checksum, updates `nix/binary.nix` on main on tags, and attaches `ursine-flake-<tag>.tar.gz` (`flake.nix`, `flake.lock`, `nix/`, `README.md`). Flake consumption: `github:skea999/ursine` (pinned via `nix/binary.nix`).
+6. `verify-pin` re-runs `nix flake check` against main after a tag release, proving the auto-updated pin resolves.
+7. NO job installs rustup/cargo/nix on the host runner; actions that need node work because containers provide `nodejs` (alpine) or ship it (nix image)
 
 ## Commands
 
@@ -34,7 +37,7 @@ docker run --rm -it -v "$PWD:/work" -w /work rust:alpine cargo test --workspace
 docker run --rm -it -v "$PWD:/work" -w /work rust:alpine sh -c "apk add linux-pam-dev && cargo build -p ursined --features pam"
 
 # nix
-nix build --out-link artifacts/result   # both binaries, dynamic musl; symlink in artifacts/
+nix build --out-link artifacts/result .#ursine   # both binaries, dynamic musl; symlink in artifacts/
 nix flake check
 
 # release tarball installer (staging; no host changes)
@@ -72,7 +75,7 @@ Run `scripts/clean-artifacts.sh` after builds or whenever disk is tight
 ## Code Style
 
 - Workflow YAML: one job per concern, `fail-fast: false`, concurrency cancel on branch
-- flake.nix: crane or naersk for musl builds; outputs: `packages.x86_64-linux.ursined`, `.ursine`, default package set; `devShells` NOT promised (Docker is the dev env)
+- flake.nix: `stdenvNoCC` package over the pinned release artifact; outputs: `packages.x86_64-linux.ursine`, default package; `devShells` NOT promised (Docker is the dev env; use `nix/dev-flake.nix` for current-tree testing)
 
 ## Testing Strategy
 
@@ -92,7 +95,7 @@ Run `scripts/clean-artifacts.sh` after builds or whenever disk is tight
 - Tag → GitHub Release with musl binaries + installer + PAM/init assets; installer staging smoke test passes
 - A dev machine with only Docker can build and test everything
 - `sudo ./install.sh` on systemd, OpenRC and dinit installs the PAM service and starts `ursined`
-- `nix run github:skea999/ursine#ursined -- --version` works on any nix-enabled musl host
+- `nix build github:skea999/ursine#ursine` works on any nix-enabled musl host
 
 ## Open Questions
 

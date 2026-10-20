@@ -6,7 +6,8 @@
 # (PAM modules are dlopen'ed; static musl has no dlopen), so the artifact is
 # built in the Alpine CI container (same libc, fast) and pinned here.
 #
-# RELEASE CHECKLIST: bump version/url/sha256 on every tag.
+# RELEASE CHECKLIST: CI updates version/url/sha256 on every `v*` tag; keep this
+# as the manual fallback.
 #   sha256sum ursine-<ver>-x86_64-musl.tar.gz
 {
   version = "0.1.0";

@@ -49,13 +49,15 @@ rustup target add x86_64-unknown-linux-musl
 cargo install cargo-audit   # optional: dependency vulnerability scan
 ```
 
-Note: the nix flake (`flake.nix`, to be created at v0.1) builds statically on
-musl via `pkgsMusl`/`pkgsStatic` — never glibc. CI runs `nix flake check` +
-`nix build` and publishes Release artifacts on tags.
+The release flake (`flake.nix`) packages the pinned dynamic-musl release
+tarball in `nix/binary.nix`; it does not compile the workspace inside Nix. CI
+runs `nix flake check` + `nix build` and publishes the release tarball plus a
+flake source archive. See [README](../../README.md) for Nix commands and flake
+input setup.
 
 ```bash
 # nix build (local): ALWAYS out-link into artifacts/ — nothing at repo root
-nix build --out-link artifacts/result
+nix build --out-link artifacts/result .#ursine
 ```
 
 ## Disk space

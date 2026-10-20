@@ -22,6 +22,8 @@
 - [x] Staging tests for systemd/OpenRC/dinit, idempotent rerun, conflict + `--force` backup; shell syntax + shellcheck green | P1
 - [x] Real PAM smoke in Alpine CI container: correct password → token, wrong password → `unauthorized`, expired account → `unauthorized`, token call works, audit contains no password material | P1
 - [x] CI publish split from build: package job read-only, publish job write-only/tag/main, flake added to package needs, checksum verified, idempotent tag asset publish without overwrite | P0
+- [x] CI release gate: package skipped when workspace version is already tagged; PR packaging smoke only on build-input changes; Cargo registry/target cache; tag releases auto-pin `nix/binary.nix` and publish `ursine-flake-<tag>.tar.gz` | P0
+- [x] `README.md` documents Nix build/input usage, release pin behavior, local dev flake, and project overview | P1
 - [x] systemd unit `[Install] WantedBy=multi-user.target` restored; audit dir enforced `0750` with parent/target checks; review findings triaged | P0
 
 ### Done — v0.3 GUI store view (2026-10-20)
