@@ -8,7 +8,7 @@ See `AGENTS.md` for project context and milestone history.
 
 ## Session 2026-10-21 — settings + manual module modes (uncommitted)
 
-**Status**: implemented, review-hardened, and locally green; pending commit/push.
+**Status**: committed in `ce74ca0`; memory commit `9abbba6`; CI run `39591026879` green.
 
 - Added a dedicated Settings screen opened by a gear icon in Home's top-right.
 - Settings shows detected capabilities, refreshes them, and edits module modes: Auto, Manual on, Manual off.
@@ -20,8 +20,8 @@ See `AGENTS.md` for project context and milestone history.
 - Validation: fmt; 24 API tests + 6 protocol integration tests + 58 core tests; 6 GUI tests; clippy for daemon/workspace and GUI with `-D warnings` (`artifacts/logs/settings-gate-final.log`). GUI visual smoke still pending.
 
 **Next**:
-1. Commit/push the reviewed diff.
-2. Run the real daemon + GUI and verify settings persistence plus live gating.
+1. Run the real daemon + GUI and verify settings persistence plus live gating.
+2. Release v0.3.1 when ready so the Nix package contains this feature.
 3. Continue v0.3 store mutations/search and snapshots.
 
 ## Session 2026-10-20 — README + release CI gate (v0.3.0 RELEASED)
