@@ -6,9 +6,21 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-21 — v0.3.1 RELEASED
+
+**Status**: `v0.3.1` tagged and released. Tag CI run `39602272962` green; `nix/binary.nix` auto-pinned on `main` in `8dada79`; `verify-pin` green.
+
+- Release assets: `ursine-v0.3.1-x86_64-musl.tar.gz`, checksum, `ursine-flake-v0.3.1.tar.gz`, checksum.
+- Local Nix profile upgraded: `ursined 0.3.1 (auth: pam)`; activation/deactivation tools present.
+- Release policy documented: feature releases bump minor, patches only when explicitly requested, major only when marked in the workflow.
+
+**Next**:
+1. Real daemon + GUI smoke for Settings persistence/live gating.
+2. Continue v0.3 store mutations/search and snapshots.
+
 ## Session 2026-10-21 — settings + manual module modes (uncommitted)
 
-**Status**: committed in `ce74ca0`; memory commit `9abbba6`; CI run `39591026879` green.
+**Status**: committed in `ce74ca0`; released as `v0.3.1` (CI `39602272962`).
 
 - Added a dedicated Settings screen opened by a gear icon in Home's top-right.
 - Settings shows detected capabilities, refreshes them, and edits module modes: Auto, Manual on, Manual off.

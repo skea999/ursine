@@ -8,7 +8,7 @@
     "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
-    "SETTINGS/CONFIG 2026-10-21: settings screen + config actions implemented, security review findings fixed, committed ce74ca0, CI 39591026879 green. NEXT: real daemon+GUI smoke; release v0.3.1 so Nix package carries it.",
+    "SETTINGS/CONFIG 2026-10-21: settings screen + config actions implemented, committed ce74ca0, released v0.3.1 (tag CI 39602272962 green, auto-pin 8dada79). NEXT: real daemon+GUI smoke, then store mutations/search + snapshots.",
     "v0.3 next: store search/install/remove/upgrade UI with confirmations + per-user selector; snapshots panel (daemon snapshots module still NotImplemented \u2014 implement btrbk module first).",
     "v0.3 polish: show daemon version from system.status on Home; proactive token-expiry timer (reactive sign-out already handled).",
     "PACKAGING PRIMITIVES GREEN 2026-10-20: installer auth gate (`--allow-stub`; cross-arch staging requires `--allow-unverified-auth`), mktemp temps, strict path + traversal rejection, PAM 0644 via temp+rename, systemd [Install], CI build/publish split + all-init staging smoke, audit dir 0750 and symlink rejection. Real PAM auth + expired account green; packaged installer all-init smoke + release tarball green. NEXT: FeralOS target login, runtime activation (`systemd-analyze`/OpenRC/dinit), first GitHub CI package/publish run.",

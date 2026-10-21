@@ -27,6 +27,7 @@
 - [x] CI publish split from build: package job read-only, publish job write-only/tag/main, flake added to package needs, checksum verified, idempotent tag asset publish without overwrite | P0
 - [x] CI release gate: package skipped when workspace version is already tagged; PR packaging smoke only on build-input changes; Cargo registry/target cache; tag releases auto-pin `nix/binary.nix` and publish `ursine-flake-<tag>.tar.gz` | P0
 - [x] `v0.3.0` release: GitHub tag pipeline green; tarball + checksum + flake source archive published; `nix/binary.nix` auto-pinned in `bdbf6ce`; `verify-pin` green | P0
+- [x] `v0.3.1` release: Settings/manual module modes; tag pipeline green; tarball + checksum + flake archive published; `nix/binary.nix` auto-pinned in `8dada79`; `verify-pin` green | P0
 - [x] `README.md` documents Nix build/input usage, release pin behavior, local dev flake, and project overview | P1
 - [x] Nix package chain `ursine` -> `ursined` -> `ursine-activate`: daemon owns versioned activation tools and packaging assets; detect systemd/OpenRC/dinit, install PAM symlink + unit, restart/deactivate; staged tests for all inits, idempotency, dry-run, and `nix run` apps | P0
 - [x] systemd unit `[Install] WantedBy=multi-user.target` restored; audit dir enforced `0750` with parent/target checks; review findings triaged | P0
