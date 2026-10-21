@@ -110,6 +110,13 @@ GitHub CI (`.github/workflows/ci.yml`, to be created at v0.1) — **all jobs in 
 2. **nix flake**: `nixos/nix` **container** → `nix flake check` + `nix build --out-link artifacts/result` on every push. `flake.nix` packages the **pinned musl artifact** (`nix/binary.nix`, URL+sha256): nixpkgs does not cache musl toolchains (stable included), so from-source musl builds take hours; Alpine builds the binary, Nix publishes it reproducibly.
 3. **publish**: on tag, same `nixos/nix` container builds musl binaries and CI attaches them to a GitHub Release; the flake itself is "published" by living in the repo (`github:skea999/ursine`).
 
+## Release policy (2026-10-21)
+
+- Default feature releases bump the minor version (`0.X.0`).
+- Patch releases (`0.X.Y`) only for an explicitly requested corrective release.
+- Major releases are made only when the workflow marks them explicitly.
+- Every release is an annotated tag (`vX.Y.Z`); CI requires the tag to match `Cargo.toml`.
+
 ## Module inventory (v1)
 
 | Module | Backend | Notes |

@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.1] — 2026-10-21
 
 ### Added
 - Settings screen: capabilities refresh plus manual module modes (`auto`, `manual on`, `manual off`) backed by new `config.get_config` and `config.set_module_switch` daemon actions. Module switches persist atomically and durably, preserve unrelated TOML, and apply live. `config.init` no longer overwrites an existing config.
