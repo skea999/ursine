@@ -6,7 +6,7 @@ Everything that makes Ursine buildable, testable, releasable and packagable — 
 
 ## Tech Stack
 
-- Nix flake: packages the **pinned musl release artifact** (`nix/binary.nix`: URL + sha256) — a `stdenvNoCC` derivation, no compilation. WHY: nixpkgs does not cache `pkgsMusl`/`pkgsStatic` toolchains (stable branches included — verified on nixos-26.05), so a from-source musl build compiles musl+rustc for hours on every run. Binaries are built in the Alpine CI container (same libc, fast) and the flake makes them consumable reproducibly (`nix build github:skea999/ursine#ursine`). The tarball also contains `install.sh` and `packaging/`, and the flake builds `ursine-activate`/`ursine-deactivate` as a versioned dependency of `ursine` (`apps.activate`, `apps.deactivate`) to install/remove the PAM service and init unit against a stable profile. CI updates the pin on every `v*` tag; the pinned v0.3.0 tarball predates the scripts, but the flake adds them as a dependency and the next tarball carries them too.
+- Nix flake: packages the **pinned musl release artifact** (`nix/binary.nix`: URL + sha256) — a `stdenvNoCC` derivation, no compilation. WHY: nixpkgs does not cache `pkgsMusl`/`pkgsStatic` toolchains (stable branches included — verified on nixos-26.05), so a from-source musl build compiles musl+rustc for hours on every run. Binaries are built in the Alpine CI container (same libc, fast) and the flake makes them consumable reproducibly (`nix build github:skea999/ursine#ursine`). The tarball also contains `install.sh` and `packaging/`, and the flake builds the dependency chain `ursine` (GUI) → `ursined` (daemon + packaging) → `ursine-activate` (system tools); `apps.activate`/`apps.deactivate` invoke the versioned tools to install/remove the PAM service and init unit against a stable profile. CI updates the pin on every `v*` tag; the pinned v0.3.0 tarball predates the scripts, but the flake adds them as a dependency and the next tarball carries them too.
 - Binaries are **dynamic musl** (never static): PAM loads `pam_unix.so` via `dlopen`; static musl has no dlopen. glibc variants are a v6 concern (two artifacts from the same source).
 - **Release checklist**: CI updates `nix/binary.nix` version/url/sha256 on every `v*` tag; manual bump remains the fallback (`sha256sum` of the tarball). The tarball must contain `bin/`, `install.sh` and `packaging/`; CI smoke-tests the installer into a staging root.
 - **CI fully containerized (binding)**: every job runs inside a container on GitHub-hosted runners — NO build toolchain installed on the host:
@@ -49,7 +49,7 @@ nix flake check
 ## Project Structure
 
 ```
-flake.nix                  pinned musl release artifact (binaries + installer assets)
+flake.nix                  package chain: ursine -> ursined -> ursine-activate
 flake.lock
 .github/workflows/ci.yml   test matrix + flake + release (installer smoke test)
 .cargo/config.toml         target-dir = "artifacts/target" + musl dynamic (-crt-static off)

@@ -5,7 +5,7 @@
     "v0.1 SKELETON + v0.2 packages.nix DONE & GREEN (78 tests, CI all green, release latest published).",
     "GUI stack decided 2026-10-19: libcosmic (security > visual coherence with Wayle GTK shell). Web GUI must be memory-safe (stack TBD, SPEC-web). v0.3 login + home + store view DONE 2026-10-20 (81 tests green). NEXT: store mutations/search + snapshots panel.",
     "Packaging/CI 2026-10-20: cross-distro installer + PAM + systemd/OpenRC/dinit, README Nix docs, version-gated release job, Cargo cache, tag auto-pin of nix/binary.nix, flake source asset, verify-pin job.",
-    "Nix activation 2026-10-20: versioned `ursine-activate` + `ursine-deactivate` are dependencies of `ursine`; detect systemd/OpenRC/dinit, symlink PAM, render unit, restart/stop. Staged tests green; host profile upgraded with tools; service activation pending root."
+    "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
     "v0.3 next: store search/install/remove/upgrade UI with confirmations + per-user selector; snapshots panel (daemon snapshots module still NotImplemented \u2014 implement btrbk module first).",

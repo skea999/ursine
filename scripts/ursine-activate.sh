@@ -13,7 +13,11 @@ set -eu
 
 PROFILE=${URSINE_PROFILE:-}
 if [ -z "$PROFILE" ]; then
-    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    # Generic profile discovery: never hardcode a user or home directory.
+    # sudo sets SUDO_HOME; getent handles environments where it is absent.
+    if [ -n "${SUDO_HOME:-}" ] && [ -x "$SUDO_HOME/.nix-profile/bin/ursined" ]; then
+        PROFILE="$SUDO_HOME/.nix-profile"
+    elif [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
         user_home=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6) || user_home=
         [ -n "$user_home" ] || user_home="/home/$SUDO_USER"
         if [ -x "$user_home/.nix-profile/bin/ursined" ]; then
@@ -23,7 +27,7 @@ if [ -z "$PROFILE" ]; then
     if [ -z "$PROFILE" ] && [ -x "${HOME:-}/.nix-profile/bin/ursined" ]; then
         PROFILE="${HOME}/.nix-profile"
     fi
-    [ -n "$PROFILE" ] || PROFILE=/nix/var/nix/profiles/ursine
+    [ -n "$PROFILE" ] || PROFILE=/nix/var/nix/profiles/default
 fi
 ROOT=
 INIT=

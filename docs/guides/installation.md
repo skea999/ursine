@@ -17,17 +17,21 @@ nix profile add ursine#ursine
 sudo "$HOME/.nix-profile/bin/ursine-activate"
 ```
 
-`ursine-activate` writes `/etc/pam.d/ursine` as a symlink into the profile,
-renders the init unit with the profile's `bin/ursined`, and restarts the
-service. Re-run it after every upgrade:
+`ursine-activate` discovers the Nix profile generically, writes
+`/etc/pam.d/ursine` as a symlink into that profile, renders the init unit with
+the profile's `bin/ursined`, and restarts the service. Re-run it after every
+upgrade:
 
 ```bash
 nix profile upgrade ursine
 sudo "$HOME/.nix-profile/bin/ursine-activate"
 ```
 
-Use `--init`, `--no-start`, or `--root <dir>` for advanced/staged tests. The
-script is idempotent and refreshes changed PAM/unit assets.
+The package chain is `ursine` → `ursined` → `ursine-activate`: the daemon owns
+the activation tools and the GUI depends on the daemon. The activation command
+is idempotent and refreshes changed PAM/unit assets.
+
+Use `--init`, `--no-start`, or `--root <dir>` for advanced/staged tests.
 
 To remove the service and PAM/init files:
 

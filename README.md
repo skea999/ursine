@@ -23,6 +23,9 @@ sudo "$HOME/.nix-profile/bin/ursine-activate"
 The last command installs `/etc/pam.d/ursine` and the init unit, then starts
 `ursined`. It needs root; the Nix package itself only writes to the Nix store.
 
+Packages are layered: `ursine` depends on `ursined`, and `ursined` includes the
+versioned activation/deactivation tools it needs.
+
 ## Update
 
 ```bash
@@ -30,7 +33,7 @@ nix profile upgrade ursine
 sudo "$HOME/.nix-profile/bin/ursine-activate"
 ```
 
-The activation script is a dependency of `ursine`, so it is versioned and
+The activation command is part of the daemon package, so it is versioned and
 updated with the profile. It is idempotent: it applies changed PAM/unit files
 and restarts the daemon after every upgrade.
 
@@ -57,9 +60,9 @@ them).
 - `tests/` — integration tests.
 - `packaging/` and `install.sh` — systemd/OpenRC/dinit units, PAM policy,
   release staging, and cross-distro installation.
-- `scripts/ursine-activate.sh` + `ursine-deactivate.sh` — versioned Nix
-  activation/deactivation tools; detect the init, install/remove PAM/unit
-  files, and restart/stop the daemon.
+- `ursine-activate` — versioned Nix package with activation/deactivation tools;
+  detects the init, installs/removes PAM/unit files, and restarts/stops the
+  daemon. `ursined` depends on it; `ursine` depends on `ursined`.
 
 Architecture decisions live in
 [docs/architecture/overview.md](docs/architecture/overview.md). Build and test

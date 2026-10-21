@@ -10,9 +10,10 @@
       pkgs = nixpkgs.legacyPackages.${system};
       bin = import ./nix/binary.nix;
 
-      # Versioned activation/deactivation tools. They are a dependency of the
-      # ursine package, so `nix profile upgrade ursine` updates them together
-      # with the binaries.
+      # Package dependency chain:
+      #   ursine (GUI) -> ursined (daemon) -> ursine-activate (system tools)
+      # The GUI does not need the activation tools directly; installing it pulls
+      # the daemon, and installing the daemon pulls the tools it uses.
       activateTool = pkgs.runCommand "ursine-activate-${bin.version}" { } ''
         mkdir -p $out/bin
         cp ${./scripts/ursine-activate.sh} $out/bin/ursine-activate
@@ -20,15 +21,10 @@
         chmod 0755 $out/bin/ursine-activate $out/bin/ursine-deactivate
       '';
 
-      # The binaries themselves are musl (built in Alpine CI): nixpkgs does not
-      # cache musl toolchains, so building from source here would take hours on
-      # every run. This derivation packages the pinned release artifact — the
-      # flake stays reproducible (URL + sha256) and instant to build.
-      #
-      # WHY dynamic musl: PAM loads pam_unix.so via dlopen at runtime; a fully
-      # static musl binary cannot dlopen. FeralOS is Alpine (dynamic musl).
-      ursine = pkgs.stdenvNoCC.mkDerivation {
-        pname = "ursine";
+      # Internal unpacked release. The pinned tarball contains both binaries,
+      # packaging assets, install.sh and the activation scripts.
+      release = pkgs.stdenvNoCC.mkDerivation {
+        pname = "ursine-release";
         inherit (bin) version;
 
         src = pkgs.fetchurl {
@@ -36,19 +32,45 @@
         };
 
         nativeBuildInputs = [ pkgs.gnutar ];
-
-        # Tarball root = bin/ (no wrapper dir): unpack straight into $out.
         dontUnpack = true;
         installPhase = ''
           mkdir -p $out
           tar xzf $src -C $out
-          chmod +x $out/bin/ursined $out/bin/ursine
-          if [ -e $out/bin/ursine-activate ]; then
-            chmod +x $out/bin/ursine-activate
-          fi
-          ln -sfn ${activateTool}/bin/ursine-activate $out/bin/ursine-activate
-          ln -sfn ${activateTool}/bin/ursine-deactivate $out/bin/ursine-deactivate
         '';
+      };
+
+      daemonCore = pkgs.runCommand "ursined-core-${bin.version}" { } ''
+        mkdir -p $out/bin $out/packaging
+        install -Dm0755 ${release}/bin/ursined $out/bin/ursined
+        cp -R ${release}/packaging/. $out/packaging/
+      '';
+
+      guiCore = pkgs.runCommand "ursine-core-${bin.version}" { } ''
+        mkdir -p $out/bin
+        install -Dm0755 ${release}/bin/ursine $out/bin/ursine
+      '';
+
+      # The daemon owns system activation; therefore its package carries the
+      # activation/deactivation tools and the packaging assets.
+      ursined = pkgs.symlinkJoin {
+        pname = "ursined";
+        inherit (bin) version;
+        paths = [ daemonCore activateTool ];
+
+        meta = {
+          description = "Ursine root daemon with system activation tools (musl)";
+          license = pkgs.lib.licenses.isc;
+          mainProgram = "ursined";
+          platforms = [ "x86_64-linux" ];
+        };
+      };
+
+      # The desktop package depends on the daemon package, so installing the
+      # GUI is sufficient for a complete Ursine installation.
+      ursine = pkgs.symlinkJoin {
+        pname = "ursine";
+        inherit (bin) version;
+        paths = [ guiCore ursined ];
 
         meta = {
           description = "Ursine control center: ursined daemon + ursine GUI (musl)";
@@ -60,7 +82,7 @@
     in {
       packages.${system} = {
         default = ursine;
-        inherit ursine;
+        inherit ursine ursined;
         "ursine-activate" = activateTool;
       };
 
@@ -76,6 +98,10 @@
       };
 
       # `nix build --out-link artifacts/result` → artifacts/result/bin/{ursined,ursine}
-      checks.${system}.package = ursine;
+      checks.${system} = {
+        package = ursine;
+        daemon = ursined;
+        activation = activateTool;
+      };
     };
 }
