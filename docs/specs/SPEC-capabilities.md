@@ -32,7 +32,7 @@ cargo test -p ursine-core capabilities
 src/ursine-core/src/capabilities/
 ├─ mod.rs        Capability enum, Registry, ensure_available()
 ├─ checks.rs     one fn per capability, pure where testable
-└─ api.rs        capabilities.list, capabilities.refresh, config.init handlers
+└─ api.rs        capabilities.list, capabilities.refresh, config.init, config.get_config, config.set_module_switch handlers
 ```
 
 ## Code Style
@@ -53,6 +53,7 @@ pub async fn ensure_available(&self, cap: Capability) -> Result<(), CapabilityEr
 - Unit: each check fn against fixtures (temp dirs, fake /proc paths injected via trait `Sysinfo`)
 - Unit: TriState resolution table (auto×present, auto×absent, true×absent → warn+error, false×present → off)
 - `config.init` golden test: generated TOML parses back and matches defaults
+- `config.set_module_switch` test: preserves unrelated TOML/comments, validates the result, writes atomically, and applies the switch live
 
 ## Boundaries
 

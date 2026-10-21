@@ -74,7 +74,7 @@ Config tri-state per module: `"auto" | true | false`
 - `true`: force (warn if missing)
 - `false`: off even if present
 
-API `config.init`: the GUI button the user asked for — daemon scans capabilities and writes a commented `/etc/ursine/config.toml` template. Config reload: SIGHUP or `dinitctl restart ursined`.
+API `config.init`: daemon scans capabilities and writes a commented `/etc/ursine/config.toml` template only when the file is absent; existing files must be changed with module switches or edited deliberately by the admin. API `config.get_config` and `config.set_module_switch`: Settings reads module modes and persists one tri-state switch atomically/durably (temp `create_new`, fsync, parent checks). Module switches (`packages_nix`, `snapshots`, `users`, `niri`) apply live; startup-critical settings still require a daemon restart.
 
 Capabilities API returns state + reason + fix, e.g.:
 `{ "snapshots": { "available": false, "reason": "btrbk not installed", "fix": "apk add btrbk" } }`

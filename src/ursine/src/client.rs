@@ -10,8 +10,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use ursine_api::{
-    Action, ApiError, InstalledPackage, ModuleId, Request, RequestBody, Response, ResponseBody,
-    SessionToken, PROTOCOL_VERSION,
+    Action, ApiError, InstalledPackage, ModuleId, ModulesConfig, Request, RequestBody, Response,
+    ResponseBody, SessionToken, TriState, PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
@@ -31,6 +31,13 @@ pub fn socket_path() -> PathBuf {
 pub struct AuthSession {
     pub token: SessionToken,
     pub expires_in_secs: u64,
+}
+
+/// Current configurable daemon state plus the path it was loaded from.
+#[derive(Debug, Clone)]
+pub struct ConfigSnapshot {
+    pub modules: ModulesConfig,
+    pub path: String,
 }
 
 /// Read-only view of the target user's nix profile.
@@ -104,6 +111,43 @@ async fn call_with_timeout(
         }
     })
     .await
+}
+
+/// Read the daemon's configurable module switches.
+pub async fn modules_config(token: SessionToken) -> Result<ConfigSnapshot, ApiError> {
+    let value = call(token, ModuleId::Config, Action::GetConfig, None).await?;
+    parse_config_snapshot(value)
+}
+
+/// Persist one module switch; the daemon applies it to its live configuration.
+pub async fn set_module_switch(
+    token: SessionToken,
+    module: ModuleId,
+    value: TriState,
+) -> Result<ConfigSnapshot, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Config,
+        Action::SetModuleSwitch { module, value },
+        None,
+    )
+    .await?;
+    parse_config_snapshot(value)
+}
+
+fn parse_config_snapshot(value: serde_json::Value) -> Result<ConfigSnapshot, ApiError> {
+    #[derive(serde::Deserialize)]
+    struct Payload {
+        modules: ModulesConfig,
+        path: String,
+    }
+    let parsed: Payload = serde_json::from_value(value).map_err(|error| {
+        ApiError::internal(format!("cannot read daemon configuration: {error}"))
+    })?;
+    Ok(ConfigSnapshot {
+        modules: parsed.modules,
+        path: parsed.path,
+    })
 }
 
 /// Installed packages and generation history for the target user's profile.
@@ -219,6 +263,17 @@ mod tests {
         let line = serde_json::to_string(&request).unwrap();
         let back: Request = serde_json::from_str(&line).unwrap();
         assert_eq!(request, back);
+    }
+
+    #[test]
+    fn config_snapshot_parses_module_switches() {
+        let snapshot = parse_config_snapshot(serde_json::json!({
+            "modules": {"packages_nix": true, "snapshots": "auto"},
+            "path": "/etc/ursine/config.toml",
+        }))
+        .unwrap();
+        assert_eq!(snapshot.modules.packages_nix, TriState::On);
+        assert_eq!(snapshot.path, "/etc/ursine/config.toml");
     }
 
     #[test]

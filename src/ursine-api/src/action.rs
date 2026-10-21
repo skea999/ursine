@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::ModuleId;
+
 /// Serialized with an internal `action` tag: `{"action":"list","query":null}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -16,6 +18,13 @@ pub enum Action {
     // -- config --
     /// Write a commented `/etc/ursine/config.toml` from a capability scan.
     Init,
+    /// Return the current daemon configuration module switches.
+    GetConfig,
+    /// Persist one module switch (`"auto"`, true or false) and apply it live.
+    SetModuleSwitch {
+        module: ModuleId,
+        value: crate::TriState,
+    },
 
     // -- capabilities --
     /// List every capability with availability, reason and fix.
@@ -145,6 +154,20 @@ mod tests {
     fn action_tag_is_present_and_snake_case() {
         let json = serde_json::to_value(&Action::ListInstalled).unwrap();
         assert_eq!(json["action"], "list_installed");
+    }
+
+    #[test]
+    fn config_switch_payload_roundtrips() {
+        let a = Action::SetModuleSwitch {
+            module: ModuleId::PackagesNix,
+            value: crate::TriState::On,
+        };
+        let s = serde_json::to_string(&a).unwrap();
+        let back: Action = serde_json::from_str(&s).unwrap();
+        assert_eq!(a, back);
+        assert!(s.contains("\"action\":\"set_module_switch\""));
+        assert!(s.contains("\"module\":\"packages_nix\""));
+        assert!(s.contains("\"value\":true"));
     }
 
     #[test]

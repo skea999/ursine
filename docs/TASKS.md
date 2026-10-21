@@ -1,9 +1,12 @@
 # Tasks — Ursine
 
 **Milestone**: v0.3 — store GUI (login + home + store view DONE)
-**Updated**: 2026-10-20
+**Updated**: 2026-10-21
 
 ## Current Sprint
+
+### Done — settings + config modes (2026-10-21)
+- [x] Separate Settings screen with gear navigation, capability refresh, and module switches (`auto` / `manual on` / `manual off`); daemon `config.get_config` and `config.set_module_switch`; TOML edits preserve unrelated content, write durably with hardened temp files, and apply live; `config.init` refuses overwrite | P0
 
 ### Todo
 - [ ] v0.3: store GUI (libcosmic): search/install/remove/upgrade + snapshots panel (snapshots daemon module still `NotImplemented`) | P0 | agent

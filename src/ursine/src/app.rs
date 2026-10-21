@@ -1,11 +1,12 @@
 //! Application state, message loop and screen routing.
 
 use cosmic::{Element, Task};
-use ursine_api::{Action, ApiError, CapabilityReport, ErrorCode, ModuleId, SessionToken};
+use ursine_api::{Action, ApiError, CapabilityReport, ErrorCode, ModuleId, SessionToken, TriState};
 
-use crate::client::{self, AuthSession};
+use crate::client::{self, AuthSession, ConfigSnapshot};
 use crate::home::HomeState;
 use crate::login::LoginState;
+use crate::settings::SettingsState;
 use crate::store::StoreState;
 
 /// Live session. The token stays in RAM: never written to disk, never logged.
@@ -18,6 +19,7 @@ struct Session {
 enum Screen {
     #[default]
     Home,
+    Settings,
     Store,
 }
 
@@ -25,6 +27,7 @@ pub struct App {
     core: cosmic::Core,
     login: LoginState,
     home: HomeState,
+    settings: SettingsState,
     store: StoreState,
     screen: Screen,
     session: Option<Session>,
@@ -38,6 +41,10 @@ pub enum Message {
     SignInResult(Result<AuthSession, ApiError>),
     CapabilitiesLoaded(Result<Vec<CapabilityReport>, ApiError>),
     RefreshCapabilities,
+    OpenSettings,
+    ConfigLoaded(Result<ConfigSnapshot, ApiError>),
+    SetModuleSwitch(ModuleId, TriState),
+    ModuleSwitchSaved(Result<ConfigSnapshot, ApiError>),
     OpenStore,
     BackHome,
     StoreLoaded(Result<client::StoreSnapshot, ApiError>),
@@ -68,6 +75,7 @@ impl cosmic::Application for App {
             core,
             login: LoginState::default(),
             home: HomeState::default(),
+            settings: SettingsState::default(),
             store: StoreState::default(),
             screen: Screen::Home,
             session: None,
@@ -83,6 +91,12 @@ impl cosmic::Application for App {
             Message::SignInResult(result) => return self.finish_sign_in(result),
             Message::CapabilitiesLoaded(result) => self.finish_capabilities(result),
             Message::RefreshCapabilities => return self.refresh_capabilities(),
+            Message::OpenSettings => return self.open_settings(),
+            Message::ConfigLoaded(result) => self.finish_config(result),
+            Message::SetModuleSwitch(module, value) => {
+                return self.set_module_switch(module, value)
+            }
+            Message::ModuleSwitchSaved(result) => self.finish_config(result),
             Message::OpenStore => {
                 self.screen = Screen::Store;
                 return self.load_store();
@@ -98,7 +112,14 @@ impl cosmic::Application for App {
     fn view(&self) -> Element<'_, Self::Message> {
         match &self.session {
             Some(session) => match self.screen {
-                Screen::Home => self.home.view(session.expires_in_secs),
+                Screen::Home => self.home.view(
+                    session.expires_in_secs,
+                    self.settings.config.as_ref().map(|config| &config.modules),
+                ),
+                Screen::Settings => {
+                    self.settings
+                        .view(&self.home.caps, self.home.busy, self.home.error.as_deref())
+                }
                 Screen::Store => self.store.view(),
             },
             None => self.login.view(),
@@ -148,9 +169,14 @@ impl App {
                     token: auth.token,
                     expires_in_secs: auth.expires_in_secs,
                 });
-                self.load_capabilities(token, Action::List)
+                Task::batch(vec![
+                    self.load_capabilities(token, Action::List),
+                    self.load_modules_config(),
+                ])
             }
             Err(error) => {
+                // Do not retain a rejected password while the user reads error.
+                self.login.password.clear();
                 self.login.error = Some(friendly(&error));
                 Task::none()
             }
@@ -204,6 +230,68 @@ impl App {
         }
     }
 
+    fn open_settings(&mut self) -> Task<cosmic::Action<Message>> {
+        self.screen = Screen::Settings;
+        let mut tasks = vec![self.load_modules_config()];
+        if self.home.caps.is_empty() && !self.home.busy {
+            self.home.busy = true;
+            if let Some(session) = &self.session {
+                tasks.push(self.load_capabilities(session.token.clone(), Action::List));
+            }
+        }
+        Task::batch(tasks)
+    }
+
+    fn load_modules_config(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.settings.config_busy {
+            return Task::none();
+        }
+        self.settings.config_busy = true;
+        self.settings.error = None;
+        let token = session.token.clone();
+        Task::future(async move { Message::ConfigLoaded(client::modules_config(token).await) })
+            .map(cosmic::Action::App)
+    }
+
+    fn set_module_switch(
+        &mut self,
+        module: ModuleId,
+        value: TriState,
+    ) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.settings.config_busy {
+            return Task::none();
+        }
+        self.settings.config_busy = true;
+        self.settings.error = None;
+        let token = session.token.clone();
+        Task::future(async move {
+            Message::ModuleSwitchSaved(client::set_module_switch(token, module, value).await)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_config(&mut self, result: Result<ConfigSnapshot, ApiError>) {
+        self.settings.config_busy = false;
+        match result {
+            Ok(snapshot) => {
+                self.settings.config = Some(snapshot);
+                self.settings.error = None;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return;
+                }
+                self.settings.error = Some(friendly(&error));
+            }
+        }
+    }
+
     fn load_store(&mut self) -> Task<cosmic::Action<Message>> {
         let Some(session) = &self.session else {
             return Task::none();
@@ -252,6 +340,7 @@ impl App {
     fn sign_out(&mut self) {
         self.session = None;
         self.home = HomeState::default();
+        self.settings = SettingsState::default();
         self.store = StoreState::default();
         self.screen = Screen::Home;
         self.login.password.clear();

@@ -8,6 +8,7 @@ mod app;
 mod client;
 mod home;
 mod login;
+mod settings;
 mod store;
 
 use cosmic::app::Settings;

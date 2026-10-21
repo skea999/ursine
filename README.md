@@ -26,6 +26,9 @@ The last command installs `/etc/pam.d/ursine` and the init unit, then starts
 Packages are layered: `ursine` depends on `ursined`, and `ursined` includes the
 versioned activation/deactivation tools it needs.
 
+After sign-in, use the settings icon in the top-right corner to refresh system
+capabilities or set a module to Auto, Manual on, or Manual off.
+
 ## Update
 
 ```bash

@@ -2,8 +2,6 @@
 //! `config`; every other action returns `NotImplemented` (but still runs
 //! `ensure_available` first, so gating is exercised end to end).
 
-use std::path::Path;
-
 use serde_json::json;
 use ursine_api::{Action, ApiError, Capability, ModuleId, Response, UrsineConfig};
 
@@ -14,8 +12,8 @@ use crate::capabilities::{module_switch, Registry};
 /// Everything a handler may touch (no daemon internals).
 pub struct ModuleCtx<'a> {
     pub caps: &'a Registry,
-    pub config: &'a UrsineConfig,
-    pub config_path: &'a Path,
+    /// Snapshot of the daemon's live configuration for this request.
+    pub config: UrsineConfig,
     /// Resolved target user (defaults to the principal).
     pub as_user: &'a str,
 }
@@ -54,13 +52,6 @@ pub async fn handle(
             ctx.caps.refresh();
             Ok(json!(ctx.caps.reports()))
         }
-        (ModuleId::Config, Action::Init) => {
-            let caps = ctx.caps.reports();
-            crate::config::write_template(ctx.config_path, &caps)
-                .map_err(|e| ApiError::internal(e.to_string()))?;
-            Ok(json!({ "written": ctx.config_path.display().to_string() }))
-        }
-
         (ModuleId::PackagesNix, action) => packages_nix::handle(action, ctx).await,
 
         // v1 module surface: wired later milestone by milestone.
@@ -81,6 +72,8 @@ pub fn action_name(action: &Action) -> &'static str {
     match action {
         Action::Status => "status",
         Action::Init => "init",
+        Action::GetConfig => "get_config",
+        Action::SetModuleSwitch { .. } => "set_module_switch",
         Action::List => "list",
         Action::Refresh => "refresh",
         Action::ListInstalled => "list_installed",
@@ -124,7 +117,7 @@ pub fn ok(id: Option<u64>, value: serde_json::Value) -> Response {
 mod tests {
     use super::*;
     use crate::capabilities::checks::Sysinfo;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
     struct AllMissing;
@@ -150,11 +143,10 @@ mod tests {
 
     #[tokio::test]
     async fn system_status_reports_stub_auth_in_dev() {
-        let (caps, cfg, path) = ctx_with(AllMissing);
+        let (caps, cfg, _path) = ctx_with(AllMissing);
         let ctx = ModuleCtx {
             caps: &caps,
-            config: &cfg,
-            config_path: &path,
+            config: cfg.clone(),
             as_user: "u",
         };
         let v = handle(ModuleId::System, &Action::Status, &ctx)
@@ -169,11 +161,10 @@ mod tests {
 
     #[tokio::test]
     async fn capabilities_list_returns_all_six() {
-        let (caps, cfg, path) = ctx_with(AllMissing);
+        let (caps, cfg, _path) = ctx_with(AllMissing);
         let ctx = ModuleCtx {
             caps: &caps,
-            config: &cfg,
-            config_path: &path,
+            config: cfg.clone(),
             as_user: "u",
         };
         let v = handle(ModuleId::Capabilities, &Action::List, &ctx)
@@ -184,11 +175,10 @@ mod tests {
 
     #[tokio::test]
     async fn package_actions_gated_before_notimplemented() {
-        let (caps, cfg, path) = ctx_with(AllMissing);
+        let (caps, cfg, _path) = ctx_with(AllMissing);
         let ctx = ModuleCtx {
             caps: &caps,
-            config: &cfg,
-            config_path: &path,
+            config: cfg.clone(),
             as_user: "u",
         };
         let err = handle(ModuleId::PackagesNix, &Action::ListInstalled, &ctx)
@@ -201,12 +191,11 @@ mod tests {
 
     #[tokio::test]
     async fn disabled_module_is_unavailable_even_if_forced_off() {
-        let (caps, mut cfg, path) = ctx_with(AllMissing);
+        let (caps, mut cfg, _path) = ctx_with(AllMissing);
         cfg.modules.packages_nix = ursine_api::TriState::Off;
         let ctx = ModuleCtx {
             caps: &caps,
-            config: &cfg,
-            config_path: &path,
+            config: cfg.clone(),
             as_user: "u",
         };
         let err = handle(
@@ -223,11 +212,10 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_module_action_combo_is_rejected() {
-        let (caps, cfg, path) = ctx_with(AllMissing);
+        let (caps, cfg, _path) = ctx_with(AllMissing);
         let ctx = ModuleCtx {
             caps: &caps,
-            config: &cfg,
-            config_path: &path,
+            config: cfg.clone(),
             as_user: "u",
         };
         let err = handle(

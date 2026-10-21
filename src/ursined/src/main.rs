@@ -84,6 +84,8 @@ async fn async_main(config_path: PathBuf) -> std::process::ExitCode {
         tracing::warn!(path = %config_path.display(), "config file missing — using defaults (config.init writes one)");
     }
 
+    let socket_path = config.socket_path.clone();
+    let token_ttl_min = config.token_ttl_min;
     let audit = match AuditLog::open(config.audit_path.clone(), clock.clone()) {
         Ok(a) => a,
         Err(e) => {
@@ -105,23 +107,18 @@ async fn async_main(config_path: PathBuf) -> std::process::ExitCode {
         ratelimit: RateLimiter::new(config.login_rate_limit_per_min, clock.clone()),
         audit,
         auth,
-        config,
+        config: tokio::sync::RwLock::new(config),
         clock,
     });
 
     tracing::info!(
-        socket = %daemon.config.socket_path.display(),
-        ttl_min = daemon.config.token_ttl_min,
+        socket = %socket_path.display(),
+        ttl_min = token_ttl_min,
         "starting ursined {}",
         env!("CARGO_PKG_VERSION")
     );
 
-    let result = socket::serve(
-        daemon.clone(),
-        &daemon.config.socket_path,
-        shutdown_signal(),
-    )
-    .await;
+    let result = socket::serve(daemon.clone(), &socket_path, shutdown_signal()).await;
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {

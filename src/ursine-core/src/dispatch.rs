@@ -17,7 +17,9 @@ use crate::session::TokenStore;
 
 /// Everything the daemon owns. Built once at startup, shared via `Arc`.
 pub struct Daemon {
-    pub config: ursine_api::UrsineConfig,
+    /// Live daemon configuration. Module switches can be changed while running;
+    /// startup-critical settings (socket, audit, token TTL) require a restart.
+    pub config: tokio::sync::RwLock<ursine_api::UrsineConfig>,
     /// Path the daemon was started with (`config.init` writes here).
     pub config_path: PathBuf,
     pub caps: Registry,
@@ -54,6 +56,76 @@ impl Daemon {
                 self.handle_call(id, req.token.as_ref(), module, action, as_user)
                     .await
             }
+        }
+    }
+
+    /// Read or change daemon configuration. Wheel is checked locally so the
+    /// authorization invariant does not depend on there being only one token
+    /// issuer. Config actions never honor `as_user`: they affect the daemon.
+    async fn handle_config_action(
+        &self,
+        principal: &Principal,
+        action: &Action,
+    ) -> Result<serde_json::Value, ApiError> {
+        if !principal.in_group("wheel") {
+            return Err(ApiError::forbidden());
+        }
+
+        match action {
+            Action::GetConfig => {
+                let config = self.config.read().await;
+                Ok(serde_json::json!({
+                    "modules": config.modules,
+                    "path": self.config_path.display().to_string(),
+                }))
+            }
+            Action::SetModuleSwitch { module, value } => {
+                if crate::config::configurable_module(*module).is_none() {
+                    return Err(ApiError::invalid(format!(
+                        "module {} has no configurable switch",
+                        module.as_str()
+                    )));
+                }
+                let mut config = self.config.write().await;
+                let path = self.config_path.clone();
+                let module = *module;
+                let value = *value;
+                let result = tokio::task::spawn_blocking(move || {
+                    crate::config::set_module_switch(&path, module, value)
+                })
+                .await
+                .map_err(|e| ApiError::internal(format!("configuration task failed: {e}")))?
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+                config.modules = result.clone();
+                Ok(serde_json::json!({
+                    "modules": result,
+                    "path": self.config_path.display().to_string(),
+                }))
+            }
+            Action::Init => {
+                let mut config = self.config.write().await;
+                if self.config_path.exists() {
+                    return Err(ApiError::new(
+                        ErrorCode::Conflict,
+                        "configuration already exists; use module switches instead",
+                    ));
+                }
+                let caps = self.caps.reports();
+                let path = self.config_path.clone();
+                let modules = tokio::task::spawn_blocking(move || {
+                    crate::config::write_template(&path, &caps)?;
+                    Ok::<_, crate::error::CoreError>(crate::config::load(&path)?.modules)
+                })
+                .await
+                .map_err(|e| ApiError::internal(format!("configuration task failed: {e}")))?
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+                config.modules = modules.clone();
+                Ok(serde_json::json!({
+                    "modules": modules,
+                    "written": self.config_path.display().to_string(),
+                }))
+            }
+            _ => Err(ApiError::invalid("configuration action required")),
         }
     }
 
@@ -139,19 +211,35 @@ impl Daemon {
         };
 
         let target_user = as_user.clone().unwrap_or_else(|| principal.user.clone());
-        let action_name = modules::action_name(&action);
+        let action_name = match &action {
+            Action::SetModuleSwitch { module, value } => {
+                format!("set_module_switch {}={}", module.as_str(), value.as_str())
+            }
+            _ => modules::action_name(&action).to_string(),
+        };
+        let config = self.config.read().await.clone();
         let ctx = modules::ModuleCtx {
             caps: &self.caps,
-            config: &self.config,
-            config_path: &self.config_path,
+            config,
             as_user: &target_user,
         };
 
-        let result = modules::handle(module, &action, &ctx).await;
+        let result = match (module, &action) {
+            (ModuleId::Config, Action::GetConfig)
+            | (ModuleId::Config, Action::SetModuleSwitch { .. })
+            | (ModuleId::Config, Action::Init) => {
+                if as_user.is_some() {
+                    Err(ApiError::invalid("as_user is not valid for module config"))
+                } else {
+                    self.handle_config_action(&principal, &action).await
+                }
+            }
+            _ => modules::handle(module, &action, &ctx).await,
+        };
 
         let outcome = Outcome::from_result(&result);
         self.audit
-            .record(&principal, Some(module), action_name, as_user, outcome);
+            .record(&principal, Some(module), &action_name, as_user, outcome);
 
         match result {
             Ok(value) => Response::ok(id, value),
@@ -186,7 +274,7 @@ mod tests {
             sessions: TokenStore::new(Duration::from_secs(600), clock.clone()),
             ratelimit: RateLimiter::new(cfg.login_rate_limit_per_min, clock.clone()),
             audit,
-            config: cfg,
+            config: tokio::sync::RwLock::new(cfg),
             clock: clock.clone(),
         };
         (clock, d)
@@ -345,6 +433,119 @@ mod tests {
         match d.handle(req, &peer()).await.body {
             ResponseBody::Err { error } => assert_eq!(error.code, ErrorCode::Invalid),
             other => panic!("want err, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn config_switch_persists_and_applies_live() {
+        let (_clock, d) = daemon(&tmp_dir("config-switch"));
+        let resp = d.handle(auth_request(1), &peer()).await;
+        let token = match resp.body {
+            ResponseBody::AuthOk { token, .. } => token,
+            other => panic!("want auth_ok, got {other:?}"),
+        };
+
+        let set = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(2),
+            token: Some(token.clone()),
+            body: RequestBody::Call {
+                module: ModuleId::Config,
+                action: Action::SetModuleSwitch {
+                    module: ModuleId::PackagesNix,
+                    value: ursine_api::TriState::Off,
+                },
+                as_user: None,
+            },
+        };
+        match d.handle(set, &peer()).await.body {
+            ResponseBody::Ok { result } => {
+                assert_eq!(result["modules"]["packages_nix"], false);
+                assert_eq!(result["path"], d.config_path.display().to_string());
+            }
+            other => panic!("want ok, got {other:?}"),
+        }
+        assert_eq!(
+            d.config.read().await.modules.packages_nix,
+            ursine_api::TriState::Off
+        );
+        assert!(d.config_path.exists());
+        assert!(!d.config_path.with_extension("toml.tmp").exists());
+
+        let get = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(3),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::Config,
+                action: Action::GetConfig,
+                as_user: None,
+            },
+        };
+        match d.handle(get, &peer()).await.body {
+            ResponseBody::Ok { result } => {
+                assert_eq!(result["modules"]["packages_nix"], false);
+            }
+            other => panic!("want ok, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn config_init_refuses_to_overwrite_existing_file() {
+        let (_clock, d) = daemon(&tmp_dir("config-init"));
+        let resp = d.handle(auth_request(1), &peer()).await;
+        let token = match resp.body {
+            ResponseBody::AuthOk { token, .. } => token,
+            other => panic!("want auth_ok, got {other:?}"),
+        };
+
+        let init = |id| Request {
+            v: PROTOCOL_VERSION,
+            id: Some(id),
+            token: Some(token.clone()),
+            body: RequestBody::Call {
+                module: ModuleId::Config,
+                action: Action::Init,
+                as_user: None,
+            },
+        };
+        match d.handle(init(2), &peer()).await.body {
+            ResponseBody::Ok { result } => {
+                assert_eq!(result["written"], d.config_path.display().to_string());
+            }
+            other => panic!("want ok, got {other:?}"),
+        }
+        assert!(d.config_path.exists());
+        match d.handle(init(3), &peer()).await.body {
+            ResponseBody::Err { error } => assert_eq!(error.code, ErrorCode::Conflict),
+            other => panic!("want conflict, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn non_configurable_module_switch_is_invalid() {
+        let (_clock, d) = daemon(&tmp_dir("config-invalid"));
+        let resp = d.handle(auth_request(1), &peer()).await;
+        let token = match resp.body {
+            ResponseBody::AuthOk { token, .. } => token,
+            other => panic!("want auth_ok, got {other:?}"),
+        };
+        let req = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(2),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::Config,
+                action: Action::SetModuleSwitch {
+                    module: ModuleId::Capabilities,
+                    value: ursine_api::TriState::On,
+                },
+                as_user: None,
+            },
+        };
+        match d.handle(req, &peer()).await.body {
+            ResponseBody::Err { error } => assert_eq!(error.code, ErrorCode::Invalid),
+            other => panic!("want invalid, got {other:?}"),
         }
     }
 

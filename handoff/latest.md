@@ -6,6 +6,24 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-21 — settings + manual module modes (uncommitted)
+
+**Status**: implemented, review-hardened, and locally green; pending commit/push.
+
+- Added a dedicated Settings screen opened by a gear icon in Home's top-right.
+- Settings shows detected capabilities, refreshes them, and edits module modes: Auto, Manual on, Manual off.
+- Added protocol actions `config.get_config` and `config.set_module_switch`; both are authenticated and audited.
+- Daemon persists module switches atomically with `toml_edit`, preserving unrelated TOML/comments/formatting/permissions, and applies the new switch to its live config.
+- `manual on` does not install missing dependencies; missing capabilities still render unavailable with reason/fix.
+- GUI remains thin; all config mutations go through the daemon.
+- Review hardened: atomic config writes use unique `create_new` temp files, fsync, parent/target checks, permission preservation; `config.init` is serialized, refuses overwrite, and refreshes live modules; wheel/as_user/config checks are local; audit records `module=value`; failed-login password is cleared; Home honors manual-off and Settings has retry/empty states.
+- Validation: fmt; 24 API tests + 6 protocol integration tests + 58 core tests; 6 GUI tests; clippy for daemon/workspace and GUI with `-D warnings` (`artifacts/logs/settings-gate-final.log`). GUI visual smoke still pending.
+
+**Next**:
+1. Commit/push the reviewed diff.
+2. Run the real daemon + GUI and verify settings persistence plus live gating.
+3. Continue v0.3 store mutations/search and snapshots.
+
 ## Session 2026-10-20 — README + release CI gate (v0.3.0 RELEASED)
 
 **Status**: v0.3.0 tagged and released. Tag CI run `39452993223` green; `nix/binary.nix` auto-pinned on `main` in `bdbf6ce`; `verify-pin` green.

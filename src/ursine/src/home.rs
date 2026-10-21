@@ -1,8 +1,9 @@
 //! Home screen: the modules this principal may use, and what the machine offers.
 
-use cosmic::widget::{button, column, row, settings, text};
+use cosmic::iced::Length;
+use cosmic::widget::{button, column, icon, row, settings, text};
 use cosmic::Element;
-use ursine_api::{Capability, CapabilityReport};
+use ursine_api::{Capability, CapabilityReport, ModuleId, ModulesConfig, TriState};
 
 use crate::app::Message;
 
@@ -18,6 +19,7 @@ pub struct HomeState {
 /// capability before every action, so a stale mirror can only mislabel a row.
 struct ModuleEntry {
     title: &'static str,
+    module: Option<ModuleId>,
     requires: &'static [Capability],
     panel: Option<Panel>,
 }
@@ -30,44 +32,59 @@ enum Panel {
 const MODULES: &[ModuleEntry] = &[
     ModuleEntry {
         title: "System",
+        module: None,
         requires: &[],
         panel: None,
     },
     ModuleEntry {
         title: "Configuration",
+        module: None,
         requires: &[],
         panel: None,
     },
     ModuleEntry {
         title: "Packages (Nix)",
+        module: Some(ModuleId::PackagesNix),
         requires: &[Capability::Nix],
         panel: Some(Panel::Store),
     },
     ModuleEntry {
         title: "Snapshots (btrbk)",
+        module: Some(ModuleId::Snapshots),
         requires: &[Capability::Btrbk, Capability::Btrfs],
         panel: None,
     },
     ModuleEntry {
         title: "Users",
+        module: Some(ModuleId::Users),
         requires: &[Capability::Accountsservice],
         panel: None,
     },
     ModuleEntry {
         title: "Niri desktop",
+        module: Some(ModuleId::Niri),
         requires: &[Capability::Niri],
         panel: None,
     },
 ];
 
 impl HomeState {
-    pub fn view(&self, expires_in_secs: u64) -> Element<'_, Message> {
+    pub fn view(
+        &self,
+        expires_in_secs: u64,
+        module_config: Option<&ModulesConfig>,
+    ) -> Element<'_, Message> {
+        let settings_button = button::icon(icon::from_name("preferences-system-symbolic"))
+            .on_press(Message::OpenSettings);
         let header = row(vec![
             text::title2("Ursine").into(),
             text(format!("signed in as {}", self.user)).into(),
+            text("").width(Length::Fill).into(),
+            settings_button.into(),
             button::text("Sign out").on_press(Message::SignOut).into(),
         ])
-        .spacing(12);
+        .spacing(12)
+        .width(Length::Fill);
 
         let mut items: Vec<Element<'_, Message>> = vec![header.into()];
         items.push(text(format!("session lifetime: {} min", expires_in_secs / 60)).into());
@@ -78,31 +95,25 @@ impl HomeState {
 
         let mut modules = settings::section().title("Modules");
         for entry in MODULES {
-            modules = modules.add(settings::item(entry.title, self.module_status(entry)));
-        }
-        items.push(modules.into());
-
-        let mut capabilities = settings::section().title("Capabilities");
-        for report in &self.caps {
-            capabilities = capabilities.add(settings::item(
-                report.capability.as_str(),
-                self.capability_detail(report),
+            modules = modules.add(settings::item(
+                entry.title,
+                self.module_status(entry, module_config),
             ));
         }
-        items.push(capabilities.into());
-
-        let refresh = button::standard(if self.busy {
-            "Refreshing…"
-        } else {
-            "Refresh"
-        })
-        .on_press_maybe((!self.busy).then_some(Message::RefreshCapabilities));
-        items.push(refresh.into());
+        items.push(modules.into());
 
         column(items).spacing(16).padding(24).into()
     }
 
-    fn module_status(&self, entry: &ModuleEntry) -> Element<'_, Message> {
+    fn module_status(
+        &self,
+        entry: &ModuleEntry,
+        modules: Option<&ModulesConfig>,
+    ) -> Element<'_, Message> {
+        if self.is_manually_off(entry, modules) {
+            return text("disabled in Settings").into();
+        }
+
         let mut lines: Vec<Element<'_, Message>> = Vec::with_capacity(entry.requires.len());
         if entry.requires.is_empty() {
             lines.push(text("no capability required").into());
@@ -126,10 +137,10 @@ impl HomeState {
         let status: Element<'_, Message> = column(lines).spacing(2).into();
         match entry.panel {
             Some(Panel::Store) => {
-                let available = entry
-                    .requires
-                    .iter()
-                    .all(|required| self.report(required).is_some_and(|report| report.available));
+                let available = !self.is_manually_off(entry, modules)
+                    && entry.requires.iter().all(|required| {
+                        self.report(required).is_some_and(|report| report.available)
+                    });
                 let open =
                     button::text("Open").on_press_maybe(available.then_some(Message::OpenStore));
                 row(vec![status, open.into()]).spacing(12).into()
@@ -138,27 +149,47 @@ impl HomeState {
         }
     }
 
-    fn capability_detail(&self, report: &CapabilityReport) -> Element<'_, Message> {
-        if report.available {
-            return text("available").into();
-        }
-
-        let mut lines: Vec<Element<'_, Message>> = vec![text(
-            report
-                .reason
-                .clone()
-                .unwrap_or_else(|| "unavailable".to_string()),
-        )
-        .into()];
-        if let Some(fix) = &report.fix {
-            lines.push(text(format!("fix: {fix}")).into());
-        }
-        column(lines).spacing(2).into()
+    fn is_manually_off(&self, entry: &ModuleEntry, modules: Option<&ModulesConfig>) -> bool {
+        let (Some(module), Some(modules)) = (entry.module, modules) else {
+            return false;
+        };
+        module_mode(modules, module) == TriState::Off
     }
 
     fn report(&self, capability: &Capability) -> Option<&CapabilityReport> {
         self.caps
             .iter()
             .find(|report| report.capability == *capability)
+    }
+}
+
+fn module_mode(modules: &ModulesConfig, module: ModuleId) -> TriState {
+    match module {
+        ModuleId::PackagesNix => modules.packages_nix,
+        ModuleId::Snapshots => modules.snapshots,
+        ModuleId::Users => modules.users,
+        ModuleId::Niri => modules.niri,
+        ModuleId::System | ModuleId::Config | ModuleId::Capabilities => TriState::Auto,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manual_off_disables_the_module_row() {
+        let state = HomeState::default();
+        let entry = MODULES
+            .iter()
+            .find(|entry| entry.module == Some(ModuleId::PackagesNix))
+            .unwrap();
+        let modules = ModulesConfig {
+            packages_nix: TriState::Off,
+            ..Default::default()
+        };
+        assert!(state.is_manually_off(entry, Some(&modules)));
+        let modules = ModulesConfig::default();
+        assert!(!state.is_manually_off(entry, Some(&modules)));
     }
 }

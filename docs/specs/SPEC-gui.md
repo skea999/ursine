@@ -2,7 +2,7 @@
 
 ## Objective
 
-The native frontend `ursine`: **libcosmic** app, thin client of `ursined`. Login, one navigation shell, capability-gated panels (nix store, snapshots, users, niri forms), the `config.init` button. UX principles (toolkit-independent): one navigation structure, terminology from `CONTEXT.md`, no jargon, no broken panels, confirmation before destructive actions, keyboard-first, empty/error states designed.
+The native frontend `ursine`: **libcosmic** app, thin client of `ursined`. Login, one navigation shell, capability-gated panels (nix store, snapshots, users, niri forms), and a Settings screen for capabilities and module modes. UX principles (toolkit-independent): one navigation structure, terminology from `CONTEXT.md`, no jargon, no broken panels, confirmation before destructive actions, keyboard-first, empty/error states designed.
 
 ## Tech Stack
 
@@ -22,7 +22,7 @@ The native frontend `ursine`: **libcosmic** app, thin client of `ursined`. Login
 | Snapshots | btrbk list (source, timestamp), "Create snapshot", restore flow (preview diff/stats → confirm dialog typing the snapshot name), btrbk config summary, retention info |
 | Users | list (avatar placeholder, name, admin badge), create dialog (name, full name, admin toggle), set password, delete (confirm), groups editor |
 | Niri | dynamic form pages rendered from `niri.schema` (sections sidebar: Input, Outputs, Layout, Animations, Keybinds, Gestures, Autostart, Env); Apply bar with validate state; keybind capture widget |
-| Settings | `config.init` button (writes daemon config template), daemon status, audit viewer (read-only, latest entries) |
+| Settings | detected capabilities with refresh, module modes (`auto` / manual on / manual off) from `config.get_config` and `config.set_module_switch`, configuration file path |
 
 - Destructive actions (restore snapshot, delete user, remove packages): COSMIC dialog confirm, stating EXACTLY what will happen
 - Capability-gated: disabled modules render as cards with reason + `fix` (e.g. `apk add btrbk`) — never a broken screen

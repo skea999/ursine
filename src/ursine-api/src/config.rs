@@ -23,6 +23,15 @@ impl TriState {
     pub const fn is_auto(self) -> bool {
         matches!(self, Self::Auto)
     }
+
+    /// Stable human/audit spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::On => "true",
+            Self::Off => "false",
+        }
+    }
 }
 
 impl Serialize for TriState {
