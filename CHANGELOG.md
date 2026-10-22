@@ -1,10 +1,14 @@
 # Changelog
 
+## [0.5.0] — 2026-10-22
+
+### Added
+- Snapshots (btrbk): raw list/stats parser, snapshot creation, config read/init, and restore via `btrfs subvolume snapshot` with preview + confirmation. Snapshots panel in the GUI.
+
 ## [0.4.0] — 2026-10-22
 
 ### Added
 
-- Snapshots (btrbk): list/stats, snapshot creation, btrbk config read/init, and restore via `btrfs subvolume snapshot` with preview + explicit confirmation. Raw btrbk output parser; no JSON assumption.
 
 - Static-analysis gate: strict workspace lints (clippy all/pedantic/nursery/cargo + restriction set, `unsafe_code = forbid`), `cargo-deny`/`cargo-audit`/`cargo-machete`/`cargo-geiger`, gitleaks history scan, `actionlint`/`zizmor`, shell/Nix/TOML linters, SBOM (`cargo-cyclonedx`), and report-only duplicate detection. Alpine 3.24 images: `ursine-ci` (build/test), `ursine-static` (analyzers), `ursine-docs` (Markdown); `scripts/dev.sh` is the local entry point. CI builds `ursine-ci` once and uses it from GHCR for build/test jobs.
 - Pinned Rust toolchain (`rust-toolchain.toml`), `clippy.toml`, `rustfmt.toml`, `deny.toml`, `typos.toml`, `taplo.toml`.
