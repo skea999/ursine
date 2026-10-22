@@ -19,7 +19,7 @@
 
 - [x] Backend: raw parser for `btrbk --format raw` list/stats, snapshot creation, config read/init, restore preview/apply via `btrfs subvolume snapshot` (btrbk 0.32 has no restore) | P0
 - [x] GUI: Snapshots panel with list, stats, create, config init, restore preview + confirm | P0
-- [x] Tests: raw parser, config init/read, restore path validation, section validation; 150 total | P0
+- [x] Tests: raw parser, config init/read, restore path validation, section validation; 150 total. CI run 39861294723 green | P0
 
 ### Done — static analysis + security gate, v0.4.0 (2026-10-22)
 
