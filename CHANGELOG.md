@@ -4,7 +4,7 @@
 
 ### Added
 
-- Static-analysis gate: strict workspace lints (clippy all/pedantic/nursery/cargo + restriction set, `unsafe_code = forbid`), `cargo-deny`/`cargo-audit`/`cargo-vet`/`cargo-machete`, Semgrep custom rules, gitleaks history scan, `actionlint`/`zizmor`, shell/Nix/TOML/Markdown linters, SBOM (`cargo-cyclonedx`), and report-only duplicate detection. Canonical commands: `docs/guides/build-and-test.md`; policy: `docs/STATIC-ANALYSIS.md`; entry point `scripts/static-check.sh` in `ursine-static:1`.
+- Static-analysis gate: strict workspace lints (clippy all/pedantic/nursery/cargo + restriction set, `unsafe_code = forbid`), `cargo-deny`/`cargo-audit`/`cargo-machete` (`cargo-vet`/`cargo-geiger` optional: no musl binaries), Semgrep custom rules, gitleaks history scan, `actionlint`/`zizmor`, shell/Nix/TOML/Markdown linters, SBOM (`cargo-cyclonedx`), and report-only duplicate detection. Canonical commands: `docs/guides/build-and-test.md`; policy: `docs/STATIC-ANALYSIS.md`; entry point `scripts/static-check.sh` in `ursine-static:1`.
 - Pinned Rust toolchain (`rust-toolchain.toml`), `clippy.toml`, `rustfmt.toml`, `deny.toml`, `typos.toml`, `taplo.toml`.
 - Shipped activation/deactivation tools moved to `src/tools/`; web assets path is `src/web/`.
 

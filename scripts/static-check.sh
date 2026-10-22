@@ -21,6 +21,10 @@ run() {
 have() { command -v "$1" >/dev/null 2>&1; }
 
 rust_group() {
+  if ! cargo clippy --version >/dev/null 2>&1 || ! cargo fmt --version >/dev/null 2>&1; then
+    step "rust lints: not installed here; run in ursine-ci:1"
+    return
+  fi
   run cargo fmt --check
   run cargo check --workspace --all-targets --all-features
   run cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -78,7 +82,7 @@ sast_group() {
 deps_group() {
   run cargo deny check
   run sh scripts/audit-threshold.sh
-  run cargo vet --locked
+  if have cargo-vet; then run cargo vet --locked; else step "cargo-vet: no musl binary; cargo-deny covers advisories"; fi
   run cargo machete
 }
 

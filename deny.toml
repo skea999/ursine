@@ -17,6 +17,8 @@ ignore = [
   { id = "RUSTSEC-2026-0371", reason = "zbus_names via zbus/libcosmic; unmaintained upstream" },
   { id = "RUSTSEC-2026-0372", reason = "zvariant_derive via zbus/libcosmic; unmaintained upstream" },
   { id = "RUSTSEC-2026-0374", reason = "basic-toml via i18n-config/libcosmic; archived upstream" },
+  { id = "RUSTSEC-2026-0186", reason = "memmap2 0.8.0 via xkbcommon 0.7/iced; no fixed 0.8 release" },
+  { id = "RUSTSEC-2026-0253", reason = "lru 0.16.4 via cryoglyph/iced; fixed only in 0.18.2, incompatible pin" },
 ]
 
 # `apply` (via libcosmic) has no license field upstream. Known item, tracked in

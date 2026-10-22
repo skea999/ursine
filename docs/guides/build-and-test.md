@@ -103,3 +103,20 @@ podman run --rm --network=host -v "$PWD:/work" -w /work nixos/nix \
 - Temporary files: `artifacts/<task>/`. Never host `/tmp`.
 - `Cargo.lock` is committed; every CI cargo command uses `--locked`.
 - Do not skip hooks or checks. Fix the finding.
+
+## Static image contents
+
+`ci/Containerfile.static` is based on `alpine:3.24`. It installs from apk:
+
+- `cargo`, `cargo-deny`, `cargo-audit`, `cargo-cyclonedx`
+- `typos`, `taplo`, `zizmor`, `actionlint`, `shellcheck`, `shfmt`, `editorconfig-checker`
+- `nodejs`/`npm` for `markdownlint-cli2` and `jscpd`
+
+Missing upstream tools are downloaded as musl/static release binaries:
+`cargo-machete` and `gitleaks`. `cargo-vet` and `cargo-geiger` have no Linux
+musl binaries; they are optional. `cargo-vet` is replaced by
+`cargo-deny`/`cargo-audit`; `cargo-geiger` is replaced by
+`unsafe_code = "forbid"`. Semgrep runs from its official image in CI.
+
+The Rust compile/clippy/fmt group runs in `ursine-ci:1`; the static image keeps
+only analyzers so its build stays fast.

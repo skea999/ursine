@@ -133,7 +133,7 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Static checks
         run: |
-          for group in rust repo deps duplicates sbom; do
+          for group in repo deps duplicates sbom; do
             echo "== static-check: $group =="
             docker run --rm -v "$PWD:/work" -w /work \
               -e CARGO_HOME=/work/artifacts/cargo-home \

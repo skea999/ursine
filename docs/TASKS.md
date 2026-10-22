@@ -16,6 +16,7 @@
 - [x] Store UI covers every `packages_nix` daemon action: search + install, direct install, per-package upgrade/remove, upgrade all, regex upgrade/remove, generation rollback, closure diff, history wipe (preview + apply), generation prune (preview + apply), store GC, and `asUser` target user. Destructive actions confirm; timeouts match the daemon; busy/error/output states. Remaining backend actions wired: `system.status` (Home) and `config.init` (Settings). 100 tests green, clippy `-D warnings`, fmt clean | P0
 
 ### Done — static analysis + security gate, v0.4.0 (2026-10-22)
+
 - [x] Strict lints: pinned toolchain, workspace clippy all/pedantic/nursery/cargo + restrictions, `unsafe_code = forbid`, rustdoc warnings | P0
 - [x] Repo/SAST/deps: typos, editorconfig, shellcheck/shfmt, taplo, markdownlint, actionlint, zizmor, Semgrep custom, gitleaks, cargo-deny/audit/vet/machete, geiger, SBOM; duplicates report-only | P0
 - [x] `ursine-static:1` + `scripts/static-check.sh` + docs; CI static/zizmor jobs; actions/images pinned | P0

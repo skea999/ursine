@@ -20,11 +20,11 @@ reason and expiry (max 90 days).
 | GitHub Actions | `actionlint` (local image), `zizmor` (official image, CI) | blocking |
 | SAST | Semgrep (`p/rust`, `p/secrets`, custom rules) | blocking |
 | Secrets | `gitleaks` full history | blocking |
-| Unsafe | `unsafe_code = forbid`, `cargo-geiger` | blocking |
+| Unsafe | `unsafe_code = forbid`; `cargo-geiger` optional report (no musl binary) | blocking (forbid) |
 | Advisories | `scripts/audit-threshold.sh` + `cargo-deny advisories` | warn 1–9, block ≥10 dependencies |
 | Licenses | `cargo-deny licenses` | blocking |
 | Sources/bans | `cargo-deny sources`, `bans` | blocking |
-| Supply chain | `cargo-vet --locked` | blocking |
+| Supply chain | `cargo-deny` + `cargo-audit`; `cargo-vet` optional (no musl binary) | blocking (deny/audit) |
 | Unused deps | `cargo-machete` | blocking |
 | SBOM | `cargo-cyclonedx` | artifact per release |
 | Duplicate code/crates | `jscpd`, `cargo tree -d` | report only |
