@@ -486,7 +486,7 @@ async fn run_as_user_limited(
 
 /// Run a validated argv as ROOT (no shell is involved). Used for store-wide
 /// operations and for profile commands users cannot lock themselves.
-pub(super) async fn run_root_program(
+pub async fn run_root_program(
     program: &str,
     args: &[&str],
     timeout: Duration,

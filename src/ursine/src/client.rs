@@ -11,9 +11,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use ursine_api::{
-    installable_from_attr, timeouts, Action, ApiError, InstalledPackage, ModuleId, ModulesConfig,
-    Request, RequestBody, Response, ResponseBody, SearchResult, SessionToken, TriState,
-    PROTOCOL_VERSION,
+    installable_from_attr, timeouts, Action, ApiError, BtrbkConfigView, InstalledPackage, ModuleId,
+    ModulesConfig, Request, RequestBody, Response, ResponseBody, SearchResult, SessionToken,
+    Snapshot, SnapshotStats, TriState, PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
@@ -205,6 +205,82 @@ fn parse_config_snapshot(value: serde_json::Value) -> Result<ConfigSnapshot, Api
         path,
         exists,
     })
+}
+
+/// Snapshots, stats and btrbk config in one refresh.
+#[derive(Debug, Clone, Default)]
+pub struct SnapshotPage {
+    pub snapshots: Vec<Snapshot>,
+    pub stats: Vec<SnapshotStats>,
+    pub config: BtrbkConfigView,
+}
+
+pub async fn snapshot_page(token: SessionToken) -> Result<SnapshotPage, ApiError> {
+    let snapshots = call(
+        token.clone(),
+        ModuleId::Snapshots,
+        Action::ListSnapshots,
+        None,
+    )
+    .await?;
+    let stats = call(token.clone(), ModuleId::Snapshots, Action::Stats, None).await?;
+    let config = call(token, ModuleId::Snapshots, Action::GetBtrbkConfig, None).await?;
+    let snapshots = snapshots
+        .get("snapshots")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon snapshots response has no list"))?;
+    let stats = stats
+        .get("stats")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon snapshots response has no stats"))?;
+    Ok(SnapshotPage {
+        snapshots: serde_json::from_value(snapshots)
+            .map_err(|e| ApiError::internal(format!("cannot read snapshots: {e}")))?,
+        stats: serde_json::from_value(stats)
+            .map_err(|e| ApiError::internal(format!("cannot read snapshot stats: {e}")))?,
+        config: serde_json::from_value(config)
+            .map_err(|e| ApiError::internal(format!("cannot read btrbk config: {e}")))?,
+    })
+}
+
+pub async fn create_snapshot(
+    token: SessionToken,
+    section: Option<String>,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Snapshots,
+        Action::CreateSnapshot { section },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn restore_snapshot(
+    token: SessionToken,
+    snapshot: String,
+    target: String,
+    dry_run: bool,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Snapshots,
+        Action::RestoreSnapshot {
+            snapshot,
+            target,
+            dry_run,
+        },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn init_btrbk_config(token: SessionToken) -> Result<BtrbkConfigView, ApiError> {
+    let value = call(token, ModuleId::Snapshots, Action::InitBtrbkConfig, None).await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read btrbk config: {e}")))
 }
 
 /// Bounded search page returned by the daemon.

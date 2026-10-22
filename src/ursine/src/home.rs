@@ -29,6 +29,7 @@ struct ModuleEntry {
 #[derive(Clone, Copy)]
 enum Panel {
     Store,
+    Snapshots,
 }
 
 const MODULES: &[ModuleEntry] = &[
@@ -54,7 +55,7 @@ const MODULES: &[ModuleEntry] = &[
         title: "Snapshots (btrbk)",
         module: Some(ModuleId::Snapshots),
         requires: &[Capability::Btrbk, Capability::Btrfs],
-        panel: None,
+        panel: Some(Panel::Snapshots),
     },
     ModuleEntry {
         title: "Users",
@@ -147,14 +148,18 @@ impl HomeState {
 
         let status: Element<'_, Message> = column(lines).spacing(2).into();
         match entry.panel {
-            Some(Panel::Store) => {
+            Some(Panel::Store | Panel::Snapshots) => {
                 let available = !Self::is_manually_off(entry, modules)
                     && entry.requires.iter().all(|required| {
                         self.report(*required)
                             .is_some_and(|report| report.available)
                     });
-                let open =
-                    button::text("Open").on_press_maybe(available.then_some(Message::OpenStore));
+                let open_message = match entry.panel {
+                    Some(Panel::Store) => Message::OpenStore,
+                    Some(Panel::Snapshots) => Message::OpenSnapshots,
+                    None => unreachable!(),
+                };
+                let open = button::text("Open").on_press_maybe(available.then_some(open_message));
                 row(vec![status, open.into()]).spacing(12).into()
             }
             None => status,

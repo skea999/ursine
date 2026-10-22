@@ -12,6 +12,7 @@ pub mod error;
 pub mod module;
 pub mod nix;
 pub mod principal;
+pub mod snapshot;
 pub mod timeouts;
 pub mod token;
 
@@ -26,4 +27,5 @@ pub use nix::{
     CommandOutcome, InstalledPackage, SearchResult,
 };
 pub use principal::{AsUser, Principal, PrincipalOrigin};
+pub use snapshot::{BtrbkConfigView, Snapshot, SnapshotStats};
 pub use token::SessionToken;

@@ -10,6 +10,7 @@ mod client;
 mod home;
 mod login;
 mod settings;
+mod snapshots;
 mod store;
 
 use cosmic::app::Settings;

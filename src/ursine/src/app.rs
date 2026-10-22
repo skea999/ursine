@@ -10,6 +10,7 @@ use crate::client::{self, AuthSession, ConfigSnapshot, SearchPage};
 use crate::home::HomeState;
 use crate::login::LoginState;
 use crate::settings::SettingsState;
+use crate::snapshots::{SnapAction, SnapshotsState};
 use crate::store::{PendingStoreAction, StoreAction, StoreScope, StoreState};
 
 /// Live session. The token stays in RAM: never written to disk, never logged.
@@ -24,6 +25,7 @@ enum Screen {
     Home,
     Settings,
     Store,
+    Snapshots,
 }
 
 pub struct App {
@@ -32,6 +34,7 @@ pub struct App {
     home: HomeState,
     settings: SettingsState,
     store: StoreState,
+    snapshots: SnapshotsState,
     screen: Screen,
     session: Option<Session>,
     /// Bumped on sign-in/sign-out so late async results cannot repopulate a
@@ -55,7 +58,20 @@ pub enum Message {
     SetModuleSwitch(ModuleId, TriState),
     ModuleSwitchSaved(u64, Result<ConfigSnapshot, ApiError>),
     OpenStore,
+    OpenSnapshots,
     BackHome,
+    SnapshotsLoaded(u64, Result<client::SnapshotPage, ApiError>),
+    RefreshSnapshots,
+    SnapshotSectionChanged(String),
+    SnapshotRestoreSnapshotChanged(String),
+    SnapshotRestoreTargetChanged(String),
+    SnapshotCreateRequested,
+    SnapshotRestorePreview,
+    SnapshotRestorePreviewed(u64, String, String, Result<serde_json::Value, ApiError>),
+    SnapshotRestoreConfirmed,
+    SnapshotRestoreCancelled,
+    InitBtrbkConfig,
+    SnapshotActionFinished(u64, SnapAction, Result<serde_json::Value, ApiError>),
     StoreLoaded(u64, StoreScope, Result<client::StoreSnapshot, ApiError>),
     RefreshStore,
     StoreAsUserChanged(String),
@@ -112,6 +128,7 @@ impl cosmic::Application for App {
             home: HomeState::default(),
             settings: SettingsState::default(),
             store: StoreState::default(),
+            snapshots: SnapshotsState::default(),
             screen: Screen::Home,
             session: None,
             epoch: 0,
@@ -140,6 +157,28 @@ impl cosmic::Application for App {
             Message::OpenStore => {
                 self.screen = Screen::Store;
                 return self.load_store();
+            }
+            Message::OpenSnapshots => {
+                self.screen = Screen::Snapshots;
+                return self.load_snapshots();
+            }
+            Message::SnapshotsLoaded(epoch, result) => return self.finish_snapshots(epoch, result),
+            Message::RefreshSnapshots => return self.load_snapshots(),
+            Message::SnapshotSectionChanged(value) => self.snapshots.section = value,
+            Message::SnapshotRestoreSnapshotChanged(value) => {
+                self.snapshots.restore_snapshot = value;
+            }
+            Message::SnapshotRestoreTargetChanged(value) => self.snapshots.restore_target = value,
+            Message::SnapshotCreateRequested => return self.create_snapshot(),
+            Message::SnapshotRestorePreview => return self.preview_restore(),
+            Message::SnapshotRestorePreviewed(epoch, snapshot, target, result) => {
+                return self.finish_restore_preview(epoch, snapshot, target, result)
+            }
+            Message::SnapshotRestoreConfirmed => return self.confirm_restore(),
+            Message::SnapshotRestoreCancelled => self.snapshots.pending_restore = None,
+            Message::InitBtrbkConfig => return self.init_btrbk_config(),
+            Message::SnapshotActionFinished(epoch, action, result) => {
+                return self.finish_snapshot_action(epoch, &action, result)
             }
             Message::BackHome => self.screen = Screen::Home,
             Message::StoreLoaded(epoch, scope, result) => {
@@ -218,12 +257,199 @@ impl cosmic::Application for App {
                         .view(&self.home.caps, self.home.busy, self.home.error.as_deref())
                 }
                 Screen::Store => self.store.view(),
+                Screen::Snapshots => self.snapshots.view(),
             },
         )
     }
 }
 
 impl App {
+    fn load_snapshots(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.snapshots.busy {
+            return Task::none();
+        }
+        self.snapshots.busy = true;
+        self.snapshots.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(
+            async move { Message::SnapshotsLoaded(epoch, client::snapshot_page(token).await) },
+        )
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_snapshots(
+        &mut self,
+        epoch: u64,
+        result: Result<client::SnapshotPage, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.snapshots.busy = false;
+        match result {
+            Ok(page) => self.snapshots.apply(page),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.snapshots.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn create_snapshot(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.snapshots.action_busy {
+            return Task::none();
+        }
+        let section = self.snapshots.section.trim();
+        let section = (!section.is_empty()).then(|| section.to_string());
+        self.snapshots.action_busy = true;
+        self.snapshots.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            let result = client::create_snapshot(token, section.clone()).await;
+            Message::SnapshotActionFinished(epoch, SnapAction::Create(section), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn preview_restore(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.snapshots.action_busy {
+            return Task::none();
+        }
+        let snapshot = self.snapshots.restore_snapshot.trim().to_string();
+        let target = self.snapshots.restore_target.trim().to_string();
+        if snapshot.is_empty() || target.is_empty() {
+            self.snapshots.error = Some("Enter snapshot and target paths.".into());
+            return Task::none();
+        }
+        self.snapshots.action_busy = true;
+        self.snapshots.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            let result =
+                client::restore_snapshot(token, snapshot.clone(), target.clone(), true).await;
+            Message::SnapshotRestorePreviewed(epoch, snapshot, target, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_restore_preview(
+        &mut self,
+        epoch: u64,
+        snapshot: String,
+        target: String,
+        result: Result<serde_json::Value, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.snapshots.action_busy = false;
+        match result {
+            Ok(value) => {
+                self.snapshots.pending_restore = Some((snapshot, target));
+                self.snapshots.action_message = Some(format!(
+                    "Preview: {}",
+                    value
+                        .get("command")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("restore ready")
+                ));
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.snapshots.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn confirm_restore(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some((snapshot, target)) = self.snapshots.pending_restore.take() else {
+            return Task::none();
+        };
+        self.snapshots.action_busy = true;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        let action = SnapAction::Restore {
+            snapshot: snapshot.clone(),
+            target: target.clone(),
+            dry_run: false,
+        };
+        Task::future(async move {
+            let result = client::restore_snapshot(token, snapshot, target, false).await;
+            Message::SnapshotActionFinished(epoch, action, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn init_btrbk_config(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.snapshots.action_busy {
+            return Task::none();
+        }
+        self.snapshots.action_busy = true;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            let result = client::init_btrbk_config(token)
+                .await
+                .map(|config| serde_json::json!({"path": config.path, "exists": config.exists}));
+            Message::SnapshotActionFinished(epoch, SnapAction::InitConfig, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_snapshot_action(
+        &mut self,
+        epoch: u64,
+        action: &SnapAction,
+        result: Result<serde_json::Value, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.snapshots.action_busy = false;
+        match result {
+            Ok(_) => {
+                self.snapshots.action_message = Some(match action {
+                    SnapAction::Create(_) => "Snapshot created.".into(),
+                    SnapAction::Restore { .. } => "Restore completed.".into(),
+                    SnapAction::InitConfig => "btrbk configuration created.".into(),
+                });
+                self.snapshots.error = None;
+                return self.load_snapshots();
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.snapshots.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
     fn sign_in(&mut self) -> Task<cosmic::Action<Message>> {
         if self.login.busy {
             return Task::none();

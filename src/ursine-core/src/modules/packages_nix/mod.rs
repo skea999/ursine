@@ -4,7 +4,7 @@
 //! are not supported by design (skea999: only the latest mode matters).
 //! Every command runs AS the target user (login env, own profile), never root.
 
-mod exec;
+pub mod exec;
 mod generations;
 mod parse;
 

@@ -6,25 +6,25 @@ Expose btrbk's own functionality — nothing reimplemented. Ursine integrates bt
 
 ## Tech Stack
 
-- `btrbk` (packaged on Alpine) executed as root where needed: `btrbk --format json list`, `btrbk run`, `btrbk stats`, `btrbk restore`, `btrbk clean`, `btrbk dryrun`
+- `btrbk` (packaged on Alpine) executed as root where needed: `btrbk --format raw list`, `btrbk snapshot`, `btrbk --format raw stats`, `btrbk clean`, `btrbk dryrun`. Restore uses `btrfs subvolume snapshot` because btrbk 0.32 has no restore command.
 - Config source of truth: `/etc/btrbk/btrbk.conf` (parsed read-only: sources, targets, retention)
 
 ## API surface
 
 | Action | Implementation |
 |---|---|
-| `snapshots.list` | `btrbk --format json list snapshots` → parsed |
-| `snapshots.stats` | `btrbk --format json stats` |
-| `snapshots.create` | `btrbk run <section>` (snapshot-only section or `--type snapshot` per btrbk semantics) |
-| `snapshots.restore` | `btrbk restore <snapshot> <target>` — CONFIRMATION REQUIRED in GUI (destructive); dryrun preview first |
+| `snapshots.list` | `btrbk --format raw list snapshots` → parsed |
+| `snapshots.stats` | `btrbk --format raw stats` |
+| `snapshots.create` | `btrbk snapshot [<section>]` |
+| `snapshots.restore` | `btrfs subvolume snapshot <snapshot> <target>` — CONFIRMATION REQUIRED in GUI (destructive); preview validates paths and exact argv first |
 | `snapshots.delete` | btrbk retention owns deletion; manual delete only via `btrbk clean` (honors config) |
 | `snapshots.getConfig` | parsed view of `/etc/btrbk/btrbk.conf` (sources, targets, retention, timestamp/scheduler) |
-| `snapshots.setConfig` | **read-write**: change WHICH subvolumes are snapshotted (add/remove `<subvolume>` source entries) and the SCHEDULE (retention `snapshot_preserve*` + `timestamp_format`) → write config → validate with `btrbk dryrun` before commit; backup `.bak` of previous config |
-| `snapshots.initConfig` | **create** `/etc/btrbk/btrbk.conf` from scratch: commented default for the FeralOS btrfs layout (hourly keep 24, daily keep 14) pre-filled with detected btrfs subvolumes |
-| `snapshots.preUpdate` | internal: `btrbk run` snapshot-only before ANY package install/upgrade (called by packages modules, not exposed to UI as a button-only op) |
+| `snapshots.setConfig` | **deferred**: not in the v1 API yet; needs managed-line config writer + `.bak` + validation. |
+| `snapshots.initConfig` | **create** `/etc/btrbk/btrbk.conf` from scratch: conservative default for the FeralOS btrfs layout (hourly keep 24, daily keep 14), `/home` or `@` subvolume |
+| `snapshots.preUpdate` | **deferred**: package install/upgrade hook not wired yet. |
 
-- `--format json` everywhere btrbk supports it; fallback parser for missing fields
-- Config edits are schema-validated by OUR writer (only lines we manage are rewritten; user's custom directives preserved verbatim, same policy as niri editor) and verified by `btrbk dryrun` — invalid config never lands
+- `--format raw`; parser for the documented raw keys. btrbk 0.32 has no JSON output.
+- `initConfig` writes a conservative template and validates it with `btrbk --format raw list config`. Managed-line editing is deferred.
 
 ## Commands
 
@@ -45,8 +45,8 @@ tests/snapshots/ integration tests (btrfs-only machines)
 ## Code Style
 
 ```rust
-let out = Exec::root(["btrbk", "--format", "json", "list", "snapshots"]).run().await?;
-let snaps = btrbk::parse_list(&out)?;
+let out = Exec::root(["btrbk", "--format", "raw", "list", "snapshots"]).run().await?;
+let snaps = btrbk::parse_snapshots(&out)?;
 ```
 
 - btrbk is the ONLY implementation of snapshot logic; if btrbk cannot do it, v1 does not do it
@@ -60,18 +60,18 @@ let snaps = btrbk::parse_list(&out)?;
 
 ## Boundaries
 
-- Always: `ensure_available(btrbk)` and `ensure_available(btrfs)`; dryrun before every restore AND every config write; audit every create/restore/clean/config change
+- Always: `ensure_available(btrbk)` and `ensure_available(btrfs)`; preview before every restore and config write; audit every create/restore/clean/config change
 - Ask first: any direct `btrfs subvolume` call (only if btrbk lacks the operation — justify in PR)
-- Never: manual `btrfs subvolume snapshot/delete` bypassing btrbk in v1; silent restore; deleting snapshots outside btrbk retention; writing btrbk.conf without dryrun validation
+- Never: silent restore; deleting snapshots outside btrbk retention; writing btrbk.conf without validation. Restore is the only approved btrfs fallback (btrbk 0.32 has no restore command).
 
 ## Success Criteria
 
 - GUI shows btrbk-managed snapshots with timestamps/sources from `btrbk list`
-- User changes WHICH subvolumes are snapshotted and the retention schedule from the GUI — config written, dryrun-validated, audited
-- If btrbk.conf is absent: `snapshots.initConfig` creates it (detected subvolumes pre-filled, commented default schedule)
-- Installing a package via the store triggers a pre-update btrbk snapshot automatically (visible in snapshot list + audit)
-- Restore requires preview + explicit confirmation, then runs btrbk restore
+- GUI shows and initializes btrbk config; editing subvolumes/retention is deferred
+- If btrbk.conf is absent: `snapshots.initConfig` creates a conservative default (`/home` or `@`, hourly+daily retention) and validates it
+- Pre-update snapshots on package changes are deferred with `snapshots.setConfig`
+- Restore requires preview + explicit confirmation, then creates a writable btrfs snapshot
 
 ## Open Questions
 
-- None (default schedule on initConfig: hourly keep 24, daily keep 14 — user editable from GUI).
+- Editing the schedule/subvolumes from the GUI is deferred (`snapshots.setConfig`).

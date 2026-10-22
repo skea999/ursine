@@ -6,6 +6,7 @@ use serde_json::json;
 use ursine_api::{Action, ApiError, Capability, ModuleId, Response, UrsineConfig};
 
 pub mod packages_nix;
+pub mod snapshots;
 
 use crate::capabilities::{module_switch, Registry};
 
@@ -55,8 +56,9 @@ pub async fn handle(
         }
         (ModuleId::PackagesNix, action) => packages_nix::handle(action, ctx).await,
 
+        (ModuleId::Snapshots, action) => snapshots::handle(action, ctx).await,
+
         // v1 module surface: wired later milestone by milestone.
-        (ModuleId::Snapshots, _) => Err(ApiError::not_implemented("snapshots")),
         (ModuleId::Users, _) => Err(ApiError::not_implemented("users")),
         (ModuleId::Niri, _) => Err(ApiError::not_implemented("niri")),
 

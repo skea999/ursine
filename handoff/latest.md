@@ -6,6 +6,20 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-22 — snapshots (btrbk), uncommitted
+
+**Status**: backend + GUI implemented; gate green; commit/push pending.
+
+- Backend: raw parser for `btrbk --format raw` list/stats, `btrbk snapshot`, btrbk config read/init, restore preview/apply via `btrfs subvolume snapshot` (btrbk 0.32 has no restore; approved fallback). Capability gate Btrbk+Btrfs; audit through dispatch.
+- GUI: Snapshots panel from Home (Open), list, stats, create, config init, restore preview + explicit confirm. Thin frontend; all decisions in daemon.
+- Tests: 150 total (GUI 31, API 26, integration 6, core 87), clippy/fmt, static all, docs, nix linters green.
+- Deferred explicitly in spec: `snapshots.setConfig` and pre-update hooks.
+
+**Next**:
+1. Commit/push and verify CI.
+2. Tag/release later per policy (updates `nix/binary.nix`).
+3. Next feature: users (accountsservice) or niri editor.
+
 ## Session 2026-10-22 — static analysis gate + v0.4.0 (uncommitted, gate-green)
 
 **Status**: strict static/security/dependency gate implemented, version 0.4.0 pushed. GitHub CI run 39833951848 green: image, flake, docs, zizmor, static, gui, test, lint, package, publish. App is not containerized; only tooling images are used.

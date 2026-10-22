@@ -15,6 +15,12 @@
 
 - [x] Store UI covers every `packages_nix` daemon action: search + install, direct install, per-package upgrade/remove, upgrade all, regex upgrade/remove, generation rollback, closure diff, history wipe (preview + apply), generation prune (preview + apply), store GC, and `asUser` target user. Destructive actions confirm; timeouts match the daemon; busy/error/output states. Remaining backend actions wired: `system.status` (Home) and `config.init` (Settings). 100 tests green, clippy `-D warnings`, fmt clean | P0
 
+### Done — snapshots (btrbk) (2026-10-22)
+
+- [x] Backend: raw parser for `btrbk --format raw` list/stats, snapshot creation, config read/init, restore preview/apply via `btrfs subvolume snapshot` (btrbk 0.32 has no restore) | P0
+- [x] GUI: Snapshots panel with list, stats, create, config init, restore preview + confirm | P0
+- [x] Tests: raw parser, config init/read, restore path validation, section validation; 150 total | P0
+
 ### Done — static analysis + security gate, v0.4.0 (2026-10-22)
 
 - [x] Strict lints: pinned toolchain, workspace clippy all/pedantic/nursery/cargo + restrictions, `unsafe_code = forbid`, rustdoc warnings | P0
