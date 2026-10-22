@@ -23,7 +23,7 @@ podman build -t ursine-ci:1 -f ci/Containerfile.dev .
 ```
 
 Then use the exact commands in [build-and-test.md](build-and-test.md). They are
-the same commands CI runs: `cargo fmt --check`, `cargo check`, strict clippy,
+the same commands CI runs: `cargo fmt --check`, strict clippy,
 `cargo test` in the Alpine/musl container.
 
 Static analysis uses `ci/Containerfile.static` and `scripts/static-check.sh`;

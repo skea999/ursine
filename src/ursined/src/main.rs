@@ -116,7 +116,6 @@ async fn async_main(config_path: PathBuf) -> std::process::ExitCode {
         audit,
         auth,
         config: tokio::sync::RwLock::new(config),
-        clock,
     });
 
     tracing::info!(

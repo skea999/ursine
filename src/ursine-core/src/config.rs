@@ -300,6 +300,7 @@ pub fn write_template(path: &Path, caps: &[CapabilityReport]) -> Result<(), Core
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)] // tests use the host temp dir
     use super::*;
     use ursine_api::{Capability, TriState};
 

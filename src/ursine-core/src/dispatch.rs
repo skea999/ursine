@@ -11,7 +11,6 @@ use ursine_api::{
 use crate::audit::{AuditLog, Outcome};
 use crate::auth::{AuthError, Authenticator, PeerInfo};
 use crate::capabilities::Registry;
-use crate::clock::Clock;
 use crate::modules;
 use crate::ratelimit::RateLimiter;
 use crate::session::TokenStore;
@@ -40,8 +39,6 @@ pub struct Daemon {
     pub ratelimit: RateLimiter,
     pub auth_permits: Arc<tokio::sync::Semaphore>,
     pub audit: AuditLog,
-    #[allow(dead_code)]
-    pub clock: Arc<dyn Clock>,
 }
 
 impl std::fmt::Debug for Daemon {
@@ -410,6 +407,7 @@ fn uses_profile(action: &Action) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)] // tests use the host temp dir
     use super::*;
     use crate::audit::AuditLog;
     use crate::auth::stub::StubAuthenticator;
@@ -436,7 +434,6 @@ mod tests {
             auth_permits: Arc::new(tokio::sync::Semaphore::new(MAX_INFLIGHT_AUTH)),
             audit,
             config: tokio::sync::RwLock::new(cfg),
-            clock: clock.clone(),
         };
         (clock, d)
     }

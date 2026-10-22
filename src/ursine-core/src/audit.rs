@@ -172,6 +172,7 @@ impl AuditLog {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)] // tests use the host temp dir
     use super::*;
     use crate::clock::ManualClock;
 

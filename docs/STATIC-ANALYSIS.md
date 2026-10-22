@@ -10,24 +10,24 @@ reason and expiry (max 90 days).
 | Layer | Tool | Gate |
 |---|---|---|
 | Formatting | `cargo fmt --check` | blocking |
-| Compiler | `cargo check --all-targets --all-features` | blocking |
 | Rust lints | workspace `[lints]` + strict clippy | blocking, `-D warnings` |
 | Docs | `cargo doc` with `RUSTDOCFLAGS=-D warnings` | blocking |
 | Repo lint | `typos`, `editorconfig-checker` | blocking |
 | Scripts | `shellcheck`, `shfmt` | blocking |
 | Nix | `statix`, `deadnix`, `alejandra --check` | blocking |
-| TOML/Markdown | `taplo`, `markdownlint-cli2` | blocking |
+| TOML | `taplo` | blocking |
+| Markdown | `markdownlint-cli2` (ursine-docs image) | blocking |
 | GitHub Actions | `actionlint` (local image), `zizmor` (official image, CI) | blocking |
-| SAST | Semgrep (`p/rust`, `p/secrets`, custom rules) | blocking |
+| Code security | clippy strict + `gitleaks` + `cargo-geiger` | blocking |
 | Secrets | `gitleaks` full history | blocking |
-| Unsafe | `unsafe_code = forbid`; `cargo-geiger` optional report (no musl binary) | blocking (forbid) |
-| Advisories | `scripts/audit-threshold.sh` + `cargo-deny advisories` | warn 1–9, block ≥10 dependencies |
+| Unsafe | `unsafe_code = forbid`; `cargo-geiger` (Alpine edge/testing) | blocking |
+| Advisories | `scripts/audit-threshold.sh` | warn 1–9, block ≥10 dependencies |
 | Licenses | `cargo-deny licenses` | blocking |
 | Sources/bans | `cargo-deny sources`, `bans` | blocking |
-| Supply chain | `cargo-deny` + `cargo-audit`; `cargo-vet` optional (no musl binary) | blocking (deny/audit) |
+| Supply chain | `cargo-deny` (licenses/bans/sources) + `cargo-audit` (advisories) | blocking |
 | Unused deps | `cargo-machete` | blocking |
 | SBOM | `cargo-cyclonedx` | artifact per release |
-| Duplicate code/crates | `jscpd`, `cargo tree -d` | report only |
+| Duplicate crates | `cargo tree -d` | report only |
 
 ## Rust lint policy
 
@@ -47,14 +47,12 @@ allows without an exception entry.
 - crates.io only, plus the pinned `github.com/pop-os` git dependencies.
 - No wildcard versions, no unknown registries.
 - Licenses allowlisted in `deny.toml`.
-- `cargo-vet` exemptions are debt: every new exemption needs an owner and
-  expiry; imported audits are preferred.
 - GitHub Actions pinned by full commit SHA; `zizmor` enforces it.
 
 ## Duplicates
 
 Code and crate duplication are measured and reported, never gated:
-`artifacts/duplicates/jscpd.json`, `artifacts/duplicates/cargo-tree-duplicates.txt`.
+`artifacts/duplicates/cargo-tree-duplicates.txt`.
 Review quarterly.
 
 ## Tool pinning

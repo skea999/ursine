@@ -1,6 +1,0 @@
-{
-  "minTokens": 80,
-  "reporters": ["json"],
-  "output": "artifacts/duplicates/jscpd",
-  "ignore": ["artifacts/**", "**/target/**", ".git/**", ".agents/**", ".opencode/**", "supply-chain/**"]
-}

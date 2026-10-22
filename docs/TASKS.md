@@ -18,8 +18,8 @@
 ### Done — static analysis + security gate, v0.4.0 (2026-10-22)
 
 - [x] Strict lints: pinned toolchain, workspace clippy all/pedantic/nursery/cargo + restrictions, `unsafe_code = forbid`, rustdoc warnings | P0
-- [x] Repo/SAST/deps: typos, editorconfig, shellcheck/shfmt, taplo, markdownlint, actionlint, zizmor, Semgrep custom, gitleaks, cargo-deny/audit/vet/machete, geiger, SBOM; duplicates report-only | P0
-- [x] `ursine-static:1` + `scripts/static-check.sh` + docs; CI static/zizmor jobs; actions/images pinned | P0
+- [x] Repo/SAST/deps: typos, editorconfig, shellcheck/shfmt, taplo, actionlint, zizmor, gitleaks, cargo-deny/audit/machete/geiger, SBOM; duplicates report-only | P0
+- [x] Alpine 3.24 images `ursine-ci`/`ursine-static`/`ursine-docs`; `scripts/dev.sh` + `scripts/static-check.sh` + `scripts/docs-check.sh`; CI builds `ursine-ci` once and uses GHCR; static/docs/zizmor jobs; actions/images pinned | P0
 - [x] Layout: `src/tools/` shipped scripts, `src/web/` placeholder; version 0.4.0 | P1
 
 ### Done — v0.3 store parity hardening (2026-10-21)
@@ -82,7 +82,7 @@
 - [x] E2E smoke in container: auth → 64-char token → system.status → capabilities.list (6) → bad token rejected → audit JSONL (3 lines) → clean shutdown; binary dynamic musl (`ldd`) | P0
 - [x] `flake.nix` (pkgsMusl, dynamic musl, x86_64, feature pam) + `flake.lock`; `nix flake show` evaluates green (full build runs in CI) | P0
 - [x] `.github/workflows/ci.yml` ACTIVE: matrix default/pam in alpine:3.22, clippy+fmt gate, nixos/nix flake check/build, release-on-tag | P0
-- [x] `ci/Containerfile.dev` dev image (rust:1-alpine + linux-pam-dev + clippy/rustfmt); all local builds containerized (podman, `--network=host`) | P0
+- [x] `ci/Containerfile.dev` dev image (Alpine 3.24 + rustup 1.99.1 + clippy/rustfmt + GUI deps); all local builds containerized (podman, `--network=host`) | P0
 - [x] Dynamic musl decision: `.cargo/config.toml` `-crt-static` off (static musl cannot link libpam.so; Alpine-style) | P0
 
 ### Done — planning (2026-10-16)

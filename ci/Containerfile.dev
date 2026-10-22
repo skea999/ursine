@@ -1,14 +1,21 @@
-# Ursine dev/CI container image (musl).
-# Usage:
+# Ursine dev/CI container image (musl). Same Alpine base and apk-first policy
+# as ci/Containerfile.static.
+#
 #   podman build -t ursine-ci:1 -f ci/Containerfile.dev .
 #   podman run --rm --network=host -v "$PWD:/work" -w /work \
 #     -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 cargo test --workspace
-#
-# Mirrors the GitHub CI matrix environment (alpine + rust) with clippy/rustfmt
-# and PAM headers preinstalled so feature builds work offline of apk.
-FROM rust:1-alpine
+FROM alpine:3.24
 
-RUN apk add --no-cache linux-pam-dev git nodejs \
-    cmake fontconfig-dev freetype-dev libxkbcommon-dev expat-dev pkgconf \
-    && rustup component add clippy rustfmt \
+RUN apk add --no-cache \
+    bash ca-certificates curl git nodejs tar \
+    build-base openssl-dev pkgconf \
+    linux-pam-dev \
+    cmake fontconfig-dev freetype-dev libxkbcommon-dev expat-dev \
+    rustup \
     && rm -rf /var/cache/apk/*
+
+# Pinned toolchain, same as rust-toolchain.toml. Alpine ships rustup-init.
+RUN rustup-init -y --no-modify-path --profile minimal \
+    --default-toolchain 1.99.1 -c clippy -c rustfmt
+
+ENV PATH="/root/.cargo/bin:${PATH}"

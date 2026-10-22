@@ -11,13 +11,13 @@ See `AGENTS.md` for project context and milestone history.
 **Status**: strict static/security/dependency gate implemented; version bumped to 0.4.0; ready to commit/push. App is not containerized; only tooling images are used.
 
 - Rust lints: pinned `rust-toolchain.toml` (1.99.1), `rustfmt.toml`, `clippy.toml`, workspace `[lints]` with clippy all/pedantic/nursery/cargo + restriction set (`unwrap_used`, `expect_used`, `panic`, `indexing_slicing`, `string_slice`, ...), `unsafe_code = forbid`. Fixed all production findings.
-- Repo lint: `typos`, `editorconfig-checker`, `shellcheck`, `shfmt`, `taplo`, `markdownlint-cli2`, `actionlint`, `zizmor` (CI action), `statix`/`deadnix`/`alejandra`.
-- SAST: Semgrep `p/rust` + `p/secrets` + `.semgrep/ursine.yml` custom rules (no unsafe, no Command outside exec, no temp_dir, no secret literals); gitleaks history scan; cargo-geiger reports.
-- Dependencies: `cargo-deny` (advisories, licenses, bans, sources; wildcard deny; pinned git allowlist), `cargo-audit` with warn <10 / block >=10 threshold (`scripts/audit-threshold.sh`), `cargo-vet --locked` (regex exemption added), `cargo-machete`, per-crate CycloneDX SBOM. Duplicates: `cargo tree -d` + `jscpd`, report-only.
-- Tooling: `ci/Containerfile.static` (pinned tools), `scripts/static-check.sh` groups `rust|repo|sast|deps|duplicates|sbom|all` (`rust` runs in `ursine-ci:1`); canonical build/test commands in `docs/guides/build-and-test.md`; policy in `docs/STATIC-ANALYSIS.md`; exceptions in `docs/static-analysis-exceptions.md`.
+- Repo lint: `typos`, `editorconfig-checker`, `shellcheck`, `shfmt`, `taplo`, `actionlint`, `zizmor`, `statix`/`deadnix`/`alejandra`; Markdown via `ursine-docs:1` + `scripts/docs-check.sh`.
+- SAST: gitleaks history scan; cargo-geiger reports; code security via strict clippy (unsafe forbid, disallowed Command/temp_dir, panic/unwrap restrictions).
+- Dependencies: `cargo-deny` (advisories, licenses, bans, sources; wildcard deny; pinned git allowlist), `cargo-audit` with warn <10 / block >=10 threshold (`scripts/audit-threshold.sh`), `cargo-machete`, per-crate CycloneDX SBOM. Duplicates: `cargo tree -d`, report-only.
+- Tooling: three Alpine 3.24 images (`ursine-ci:1` build/test, `ursine-static:1` analyzers, `ursine-docs:1` Markdown); `scripts/dev.sh` is the single local entry point; CI builds `ursine-ci` once and pushes it to GHCR for all build/test jobs. Canonical commands: `docs/guides/build-and-test.md`; policy: `docs/STATIC-ANALYSIS.md`; exceptions: `docs/static-analysis-exceptions.md`.
 - Layout: shipped activation/deactivation tools moved to `src/tools/`; web placeholder at `src/web/`; dev/CI tooling stays in `scripts/`.
-- CI: GUI tests now run; lint/check/doc added; `static` job builds the static image with cache and runs all groups; Semgrep custom rules; zizmor job; Nix linters; GitHub Actions pinned by SHA; release job cache removed (cache poisoning); container images pinned by digest.
-- Gate: `scripts/static-check.sh all` PASS; cargo test 143 (GUI 31, API 26, integration 6, core 80) all features; PAM/default matrix; clippy `-D warnings`; fmt; rustdoc; nix linters; zizmor clean.
+- CI: GUI tests run; build/test/lint/gui/package use the GHCR `ursine-ci:main` image; `static` and `docs` jobs build their own images and run the same scripts; zizmor job; Nix linters; actions/images pinned; release cache removed.
+- Gate: `scripts/dev.sh check` PASS; `scripts/dev.sh static all` PASS; `scripts/dev.sh docs` PASS; cargo test 143 (GUI 31, API 26, integration 6, core 80) all features; PAM/default matrix; clippy `-D warnings`; fmt; rustdoc; nix linters; zizmor clean.
 - Version: workspace 0.4.0 (minor bump). `nix/binary.nix` stays pinned to 0.3.1 until the next tag release.
 
 **Next**:

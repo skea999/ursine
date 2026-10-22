@@ -10,10 +10,20 @@ CI and local runs use the same commands and the same environment.
 podman build -t ursine-ci:1 -f ci/Containerfile.dev .
 ```
 
-The image is Alpine/musl, matching FeralOS and CI. It contains Rust, clippy,
+The image is Alpine 3.24/musl, matching FeralOS and the static/docs tooling
+images. It installs system libraries from apk and Rust 1.99.1 via the apk
+`rustup` package (pinned by `rust-toolchain.toml`); it includes clippy,
 rustfmt, PAM headers and the GUI build dependencies.
 
 ## 2. Standard checks
+
+Shortcut (same images and commands as CI):
+
+```bash
+scripts/dev.sh check
+scripts/dev.sh static all
+scripts/dev.sh docs
+```
 
 ```bash
 podman run --rm --network=host -v "$PWD:/work" -w /work \
@@ -22,8 +32,6 @@ podman run --rm --network=host -v "$PWD:/work" -w /work \
 
 podman run --rm --network=host -v "$PWD:/work" -w /work \
   -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 \
-  sh -c 'cargo check --workspace --all-targets --all-features'
-
 podman run --rm --network=host -v "$PWD:/work" -w /work \
   -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 \
   sh -c 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
@@ -97,7 +105,7 @@ podman run --rm --network=host -v "$PWD:/work" -w /work nixos/nix \
 
 ## 7. Rules
 
-- No host `cargo`, `rustc`, `nix`, `clippy`, `cargo-deny`, `cargo-vet` or
+- No host `cargo`, `rustc`, `nix`, `clippy`, `cargo-deny` or
   scanner. Everything in a container.
 - Build output: `artifacts/target` (`.cargo/config.toml`). Never `target/`.
 - Temporary files: `artifacts/<task>/`. Never host `/tmp`.
@@ -110,13 +118,20 @@ podman run --rm --network=host -v "$PWD:/work" -w /work nixos/nix \
 
 - `cargo`, `cargo-deny`, `cargo-audit`, `cargo-cyclonedx`
 - `typos`, `taplo`, `zizmor`, `actionlint`, `shellcheck`, `shfmt`, `editorconfig-checker`
-- `nodejs`/`npm` for `markdownlint-cli2` and `jscpd`
-
-Missing upstream tools are downloaded as musl/static release binaries:
-`cargo-machete` and `gitleaks`. `cargo-vet` and `cargo-geiger` have no Linux
-musl binaries; they are optional. `cargo-vet` is replaced by
-`cargo-deny`/`cargo-audit`; `cargo-geiger` is replaced by
-`unsafe_code = "forbid"`. Semgrep runs from its official image in CI.
+- `cargo-geiger`, `cargo-machete`, `gitleaks` (Alpine edge/testing)
 
 The Rust compile/clippy/fmt group runs in `ursine-ci:1`; the static image keeps
 only analyzers so its build stays fast.
+
+## Documentation checks
+
+Docs are not baked into any image; the repo is mounted at runtime.
+
+```bash
+podman build -t ursine-docs:1 -f ci/Containerfile.docs .
+
+podman run --rm --network=host -v "$PWD:/work" -w /work \
+  ursine-docs:1 sh scripts/docs-check.sh
+```
+
+CI runs the same image and script in the `docs` job.

@@ -1,34 +1,28 @@
 # Ursine static-analysis image (Alpine 3.24). Tooling only; the app is not
-# containerized. Everything possible comes from Alpine apk; the two missing
-# scanners are the upstream musl/static release binaries.
+# containerized.
 #
 #   podman build -t ursine-static:1 -f ci/Containerfile.static .
 #   podman run --rm --network=host -v "$PWD:/work" -w /work \
 #     -e CARGO_HOME=/work/artifacts/cargo-home ursine-static:1 sh scripts/static-check.sh
+#
+# Sources: Alpine 3.24 apk, Alpine edge/testing for cargo-geiger/cargo-machete/
+# gitleaks. Documentation checks use ci/Containerfile.docs.
+
 FROM alpine:3.24
 
+# Keep static-tool builds out of the dev target directory.
+ENV CARGO_TARGET_DIR=/work/artifacts/static-target
+
 RUN apk add --no-cache \
-    bash ca-certificates curl git tar xz \
-    nodejs npm \
+    bash ca-certificates curl git \
     cargo cargo-deny cargo-audit cargo-cyclonedx \
     typos taplo zizmor actionlint shellcheck shfmt editorconfig-checker \
     && rm -rf /var/cache/apk/*
 
-# cargo-machete: upstream musl static release.
-RUN curl -sSLo /tmp/cargo-machete.tgz \
-      https://github.com/bnjbvr/cargo-machete/releases/download/v0.9.2/cargo-machete-v0.9.2-x86_64-unknown-linux-musl.tar.gz \
-    && echo "48200087f54c55aabcd4db4af1e25742b49846c02a1b1bfa134711945b35b2e9  /tmp/cargo-machete.tgz" | sha256sum -c - \
-    && tar -xzf /tmp/cargo-machete.tgz -C /usr/local/bin --strip-components=1 cargo-machete-v0.9.2-x86_64-unknown-linux-musl/cargo-machete \
-    && rm /tmp/cargo-machete.tgz
+# edge/testing is tagged explicitly so it cannot silently upgrade unrelated
+# 3.24 packages.
+RUN echo "@edge https://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
 
-# gitleaks: upstream static release (Go).
-RUN curl -sSLo /tmp/gitleaks.tgz \
-      https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
-    && echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tgz" | sha256sum -c - \
-    && tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks \
-    && rm /tmp/gitleaks.tgz
-
-# JS analyzers are not standalone musl binaries; node/npm are from apk and the
-# packages are pinned by the npm lock-free global install below.
-RUN npm install -g markdownlint-cli2@0.24.0 jscpd@5.4.2 \
-    && npm cache clean --force
+RUN apk add --no-cache \
+    cargo-geiger@edge cargo-machete@edge gitleaks@edge \
+    && rm -rf /var/cache/apk/*

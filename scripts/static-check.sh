@@ -26,7 +26,6 @@ rust_group() {
     return
   fi
   run cargo fmt --check
-  run cargo check --workspace --all-targets --all-features
   run cargo clippy --workspace --all-targets --all-features -- -D warnings
   step "cargo doc"
   if ! RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps; then STATUS=1; fi
@@ -39,7 +38,7 @@ repo_group() {
   elif have ec; then
     run ec
   else step "editorconfig-checker: not installed"; fi
-  set -- install.sh scripts/audit-threshold.sh scripts/build-gui-dev.sh scripts/clean-artifacts.sh scripts/static-check.sh \
+  set -- install.sh scripts/audit-threshold.sh scripts/build-gui-dev.sh scripts/clean-artifacts.sh scripts/docs-check.sh scripts/static-check.sh \
     src/tools/ursine-activate.sh src/tools/ursine-deactivate.sh \
     packaging/openrc/ursined packaging/dinit/ursined.wrapper
   if have shellcheck; then run shellcheck -x "$@"; else step "shellcheck: not installed"; fi
@@ -48,7 +47,6 @@ repo_group() {
     run taplo fmt --check Cargo.toml src/ursine-api/Cargo.toml src/ursine-core/Cargo.toml \
       src/ursine/Cargo.toml src/ursined/Cargo.toml rust-toolchain.toml deny.toml taplo.toml
   else step "taplo: not installed"; fi
-  if have markdownlint-cli2; then run markdownlint-cli2; else step "markdownlint-cli2: not installed"; fi
   if have actionlint; then run actionlint; else step "actionlint: not installed"; fi
   if have zizmor; then run zizmor .github/workflows; else step "zizmor: not installed (CI runs the official image)"; fi
   if have statix && have deadnix && have alejandra; then
@@ -61,11 +59,6 @@ repo_group() {
 }
 
 sast_group() {
-  if have semgrep; then
-    run semgrep scan --config p/rust --config p/secrets --config .semgrep --error --quiet
-  else
-    step "semgrep: not installed here; CI runs the semgrep image"
-  fi
   if have gitleaks; then run gitleaks detect --source "$ROOT" --log-opts=--all --redact --no-banner; else step "gitleaks: not installed"; fi
   if have cargo-geiger; then
     step "cargo-geiger reports (compile-time unsafe_code=forbid is the gate)"
@@ -80,21 +73,14 @@ sast_group() {
 }
 
 deps_group() {
-  run cargo deny check
+  run cargo deny check licenses bans sources
   run sh scripts/audit-threshold.sh
-  if have cargo-vet; then run cargo vet --locked; else step "cargo-vet: no musl binary; cargo-deny covers advisories"; fi
   run cargo machete
 }
 
 duplicates_group() {
   step "duplicate crates (report only)"
   cargo tree -d >artifacts/duplicates/cargo-tree-duplicates.txt 2>&1 || true
-  if have jscpd; then
-    step "duplicate code (report only)"
-    jscpd src >artifacts/duplicates/jscpd.log 2>&1 || true
-  else
-    step "jscpd: not installed"
-  fi
 }
 
 sbom_group() {

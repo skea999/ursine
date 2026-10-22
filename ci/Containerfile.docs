@@ -1,0 +1,12 @@
+# Ursine docs-analysis image (Alpine 3.24). Tooling only; the app and docs are
+# not baked in. The repo is mounted at runtime.
+#
+#   podman build -t ursine-docs:1 -f ci/Containerfile.docs .
+#   podman run --rm -v "$PWD:/work" -w /work ursine-docs:1 sh scripts/docs-check.sh
+FROM alpine:3.24
+
+RUN apk add --no-cache bash ca-certificates git nodejs npm \
+    && rm -rf /var/cache/apk/*
+
+RUN npm install -g markdownlint-cli2@0.24.0 \
+    && npm cache clean --force

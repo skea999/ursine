@@ -1,8 +1,9 @@
 # Ursine CI — fully containerized (rule 9): no host toolchains on runners.
 #
 # Jobs: test matrix (default/pam) · lint (clippy+fmt+doc) · gui (build+test) ·
-#       static (ursine-static image + scripts/static-check.sh: rust/repo/deps/
-#       duplicates/sbom) · sast (Semgrep) · zizmor (workflow security) ·
+#       static (ursine-static image + scripts/static-check.sh: repo/sast/deps/
+#       duplicates/sbom) · docs (ursine-docs image + markdownlint) ·
+#       zizmor (workflow security) ·
 #       version (release gate) · changes (PR build filter) ·
 #       flake (nix package check/build + nix linters) ·
 #       package (release binaries in Alpine) · publish (tag / rolling latest) ·
@@ -38,24 +39,56 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 env:
   CARGO_TERM_COLOR: never
   NIX_CONFIG: "experimental-features = nix-command flakes"
 
 jobs:
+  # ── Dev/CI image: built once, used by build/test/lint/gui/package ──
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v3
+      - uses: docker/login-action@d3b9cdfa580156c018ca5e745c1bf653d8ea46b5 # v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        with:
+          context: .
+          file: ci/Containerfile.dev
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/ursine-ci:main
+            ghcr.io/${{ github.repository_owner }}/ursine-ci:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   # ── Test matrix: one cargo test run per feature combination, musl ──
   test:
     runs-on: ubuntu-latest
+    needs: image
     container:
-      image: rust:1-alpine@sha256:8975e9b19af39614f3fab1b03444f39e4a77dfea9a619a51dcfa54c5257785db
+      image: ghcr.io/${{ github.repository_owner }}/ursine-ci:main
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
         features: ["", "pam"]
     name: test (${{ matrix.features || 'default' }})
     steps:
-      - run: apk add --no-cache git nodejs linux-pam-dev
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
@@ -70,50 +103,37 @@ jobs:
   # ── Lint + format gate (all features) ──
   lint:
     runs-on: ubuntu-latest
+    needs: image
     container:
-      image: rust:1-alpine@sha256:8975e9b19af39614f3fab1b03444f39e4a77dfea9a619a51dcfa54c5257785db
+      image: ghcr.io/${{ github.repository_owner }}/ursine-ci:main
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - run: apk add --no-cache git nodejs linux-pam-dev
-      - run: rustup component add clippy rustfmt
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - run: cargo clippy --workspace --exclude ursine --all-targets --all-features -- -D warnings
       - run: cargo fmt --check
-      - run: cargo check --workspace --exclude ursine --all-targets --all-features --locked
       - name: Rustdoc warnings are errors
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 
   # ── GUI: libcosmic build on musl (heavy; own job) ──
   gui:
     runs-on: ubuntu-latest
+    needs: image
     container:
-      image: rust:1-alpine@sha256:8975e9b19af39614f3fab1b03444f39e4a77dfea9a619a51dcfa54c5257785db
+      image: ghcr.io/${{ github.repository_owner }}/ursine-ci:main
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - run: |
-          apk add --no-cache git nodejs cmake fontconfig-dev freetype-dev \
-            libxkbcommon-dev expat-dev pkgconf
-      - run: rustup component add clippy
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - run: cargo build -p ursine --locked
       - run: cargo test -p ursine --all-targets --locked
       - run: cargo clippy -p ursine --all-targets -- -D warnings
-
-  # ── SAST (Semgrep, Rust ruleset) ──
-  sast:
-    runs-on: ubuntu-latest
-    container:
-      image: semgrep/semgrep@sha256:81474464c1f07483ba0682a44787fd93c91397419762a04abe2bafaae396304b
-    steps:
-      # semgrep image ships git; no JS actions needed here.
-      - run: |
-          git clone --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" repo
-          cd repo
-          git fetch --depth 1 origin "$GITHUB_SHA" && git checkout "$GITHUB_SHA"
-      - working-directory: repo
-        run: semgrep scan --config p/rust --config p/secrets --config .semgrep --error --quiet
 
   # ── Static analysis: same image and script as local (docs/STATIC-ANALYSIS.md) ──
   static:
@@ -133,12 +153,31 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Static checks
         run: |
-          for group in repo deps duplicates sbom; do
+          for group in repo sast deps duplicates sbom; do
             echo "== static-check: $group =="
             docker run --rm -v "$PWD:/work" -w /work \
               -e CARGO_HOME=/work/artifacts/cargo-home \
               ursine-static:ci sh scripts/static-check.sh "$group"
           done
+
+  # ── Documentation lint: same image and script as local ──
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v3
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        with:
+          context: .
+          file: ci/Containerfile.docs
+          tags: ursine-docs:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Markdown lint
+        run: docker run --rm -v "$PWD:/work" -w /work ursine-docs:ci sh scripts/docs-check.sh
 
   # ── GitHub Actions security (unpinned uses, injection, permissions) ──
   zizmor:
@@ -237,13 +276,13 @@ jobs:
     permissions:
       contents: read
     container:
-      image: rust:1-alpine@sha256:8975e9b19af39614f3fab1b03444f39e4a77dfea9a619a51dcfa54c5257785db
-    needs: [test, lint, gui, static, sast, zizmor, flake, version, changes]
+      image: ghcr.io/${{ github.repository_owner }}/ursine-ci:main
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    needs: [image, test, lint, gui, static, docs, zizmor, flake, version, changes]
     if: needs.version.outputs.release == 'true' || (github.event_name == 'pull_request' && needs.changes.outputs.package == 'true')
     steps:
-      - run: |
-          apk add --no-cache git nodejs linux-pam-dev tar \
-            cmake fontconfig-dev freetype-dev libxkbcommon-dev expat-dev pkgconf
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false

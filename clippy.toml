@@ -10,3 +10,7 @@ allow-indexing-slicing-in-tests = true
 [[disallowed-methods]]
 path = "std::process::Command::new"
 reason = "root daemon must use the trusted exec helpers; see packages_nix/exec.rs"
+
+[[disallowed-methods]]
+path = "std::env::temp_dir"
+reason = "temp files must go under artifacts/, never the host temp dir"
