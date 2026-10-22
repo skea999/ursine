@@ -15,11 +15,11 @@ output_log="@LOCALSTATEDIR@/log/ursine/ursined.log"
 error_log="@LOCALSTATEDIR@/log/ursine/ursined.log"
 
 depend() {
-	need localmount
-	after dbus
-	use logger
+  need localmount
+  after dbus
+  use logger
 }
 
 start_pre() {
-	checkpath --directory --mode 0750 --owner root:root "@LOCALSTATEDIR@/log/ursine"
+  checkpath --directory --mode 0750 --owner root:root "@LOCALSTATEDIR@/log/ursine"
 }

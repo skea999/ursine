@@ -47,9 +47,9 @@ Optional request field selecting the target unix user for per-user operations (`
 _Avoid_: runAs, sudo
 
 **Snapshot**:
-A btrfs snapshot managed by the snapshots module (btrbk/btrfs). Owned exclusively by this module (manual + automatic pre-update). 
+A btrfs snapshot managed by the snapshots module (btrbk/btrfs). Owned exclusively by this module (manual + automatic pre-update).
 _Avoid_: backup
 
 **Audit log**:
-Append-only JSONL recording every action with principal, timestamp, request. 
+Append-only JSONL recording every action with principal, timestamp, request.
 _Avoid_: history, log file (generic)

@@ -4,34 +4,69 @@
 //! PATH, XDG) for the user's profile. Arguments are strictly validated and
 //! single-quoted, so the shell string cannot be influenced by input.
 
+#![allow(clippy::disallowed_methods)] // trusted exec boundary
+
+use std::path::Path;
+use std::process::Stdio;
 use std::time::Duration;
 
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
-use ursine_api::{ApiError, CommandOutcome};
+use ursine_api::{is_safe_installable_atom, ApiError, CommandOutcome};
 
 /// Max stderr/stdout retained in an error or result (keeps responses sane).
 const MAX_OUTPUT: usize = 64 * 1024;
 
-/// Flake refs / attr names we accept: no spaces, quotes, semicolons, `$`, etc.
-fn is_safe_atom(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= 512
-        && s.chars().all(|c| {
-            c.is_ascii_alphanumeric()
-                || matches!(c, '.' | '_' | '+' | '-' | ':' | '/' | '#' | '?' | '=')
-        })
+/// Root helpers must never resolve through the daemon's PATH: a writable PATH
+/// entry would let a local user substitute a binary executed as root.
+const SU_CANDIDATES: [&str; 5] = [
+    "/run/wrappers/bin/su",
+    "/bin/su",
+    "/usr/bin/su",
+    "/sbin/su",
+    "/usr/sbin/su",
+];
+const NIX_CANDIDATES: [&str; 4] = [
+    "/nix/var/nix/profiles/default/bin/nix",
+    "/run/current-system/sw/bin/nix",
+    "/usr/bin/nix",
+    "/bin/nix",
+];
+
+fn trusted_path(candidates: &[&'static str], label: &str) -> Result<&'static str, ApiError> {
+    candidates
+        .iter()
+        .find(|path| Path::new(path).is_file())
+        .copied()
+        .ok_or_else(|| ApiError::internal(format!("{label} not found at a trusted path")))
 }
 
-/// Validate a package/installable argument.
-pub fn validate_installable(arg: &str) -> Result<(), ApiError> {
-    if !is_safe_atom(arg) {
-        return Err(ApiError::invalid("invalid package reference"));
-    }
-    Ok(())
+pub(super) fn su_path() -> Result<&'static str, ApiError> {
+    trusted_path(&SU_CANDIDATES, "su")
+}
+
+pub(super) fn nix_path() -> Result<&'static str, ApiError> {
+    trusted_path(&NIX_CANDIDATES, "nix")
+}
+
+/// Flake refs / attr names we accept: no spaces, quotes, semicolons, `$`, etc.
+fn is_safe_atom(s: &str) -> bool {
+    is_safe_installable_atom(s)
+}
+
+/// Values are single-quoted in the `su -c` string, so anything except a quote,
+/// newline or NUL is literal. This is what lets regex patterns and paths with
+/// spaces reach nix without shell interpretation.
+fn is_safe_quoted_value(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 4096
+        && !value
+            .chars()
+            .any(|c| matches!(c, '\'' | '\n' | '\r' | '\0'))
 }
 
 /// Validate a username for profile path construction (no traversal).
-pub fn validate_username(user: &str) -> Result<(), ApiError> {
+pub(super) fn validate_username(user: &str) -> Result<(), ApiError> {
     let ok = !user.is_empty()
         && user.len() <= 32
         && user
@@ -50,7 +85,7 @@ pub fn validate_username(user: &str) -> Result<(), ApiError> {
 
 /// Validate a nix regex pattern (`--regex`): safe inside single quotes, no shell
 /// metacharacters that we refuse, no quote/newline. Spaces are allowed.
-pub fn validate_regex(pattern: &str) -> Result<(), ApiError> {
+pub(super) fn validate_regex(pattern: &str) -> Result<(), ApiError> {
     if pattern.is_empty() || pattern.len() > 256 {
         return Err(ApiError::invalid("invalid regex pattern"));
     }
@@ -91,12 +126,16 @@ pub fn validate_regex(pattern: &str) -> Result<(), ApiError> {
 }
 
 /// Validate a search query (nix search takes a regex; keep it conservative).
-pub fn validate_query(q: &str) -> Result<(), ApiError> {
-    if q.is_empty()
+/// A query with no ASCII alphanumeric character is rejected: `nix search`
+/// treats `.` as a regex matching everything.
+pub(super) fn validate_query(q: &str) -> Result<(), ApiError> {
+    if q.starts_with('-')
+        || q.is_empty()
         || q.len() > 128
         || !q
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-' | '#'))
+        || !q.chars().any(|c| c.is_ascii_alphanumeric())
     {
         return Err(ApiError::invalid("invalid search query"));
     }
@@ -104,7 +143,7 @@ pub fn validate_query(q: &str) -> Result<(), ApiError> {
 }
 
 /// Validate the target user: must exist AND be a normal user (uid >= 1000).
-pub fn validate_target_user(user: &str) -> Result<(), ApiError> {
+pub(super) fn validate_target_user(user: &str) -> Result<(), ApiError> {
     if user == "root" {
         return Err(ApiError::forbidden());
     }
@@ -133,32 +172,280 @@ pub fn validate_target_user(user: &str) -> Result<(), ApiError> {
     ))
 }
 
+/// `nix search` emits one JSON document: truncating it would corrupt the
+/// parse. Allow a bounded but complete document instead.
+const MAX_SEARCH_OUTPUT: usize = 32 * 1024 * 1024;
+
+/// How stdout is bounded while the command runs.
+#[derive(Clone, Copy)]
+enum OutputPolicy {
+    /// Keep the first `MAX_OUTPUT` bytes (human-readable commands).
+    Truncate,
+    /// Reject output larger than the limit; never truncate JSON.
+    Complete(usize),
+}
+
+#[derive(Debug)]
+struct CapturedOutput {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+/// Run a child, draining both pipes concurrently with a hard memory bound.
+/// Output is read incrementally: a broad `nix search` cannot allocate the
+/// whole JSON document before the cap applies.
+async fn run_command(
+    mut cmd: Command,
+    timeout: Duration,
+    policy: OutputPolicy,
+) -> Result<CapturedOutput, ApiError> {
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .process_group(0);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| ApiError::internal(format!("spawn command: {e}")))?;
+    let pid = child.id();
+    let group_for_collect = pid;
+
+    let collect = async move {
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ApiError::internal("command stdout unavailable"))?;
+        let mut stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| ApiError::internal("command stderr unavailable"))?;
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let mut out_buf = [0u8; 8192];
+        let mut err_buf = [0u8; 8192];
+
+        let read_out = async {
+            loop {
+                let n = stdout
+                    .read(&mut out_buf)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("read command stdout: {e}")))?;
+                if n == 0 {
+                    break;
+                }
+                match policy {
+                    OutputPolicy::Truncate => {
+                        let room = MAX_OUTPUT.saturating_sub(out.len());
+                        out.extend_from_slice(out_buf.get(..room.min(n)).unwrap_or_default());
+                    }
+                    OutputPolicy::Complete(limit) => {
+                        if out.len() + n > limit {
+                            return Err(ApiError::invalid(format!(
+                                "command output exceeds {} MiB; narrow the request",
+                                limit / (1024 * 1024)
+                            )));
+                        }
+                        out.extend_from_slice(out_buf.get(..n).unwrap_or_default());
+                    }
+                }
+            }
+            Ok::<(), ApiError>(())
+        };
+        let read_err = async {
+            loop {
+                let n = stderr
+                    .read(&mut err_buf)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("read command stderr: {e}")))?;
+                if n == 0 {
+                    break;
+                }
+                let room = MAX_OUTPUT.saturating_sub(err.len());
+                err.extend_from_slice(err_buf.get(..room.min(n)).unwrap_or_default());
+            }
+            Ok::<(), ApiError>(())
+        };
+
+        if let Err(error) = tokio::try_join!(read_out, read_err) {
+            let _ = child.start_kill();
+            if let Some(pid) = group_for_collect {
+                kill_process_group(pid);
+            }
+            let _ = child.wait().await;
+            return Err(error);
+        }
+        let status = child
+            .wait()
+            .await
+            .map_err(|e| ApiError::internal(format!("wait for command: {e}")))?;
+        Ok(CapturedOutput {
+            status,
+            stdout: out,
+            stderr: err,
+        })
+    };
+
+    tokio::time::timeout(timeout, collect)
+        .await
+        .unwrap_or_else(|_| {
+            // kill_on_drop kills `su`; the process group also holds the nix
+            // child, so kill the whole group by the child pid.
+            if let Some(pid) = pid {
+                kill_process_group(pid);
+            }
+            Err(ApiError::new(
+                ursine_api::ErrorCode::Internal,
+                format!("command timed out after {}s", timeout.as_secs()),
+            ))
+        })
+}
+
+/// Kill a process group with a trusted absolute `kill` binary (no PATH lookup).
+fn kill_process_group(pid: u32) {
+    for path in [
+        "/run/current-system/sw/bin/kill",
+        "/nix/var/nix/profiles/default/bin/kill",
+        "/bin/kill",
+        "/usr/bin/kill",
+    ] {
+        if Path::new(path).is_file() {
+            let _ = std::process::Command::new(path)
+                .arg("-KILL")
+                .arg(format!("-{pid}"))
+                .status();
+            return;
+        }
+    }
+    tracing::warn!(
+        pid,
+        "no trusted kill binary; timed-out process group may survive"
+    );
+}
+
 /// Run `nix <args...>` as `user`.
-pub async fn run_as_user(
+pub(super) async fn run_as_user(
     user: &str,
     args: &[(&str, &str)],
     timeout: Duration,
 ) -> Result<CommandOutcome, ApiError> {
-    run_as_user_program(user, "nix", args, timeout).await
+    run_as_user_limited(user, "nix", args, timeout, OutputPolicy::Truncate).await
 }
 
-/// Run an arbitrary program (validated) as `user` with a login environment.
-pub async fn run_as_user_program(
+/// Run `nix search` as `user`, keeping the JSON document intact.
+pub(super) async fn run_as_user_search(
+    user: &str,
+    args: &[(&str, &str)],
+    timeout: Duration,
+) -> Result<CommandOutcome, ApiError> {
+    run_as_user_limited(
+        user,
+        "nix",
+        args,
+        timeout,
+        OutputPolicy::Complete(MAX_SEARCH_OUTPUT),
+    )
+    .await
+}
+
+/// Run a constant shell script as `user` (used to resolve the user's profile
+/// directory with the same environment `nix profile` sees). The script is a
+/// fixed literal: it contains no input and no single quotes.
+pub(super) async fn run_as_user_script(
+    user: &str,
+    script: &str,
+    timeout: Duration,
+) -> Result<CommandOutcome, ApiError> {
+    validate_target_user(user)?;
+    if script.contains('\'') || script.contains('\n') || script.contains('\0') {
+        return Err(ApiError::invalid("invalid command script"));
+    }
+    let mut cmd = Command::new(su_path()?);
+    cmd.arg("-l")
+        .arg("-s")
+        .arg("/bin/sh")
+        .arg(user)
+        .arg("-c")
+        .arg(script);
+    let output = run_command(cmd, timeout, OutputPolicy::Truncate).await?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if output.status.success() {
+        Ok(CommandOutcome { stdout, stderr })
+    } else {
+        Err(ApiError::internal(format!(
+            "command failed: {}",
+            if stderr.trim().is_empty() {
+                stdout.trim()
+            } else {
+                stderr.trim()
+            }
+        )))
+    }
+}
+
+/// Run an explicit argv as `user`. Every element is single-quoted, so flags and
+/// names are literal; the program itself must be a safe atom.
+pub(super) async fn run_as_user_argv(
     user: &str,
     program: &str,
-    args: &[(&str, &str)],
+    argv: &[&str],
     timeout: Duration,
 ) -> Result<CommandOutcome, ApiError> {
     validate_target_user(user)?;
     if !is_safe_atom(program) {
         return Err(ApiError::invalid("invalid program"));
     }
+    let mut cmdline = String::from(program);
+    for arg in argv {
+        if !is_safe_quoted_value(arg) {
+            return Err(ApiError::invalid("invalid command argument"));
+        }
+        cmdline.push_str(" '");
+        cmdline.push_str(arg);
+        cmdline.push('\'');
+    }
+    let mut cmd = Command::new(su_path()?);
+    cmd.arg("-l")
+        .arg("-s")
+        .arg("/bin/sh")
+        .arg(user)
+        .arg("-c")
+        .arg(&cmdline);
+    let output = run_command(cmd, timeout, OutputPolicy::Truncate).await?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if output.status.success() {
+        Ok(CommandOutcome { stdout, stderr })
+    } else {
+        Err(ApiError::internal(format!(
+            "command failed: {}",
+            if stderr.trim().is_empty() {
+                stdout.trim()
+            } else {
+                stderr.trim()
+            }
+        )))
+    }
+}
 
-    // Build the command line: every atom is validated upstream, and we
-    // single-quote anyway (defense in depth).
+async fn run_as_user_limited(
+    user: &str,
+    program: &str,
+    args: &[(&str, &str)],
+    timeout: Duration,
+    stdout_policy: OutputPolicy,
+) -> Result<CommandOutcome, ApiError> {
+    validate_target_user(user)?;
+    if !is_safe_atom(program) {
+        return Err(ApiError::invalid("invalid program"));
+    }
+
+    // Build the command line: flags are atoms, values are single-quoted
+    // (defense in depth; regex patterns and spaces stay literal).
     let mut nix_cmd = String::from(program);
     for (flag, value) in args {
-        if !is_safe_atom(flag) || (!value.is_empty() && !is_safe_atom(value)) {
+        if !is_safe_atom(flag) || (!value.is_empty() && !is_safe_quoted_value(value)) {
             return Err(ApiError::invalid("invalid command argument"));
         }
         nix_cmd.push(' ');
@@ -170,29 +457,17 @@ pub async fn run_as_user_program(
         }
     }
 
-    let mut cmd = Command::new("su");
+    let mut cmd = Command::new(su_path()?);
     cmd.arg("-l")
         .arg("-s")
         .arg("/bin/sh")
         .arg(user)
         .arg("-c")
-        .arg(&nix_cmd)
-        .kill_on_drop(true);
+        .arg(&nix_cmd);
 
-    let output = tokio::time::timeout(timeout, cmd.output())
-        .await
-        .map_err(|_| {
-            ApiError::new(
-                ursine_api::ErrorCode::Internal,
-                format!("nix command timed out after {}s", timeout.as_secs()),
-            )
-        })?
-        .map_err(|e| ApiError::internal(format!("spawn su/nix: {e}")))?;
-
-    let mut stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let mut stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    truncate(&mut stdout, MAX_OUTPUT);
-    truncate(&mut stderr, MAX_OUTPUT);
+    let output = run_command(cmd, timeout, stdout_policy).await?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
 
     if output.status.success() {
         Ok(CommandOutcome { stdout, stderr })
@@ -209,38 +484,27 @@ pub async fn run_as_user_program(
     }
 }
 
-/// Run `nix <args...>` as ROOT (store-wide operations: gc). The daemon is root;
-/// no shell is involved (argv only, no quoting concerns).
-pub async fn run_as_root(
-    args: &[(&str, &str)],
+/// Run a validated argv as ROOT (no shell is involved). Used for store-wide
+/// operations and for profile commands users cannot lock themselves.
+pub(super) async fn run_root_program(
+    program: &str,
+    args: &[&str],
     timeout: Duration,
 ) -> Result<CommandOutcome, ApiError> {
-    let mut cmd = Command::new("nix");
-    for (flag, value) in args {
-        if !is_safe_atom(flag) || (!value.is_empty() && !is_safe_atom(value)) {
+    if !is_safe_atom(program) {
+        return Err(ApiError::invalid("invalid program"));
+    }
+    let mut cmd = Command::new(program);
+    for arg in args {
+        if !is_safe_atom(arg) {
             return Err(ApiError::invalid("invalid command argument"));
         }
-        cmd.arg(flag);
-        if !value.is_empty() {
-            cmd.arg(value);
-        }
+        cmd.arg(arg);
     }
-    cmd.kill_on_drop(true);
 
-    let output = tokio::time::timeout(timeout, cmd.output())
-        .await
-        .map_err(|_| {
-            ApiError::new(
-                ursine_api::ErrorCode::Internal,
-                format!("nix command timed out after {}s", timeout.as_secs()),
-            )
-        })?
-        .map_err(|e| ApiError::internal(format!("spawn nix: {e}")))?;
-
-    let mut stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let mut stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    truncate(&mut stdout, MAX_OUTPUT);
-    truncate(&mut stderr, MAX_OUTPUT);
+    let output = run_command(cmd, timeout, OutputPolicy::Truncate).await?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
 
     if output.status.success() {
         Ok(CommandOutcome { stdout, stderr })
@@ -252,20 +516,8 @@ pub async fn run_as_root(
         };
         Err(ApiError::new(
             ursine_api::ErrorCode::Internal,
-            format!("nix command failed: {detail}"),
+            format!("command failed: {detail}"),
         ))
-    }
-}
-
-fn truncate(s: &mut String, max: usize) {
-    if s.len() > max {
-        // Cut at a char boundary to keep UTF-8 valid.
-        let mut cut = max;
-        while !s.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        s.truncate(cut);
-        s.push_str("\n…(truncated)");
     }
 }
 
@@ -281,7 +533,20 @@ mod tests {
             "github:owner/repo#pkg",
             "nixpkgs#python3Packages.requests",
         ] {
-            assert!(validate_installable(arg).is_ok(), "{arg} should pass");
+            assert!(
+                ursine_api::validate_installable(arg).is_ok(),
+                "{arg} should pass"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_option_like_installables() {
+        for arg in ["--all", "-p", "-x"] {
+            assert!(
+                ursine_api::validate_installable(arg).is_err(),
+                "{arg:?} must not become a CLI flag"
+            );
         }
     }
 
@@ -299,7 +564,7 @@ mod tests {
             "",
         ] {
             assert!(
-                validate_installable(arg).is_err(),
+                ursine_api::validate_installable(arg).is_err(),
                 "{arg:?} must be rejected"
             );
         }
@@ -327,11 +592,71 @@ mod tests {
     }
 
     #[test]
+    fn rejects_option_like_queries() {
+        for query in ["--all", "-p", "-x"] {
+            assert!(
+                validate_query(query).is_err(),
+                "{query:?} must not become a CLI flag"
+            );
+        }
+    }
+
+    #[test]
     fn rejects_bad_queries() {
         assert!(validate_query("hello").is_ok());
         assert!(validate_query("python3.12").is_ok());
         assert!(validate_query("hello world").is_err());
         assert!(validate_query("a;b").is_err());
+    }
+
+    #[test]
+    fn rejects_wildcard_only_queries() {
+        for query in [".", "...", "_", "+", "-", "#", ".-_+#"] {
+            assert!(
+                validate_query(query).is_err(),
+                "{query:?} must not match everything"
+            );
+        }
+    }
+
+    #[test]
+    fn quoted_values_allow_regex_and_spaces() {
+        assert!(is_safe_quoted_value("^python3(11|12)? .*"));
+        assert!(is_safe_quoted_value("hello world"));
+        assert!(!is_safe_quoted_value("bad'quote"));
+        assert!(!is_safe_quoted_value("bad\nnewline"));
+    }
+
+    #[tokio::test]
+    async fn streaming_complete_rejects_oversized_output() {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg("head -c 4096 /dev/zero");
+        let error = run_command(cmd, Duration::from_secs(5), OutputPolicy::Complete(1024))
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("exceeds"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn streaming_truncate_keeps_bounded_output() {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg("head -c 200000 /dev/zero");
+        let output = run_command(cmd, Duration::from_secs(5), OutputPolicy::Truncate)
+            .await
+            .unwrap();
+        assert!(output.stdout.len() <= MAX_OUTPUT);
+    }
+
+    #[tokio::test]
+    async fn timeout_returns_without_waiting_for_the_child() {
+        let start = std::time::Instant::now();
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg("sleep 5");
+        let error = run_command(cmd, Duration::from_millis(100), OutputPolicy::Truncate)
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("timed out"), "{error}");
+        assert!(start.elapsed() < Duration::from_secs(3));
     }
 
     #[test]

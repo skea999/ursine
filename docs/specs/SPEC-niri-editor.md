@@ -25,13 +25,13 @@ A schema-driven settings GUI for the niri Wayland compositor — the user SELECT
 
 ## Commands
 
-```
+```text
 cargo test -p ursine-core niri
 ```
 
 ## Project Structure
 
-```
+```text
 src/ursine-api/src/niri_schema.rs      declarative option schema (versioned)
 src/ursine-core/src/modules/niri/
 ├─ mod.rs        handlers

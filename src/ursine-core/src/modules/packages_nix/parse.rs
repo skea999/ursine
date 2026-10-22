@@ -1,10 +1,17 @@
 //! Parsers for `nix profile` / `nix search` JSON output (new CLI only).
 
 use serde::Deserialize;
-use ursine_api::{ApiError, InstalledPackage, SearchResult};
+use ursine_api::{installable_from_attr, ApiError, InstalledPackage, SearchResult};
+
+/// Maximum search results returned per query.
+///
+/// `nix search` can match thousands of attrs; the GUI only needs a bounded
+/// page. Results are taken from a `BTreeMap`, so the first 200 attrs in
+/// lexicographic order are always the ones returned.
+const MAX_SEARCH_RESULTS: usize = 200;
 
 /// `nix profile list --json` → sorted package list.
-pub fn parse_profile_list(json: &str) -> Result<Vec<InstalledPackage>, ApiError> {
+pub(super) fn parse_profile_list(json: &str) -> Result<Vec<InstalledPackage>, ApiError> {
     #[derive(Deserialize)]
     struct Element {
         #[serde(default)]
@@ -43,8 +50,16 @@ pub fn parse_profile_list(json: &str) -> Result<Vec<InstalledPackage>, ApiError>
     Ok(out)
 }
 
+/// Bounded search page. `truncated` tells the frontend the list is incomplete,
+/// so a capped response is never presented as the full result set.
+#[derive(Debug)]
+pub(super) struct SearchPage {
+    pub results: Vec<SearchResult>,
+    pub truncated: bool,
+}
+
 /// `nix search nixpkgs <q> --json` → sorted results.
-pub fn parse_search(json: &str) -> Result<Vec<SearchResult>, ApiError> {
+pub(super) fn parse_search(json: &str) -> Result<SearchPage, ApiError> {
     #[derive(Deserialize)]
     struct Hit {
         #[serde(default)]
@@ -58,15 +73,25 @@ pub fn parse_search(json: &str) -> Result<Vec<SearchResult>, ApiError> {
     let parsed: std::collections::BTreeMap<String, Hit> = serde_json::from_str(json)
         .map_err(|e| ApiError::internal(format!("parse search results: {e}")))?;
 
-    Ok(parsed
+    let total = parsed.len();
+    let results = parsed
         .into_iter()
-        .map(|(attr, h)| SearchResult {
-            attr,
-            pname: h.pname,
-            version: h.version,
-            description: h.description,
+        .take(MAX_SEARCH_RESULTS)
+        .map(|(attr, h)| {
+            let installable = Some(installable_from_attr(&attr));
+            SearchResult {
+                attr,
+                installable,
+                pname: h.pname,
+                version: h.version,
+                description: h.description,
+            }
         })
-        .collect())
+        .collect();
+    Ok(SearchPage {
+        results,
+        truncated: total > MAX_SEARCH_RESULTS,
+    })
 }
 
 #[cfg(test)]
@@ -129,10 +154,46 @@ mod tests {
     #[test]
     fn parses_search_results() {
         let hits = parse_search(SEARCH_JSON).unwrap();
-        assert_eq!(hits.len(), 2);
-        assert_eq!(hits[0].attr, "legacyPackages.x86_64-linux.hello");
-        assert_eq!(hits[0].version.as_deref(), Some("2.12.1"));
-        assert!(hits[0].description.as_deref().unwrap().contains("greeting"));
+        assert_eq!(hits.results.len(), 2);
+        assert!(!hits.truncated, "a small result set is complete");
+        assert_eq!(hits.results[0].attr, "legacyPackages.x86_64-linux.hello");
+        assert_eq!(hits.results[0].installable.as_deref(), Some("hello"));
+        assert_eq!(hits.results[0].version.as_deref(), Some("2.12.1"));
+        assert!(hits.results[0]
+            .description
+            .as_deref()
+            .unwrap()
+            .contains("greeting"));
+    }
+
+    #[test]
+    fn search_results_are_capped_deterministically() {
+        let mut hits = serde_json::Map::new();
+        for index in 0..(MAX_SEARCH_RESULTS + 25) {
+            let attr = format!("legacyPackages.x86_64-linux.pkg{index:04}");
+            hits.insert(attr, serde_json::json!({"pname": format!("pkg{index:04}")}));
+        }
+        let json = serde_json::to_string(&hits).unwrap();
+        let page = parse_search(&json).unwrap();
+        assert_eq!(page.results.len(), MAX_SEARCH_RESULTS);
+        assert!(page.truncated, "a capped page must say it is incomplete");
+        assert_eq!(page.results[0].attr, "legacyPackages.x86_64-linux.pkg0000");
+        assert_eq!(
+            page.results[MAX_SEARCH_RESULTS - 1].attr,
+            format!(
+                "legacyPackages.x86_64-linux.pkg{:04}",
+                MAX_SEARCH_RESULTS - 1
+            )
+        );
+    }
+
+    #[test]
+    fn search_installable_keeps_nested_attrs() {
+        assert_eq!(
+            installable_from_attr("packages.x86_64-linux.python3Packages.requests"),
+            "python3Packages.requests"
+        );
+        assert_eq!(installable_from_attr("hello"), "hello");
     }
 
     #[test]

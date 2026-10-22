@@ -1,0 +1,39 @@
+[files]
+extend-exclude = [
+  ".git/**",
+  "artifacts/**",
+  ".agents/**",
+  ".opencode/**",
+  "references/**",
+  "repo/**",
+  "Cargo.lock",
+  "flake.lock",
+  "supply-chain/**",
+  "handoff/**",
+  "state/**",
+]
+
+[default]
+extend-ignore-identifiers-re = [
+  "ursine.*",
+  "skea999",
+  "feralos.*",
+  "btrbk.*",
+  "niri.*",
+  "libcosmic.*",
+  "dinit.*",
+  "OpenRC.*",
+  "Wayle.*",
+]
+
+[default.extend-words]
+ursine = "ursine"
+ursined = "ursined"
+feralos = "feralos"
+btrbk = "btrbk"
+niri = "niri"
+libcosmic = "libcosmic"
+dinit = "dinit"
+apk = "apk"
+flatpak = "flatpak"
+musl = "musl"

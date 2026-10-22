@@ -30,7 +30,7 @@ impl Default for SystemClock {
 
 impl Clock for SystemClock {
     fn now_millis(&self) -> u64 {
-        self.start.elapsed().as_millis() as u64
+        u64::try_from(self.start.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
 }
 

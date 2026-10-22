@@ -1,0 +1,44 @@
+# Ursine static-analysis image (musl). Tooling only; the app is not containerized.
+#   podman build -t ursine-static:1 -f ci/Containerfile.static .
+#   podman run --rm --network=host -v "$PWD:/work" -w /work \
+#     -e CARGO_HOME=/work/artifacts/cargo-home ursine-static:1 sh scripts/static-check.sh
+FROM rust:1-alpine
+
+RUN apk add --no-cache \
+    bash curl git nodejs npm tar xz \
+    shellcheck shfmt actionlint editorconfig-checker \
+    cmake fontconfig-dev freetype-dev libxkbcommon-dev expat-dev pkgconf \
+    linux-pam-dev build-base openssl-dev \
+    && rustup component add clippy rustfmt \
+    && rm -rf /var/cache/apk/*
+
+# Pinned Rust tools (bump deliberately, monthly PR). Split for build cache.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/tmp/cargo-target \
+    CARGO_TARGET_DIR=/tmp/cargo-target cargo install --locked \
+    cargo-deny@0.20.2 \
+    cargo-audit@0.22.2 \
+    cargo-cyclonedx@0.5.9 \
+    typos-cli@1.51.1 \
+    taplo-cli@0.10.0
+
+# Dynamic musl: static-pie linking of cargo-vet fails on Alpine.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/tmp/cargo-target \
+    CARGO_TARGET_DIR=/tmp/cargo-target RUSTFLAGS="-C target-feature=-crt-static" cargo install --locked \
+    cargo-vet@0.10.2 \
+    cargo-machete@0.9.2 \
+    cargo-geiger@0.14.0
+
+# zizmor runs from its official container image in CI (see ci.yml); building it
+# from source in this image costs ~30 min for no benefit.
+
+# Secret scanning (pinned archive + checksum).
+RUN curl -sSLo /tmp/gitleaks.tgz \
+      https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+    && echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tgz" | sha256sum -c - \
+    && tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks \
+    && rm /tmp/gitleaks.tgz
+
+RUN npm install -g markdownlint-cli2 jscpd \
+    && npm cache clean --force

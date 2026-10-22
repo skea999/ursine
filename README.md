@@ -59,7 +59,7 @@ them).
 - `ursine-api` — shared protocol and configuration types.
 - `ursine` — libcosmic desktop client; login, capability-gated home, and store
   views.
-- `web/` — static web assets served by the daemon.
+- `src/web/` — static web assets served by the daemon.
 - `tests/` — integration tests.
 - `packaging/` and `install.sh` — systemd/OpenRC/dinit units, PAM policy,
   release staging, and cross-distro installation.

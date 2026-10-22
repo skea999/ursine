@@ -5,11 +5,14 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+description.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
 
 [dev-dependencies]
 toml.workspace = true
@@ -18,3 +21,6 @@ toml.workspace = true
 [[test]]
 name = "protocol_roundtrip"
 path = "../../tests/ursine-api/roundtrip.rs"
+
+[lints]
+workspace = true

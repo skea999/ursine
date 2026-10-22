@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
 use toml_edit::{DocumentMut, Item, Table, Value};
 use ursine_api::{CapabilityReport, ModuleId, ModulesConfig, TriState, UrsineConfig};
@@ -19,11 +19,49 @@ pub fn load(path: &Path) -> Result<UrsineConfig, CoreError> {
     if !path.exists() {
         return Ok(UrsineConfig::default());
     }
+    validate_config_read(path)?;
     let raw = std::fs::read_to_string(path)
         .map_err(|e| CoreError::config(format!("read {}: {e}", path.display())))?;
     let cfg: UrsineConfig = toml::from_str(&raw)
         .map_err(|e| CoreError::config(format!("parse {}: {e}", path.display())))?;
     Ok(cfg)
+}
+
+/// Reject a config we must not trust before reading it. The daemon starts as
+/// root and this file controls module gating, so a user-writable or symlinked
+/// file would be a local privilege boundary violation.
+fn validate_config_read(path: &Path) -> Result<(), CoreError> {
+    const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
+    let meta = std::fs::symlink_metadata(path)
+        .map_err(|e| CoreError::config(format!("inspect {}: {e}", path.display())))?;
+    if meta.file_type().is_symlink() || !meta.is_file() {
+        return Err(CoreError::config(format!(
+            "configuration path is not a regular file: {}",
+            path.display()
+        )));
+    }
+    #[cfg(unix)]
+    if meta.permissions().mode() & 0o022 != 0 {
+        return Err(CoreError::config(format!(
+            "configuration file is group/world-writable: {}",
+            path.display()
+        )));
+    }
+    #[cfg(unix)]
+    if meta.uid() != 0 {
+        return Err(CoreError::config(format!(
+            "configuration file is not root-owned: {}",
+            path.display()
+        )));
+    }
+    if meta.len() > MAX_CONFIG_BYTES {
+        return Err(CoreError::config(format!(
+            "configuration file is larger than {} bytes: {}",
+            MAX_CONFIG_BYTES,
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 /// Map a configurable daemon module to its `[modules]` key.
@@ -72,10 +110,10 @@ pub fn set_module_switch(
         .parse::<DocumentMut>()
         .map_err(|e| CoreError::config(format!("parse {}: {e}", path.display())))?;
 
-    if !document.contains_key("modules") {
-        document["modules"] = Item::Table(Table::new());
-    }
-    match &mut document["modules"] {
+    let modules_item = document
+        .entry("modules")
+        .or_insert_with(|| Item::Table(Table::new()));
+    match modules_item {
         Item::Table(modules) => modules[key] = Item::Value(tri_state_value(value)),
         Item::Value(Value::InlineTable(modules)) => {
             modules.insert(key, tri_state_value(value));
@@ -122,6 +160,13 @@ fn validate_config_parent(path: &Path) -> Result<(), CoreError> {
             dir.display()
         )));
     }
+    #[cfg(unix)]
+    if meta.uid() != 0 {
+        return Err(CoreError::config(format!(
+            "configuration parent is not root-owned: {}",
+            dir.display()
+        )));
+    }
     Ok(())
 }
 
@@ -136,16 +181,30 @@ fn validate_config_target(path: &Path) -> Result<(), CoreError> {
             path.display()
         )));
     }
+    #[cfg(unix)]
+    if meta.permissions().mode() & 0o022 != 0 {
+        return Err(CoreError::config(format!(
+            "configuration file is group/world-writable: {}",
+            path.display()
+        )));
+    }
+    #[cfg(unix)]
+    if meta.uid() != 0 {
+        return Err(CoreError::config(format!(
+            "configuration file is not root-owned: {}",
+            path.display()
+        )));
+    }
     Ok(())
 }
 
 /// Unique `create_new` temp path: never follows a pre-planted symlink.
 fn atomic_tmp_path(path: &Path) -> PathBuf {
     let seq = ATOMIC_WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "config.toml".to_string());
+    let name = path.file_name().map_or_else(
+        || "config.toml".to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
     path.with_file_name(format!(".{name}.tmp.{}-{seq}", std::process::id()))
 }
 
@@ -244,14 +303,14 @@ mod tests {
     use super::*;
     use ursine_api::{Capability, TriState};
 
-    fn tmp_dir(name: &str) -> std::path::PathBuf {
+    fn tmp_dir(name: &str) -> PathBuf {
         // nosemgrep: rust.lang.security.temp-dir.temp-dir — tests only; paths are container-local and non-security-sensitive
         let d = std::env::temp_dir().join(format!("ursine-test-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
 
-    fn no_atomic_leftovers(dir: &std::path::Path) -> bool {
+    fn no_atomic_leftovers(dir: &Path) -> bool {
         std::fs::read_dir(dir).unwrap().all(|entry| {
             !entry
                 .unwrap()
@@ -266,6 +325,40 @@ mod tests {
         let cfg = load(&tmp_dir("cfg-missing").join("nope.toml")).unwrap();
         assert_eq!(cfg.token_ttl_min, 10);
         assert!(cfg.modules.snapshots.is_auto());
+    }
+
+    #[test]
+    fn load_rejects_symlinks_writable_files_and_oversized_input() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let dir = tmp_dir("cfg-load-guard");
+        let target = dir.join("real.toml");
+        std::fs::write(&target, "[modules]\npackages_nix = \"auto\"\n").unwrap();
+        let link = dir.join("link.toml");
+        symlink(&target, &link).unwrap();
+        assert!(load(&link).is_err(), "symlinked config must be rejected");
+
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o666)).unwrap();
+        assert!(load(&target).is_err(), "writable config must be rejected");
+
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::fs::write(&target, "x".repeat(1024 * 1024 + 1)).unwrap();
+        assert!(load(&target).is_err(), "oversized config must be rejected");
+    }
+
+    #[test]
+    fn refuses_group_or_world_writable_config() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tmp_dir("cfg-writable");
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "[modules]\npackages_nix = \"auto\"\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let error = set_module_switch(&path, ModuleId::PackagesNix, TriState::Off).unwrap_err();
+        assert!(
+            error.to_string().contains("group/world-writable"),
+            "{error}"
+        );
     }
 
     #[test]

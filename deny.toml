@@ -1,0 +1,103 @@
+[graph]
+targets = [{ triple = "x86_64-unknown-linux-musl" }]
+
+[output]
+feature-depth = 1
+
+[advisories]
+version = 2
+yanked = "deny"
+# Unmaintained advisories in the pinned COSMIC/iced dependency graph. Each is
+# waived explicitly with an owner and expiry in docs/static-analysis-exceptions.md.
+unmaintained = "all"
+ignore = [
+  { id = "RUSTSEC-2026-0192", reason = "ttf-parser via rustybuzz/libcosmic; no maintained replacement at the pin" },
+  { id = "RUSTSEC-2026-0206", reason = "rustybuzz via libcosmic; upstream unmaintained, pin reviewed monthly" },
+  { id = "RUSTSEC-2026-0370", reason = "zvariant via zbus/libcosmic; unmaintained upstream" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names via zbus/libcosmic; unmaintained upstream" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive via zbus/libcosmic; unmaintained upstream" },
+  { id = "RUSTSEC-2026-0374", reason = "basic-toml via i18n-config/libcosmic; archived upstream" },
+]
+
+# `apply` (via libcosmic) has no license field upstream. Known item, tracked in
+# docs/static-analysis-exceptions.md with owner and expiry.
+[licenses]
+version = 2
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+
+# Upstream git crates without a license field. All are MIT (COSMIC ecosystem);
+# tracked in docs/static-analysis-exceptions.md with owner and expiry.
+[[licenses.clarify]]
+name = "apply"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+name = "cosmic-config"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+name = "cosmic-config-derive"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+name = "cosmic-settings-daemon"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+name = "cosmic-theme"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+name = "dnd"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+name = "iced_accessibility"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+name = "mime"
+version = "0.1.0"
+expression = "MIT"
+license-files = []
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = [
+  "https://github.com/iced-rs/cryoglyph",
+  "https://github.com/jackpot51/rust-atomicwrites",
+  "https://github.com/pop-os/cosmic-protocols",
+  "https://github.com/pop-os/dbus-settings-bindings",
+  "https://github.com/pop-os/freedesktop-icons",
+  "https://github.com/pop-os/libcosmic",
+  "https://github.com/pop-os/smithay-clipboard",
+  "https://github.com/pop-os/softbuffer",
+  "https://github.com/pop-os/window_clipboard",
+  "https://github.com/pop-os/winit",
+  "https://github.com/wash2/accesskit",
+]

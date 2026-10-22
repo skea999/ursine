@@ -31,7 +31,7 @@ Everything that makes Ursine buildable, testable, releasable and packagable — 
 
 ## Commands
 
-```
+```text
 # local (dev machine, no toolchain needed)
 docker run --rm -it -v "$PWD:/work" -w /work rust:alpine cargo test --workspace
 docker run --rm -it -v "$PWD:/work" -w /work rust:alpine sh -c "apk add linux-pam-dev && cargo build -p ursined --features pam"
@@ -48,14 +48,14 @@ nix flake check
 
 ## Project Structure
 
-```
+```text
 flake.nix                  package chain: ursine -> ursined -> ursine-activate
 flake.lock
 .github/workflows/ci.yml   test matrix + flake + release (installer smoke test)
 .cargo/config.toml         target-dir = "artifacts/target" + musl dynamic (-crt-static off)
 ci/Containerfile.dev       dev/CI image: rust:1-alpine + linux-pam-dev + clippy/rustfmt
-scripts/ursine-activate.sh Nix profile activation: init detection, PAM symlink, unit render, restart
-scripts/ursine-deactivate.sh Nix profile deactivation: stop/disable, remove PAM/unit files
+src/tools/ursine-activate.sh Nix profile activation: init detection, PAM symlink, unit render, restart
+src/tools/ursine-deactivate.sh Nix profile deactivation: stop/disable, remove PAM/unit files
 scripts/clean-artifacts.sh keep LAST 3 nix out-links + nix-collect-garbage (-d); --all = + cargo clean
 install.sh                 cross-distro installer: paths, PAM, systemd/OpenRC/dinit
 packaging/

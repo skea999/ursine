@@ -1,0 +1,12 @@
+# Tests may use unwrap/expect/panic/prints; production code may not.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-dbg-in-tests = true
+allow-print-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+
+# Shell-outs must go through src/ursine-core/src/modules/packages_nix/exec.rs.
+[[disallowed-methods]]
+path = "std::process::Command::new"
+reason = "root daemon must use the trusted exec helpers; see packages_nix/exec.rs"

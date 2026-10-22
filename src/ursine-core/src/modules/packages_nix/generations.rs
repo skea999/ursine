@@ -5,12 +5,14 @@
 //! `profile-N-link` symlink instead.
 //!
 //! `nix profile` has no "keep last N" switch, so the plan is computed here and
-//! executed with the GC-subsystem switch `nix-env -p <profile>
-//! --delete-generations +N` (as root: in multi-user mode the profile lives in
-//! the store, users cannot lock/write it directly).
+//! executed with `nix-env -p <profile> --delete-generations <gen...>` as root
+//! (in multi-user mode the profile lives in the store, users cannot lock/write
+//! it directly).
+
+use std::path::Path;
 
 /// Strip ANSI SGR sequences (`ESC [ … m`) emitted by nix.
-fn strip_ansi(line: &str) -> String {
+pub(super) fn strip_ansi(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars().peekable();
     while let Some(c) = chars.next() {
@@ -30,7 +32,7 @@ fn strip_ansi(line: &str) -> String {
 
 /// Parse generation numbers from `nix profile history` output.
 /// Lines look like: `Version 33 (2026-10-14):` or `Version 34 (…) <- 33:`.
-pub fn parse_history(text: &str) -> Vec<u32> {
+pub(super) fn parse_history(text: &str) -> Vec<u32> {
     let mut out = Vec::new();
     for raw in text.lines() {
         let line = strip_ansi(raw);
@@ -51,25 +53,49 @@ pub fn parse_history(text: &str) -> Vec<u32> {
 }
 
 /// Current generation from a symlink target like `profile-34-link`.
-pub fn parse_generation_link(target: &str) -> Option<u32> {
+pub(super) fn parse_generation_link(target: &str) -> Option<u32> {
     let name = target.rsplit('/').next()?;
     let rest = name.strip_prefix("profile-")?;
     let digits = rest.strip_suffix("-link")?;
     digits.parse().ok()
 }
 
+/// Generation named by a profile symlink target. The generation link must
+/// live in the same directory as the profile symlink.
+pub(super) fn profile_target_generation(target: &Path, profile_path: &Path) -> Option<u32> {
+    let name = target.file_name()?.to_str()?;
+    let generation = parse_generation_link(name)?;
+    if target.is_absolute() {
+        if target.parent() != profile_path.parent() {
+            return None;
+        }
+    } else if target.components().count() != 1 {
+        // A relative link must be a plain `profile-N-link`, never `../…`.
+        return None;
+    }
+    Some(generation)
+}
+
 /// Which generations would be deleted keeping the newest `keep` (1..=1000).
 /// The active generation is never included.
-pub fn prune_plan(generations: &[u32], current: Option<u32>, keep: u32) -> Result<Vec<u32>, u32> {
+pub(super) fn prune_plan(
+    generations: &[u32],
+    current: Option<u32>,
+    keep: u32,
+) -> Result<Vec<u32>, u32> {
     if !(1..=1000).contains(&keep) {
         return Err(keep);
     }
     if generations.is_empty() {
         return Ok(Vec::new());
     }
-    let keep_n = (keep as usize).min(generations.len());
+    let keep_n = usize::try_from(keep)
+        .unwrap_or(usize::MAX)
+        .min(generations.len());
     let cutoff = generations.len() - keep_n;
-    Ok(generations[..cutoff]
+    Ok(generations
+        .get(..cutoff)
+        .unwrap_or_default()
         .iter()
         .copied()
         .filter(|g| Some(*g) != current)
@@ -103,6 +129,37 @@ mod tests {
         assert_eq!(parse_generation_link("profile-2-link"), Some(2));
         assert_eq!(parse_generation_link("profile-link"), None);
         assert_eq!(parse_generation_link("nonsense"), None);
+    }
+
+    #[test]
+    fn profile_target_enforces_the_per_user_directory() {
+        let profile = Path::new("/home/u/.local/state/nix/profiles/profile");
+        let absolute = Path::new("/home/u/.local/state/nix/profiles/profile-34-link");
+        assert_eq!(profile_target_generation(absolute, profile), Some(34));
+        assert_eq!(
+            profile_target_generation(
+                Path::new("/home/other/.local/state/nix/profiles/profile-34-link"),
+                profile
+            ),
+            None
+        );
+        assert_eq!(
+            profile_target_generation(Path::new("/tmp/profile-34-link"), profile),
+            None
+        );
+        assert_eq!(
+            profile_target_generation(Path::new("profile-2-link"), profile),
+            Some(2)
+        );
+        assert_eq!(
+            profile_target_generation(Path::new("../other/profile-2-link"), profile),
+            None,
+            "relative links must be a single component"
+        );
+        assert_eq!(
+            profile_target_generation(Path::new("profile-link"), profile),
+            None
+        );
     }
 
     #[test]

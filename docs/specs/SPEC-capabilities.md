@@ -22,13 +22,13 @@ Runtime detection of what the machine supports: a `Capabilities` registry built 
 
 ## Commands
 
-```
+```text
 cargo test -p ursine-core capabilities
 ```
 
 ## Project Structure
 
-```
+```text
 src/ursine-core/src/capabilities/
 ├─ mod.rs        Capability enum, Registry, ensure_available()
 ├─ checks.rs     one fn per capability, pure where testable

@@ -20,6 +20,14 @@ pub struct TokenStore {
     sessions: std::sync::Mutex<HashMap<String, Session>>,
 }
 
+impl std::fmt::Debug for TokenStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenStore")
+            .field("ttl", &self.ttl)
+            .finish_non_exhaustive()
+    }
+}
+
 impl TokenStore {
     pub fn new(ttl: Duration, clock: Arc<dyn Clock>) -> Self {
         Self {
@@ -30,13 +38,25 @@ impl TokenStore {
     }
 
     /// Issue a fresh 256-bit token for the principal. Returns (token, ttl secs).
+    ///
+    /// # Panics
+    ///
+    /// Panics only if the OS RNG fails, which is unrecoverable for the daemon.
+    #[allow(clippy::expect_used)] // OS RNG failure cannot be handled here
     pub fn issue(&self, principal: Principal) -> (SessionToken, u64) {
         let mut raw = [0u8; 32];
         getrandom::getrandom(&mut raw).expect("os rng must work");
-        let token = raw.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let mut token = String::with_capacity(64);
+        for byte in raw {
+            use std::fmt::Write as _;
+            let _ = write!(token, "{byte:02x}");
+        }
 
         let now = self.clock.now_millis();
-        let mut sessions = self.sessions.lock().expect("session store lock");
+        let mut sessions = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         sessions.retain(|_, s| !self.expired(s, now));
         sessions.insert(
             token.clone(),
@@ -51,7 +71,10 @@ impl TokenStore {
     /// Validate a token and slide its TTL. Returns the principal when valid.
     pub fn validate(&self, token: &SessionToken) -> Option<Principal> {
         let now = self.clock.now_millis();
-        let mut sessions = self.sessions.lock().expect("session store lock");
+        let mut sessions = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         sessions.retain(|_, s| !self.expired(s, now));
         let session = sessions.get_mut(token.as_str())?;
         session.last_seen_millis = now;
@@ -61,7 +84,10 @@ impl TokenStore {
     /// Number of live sessions (tests/diagnostics).
     pub fn len(&self) -> usize {
         let now = self.clock.now_millis();
-        let sessions = self.sessions.lock().expect("session store lock");
+        let sessions = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         sessions.values().filter(|s| !self.expired(s, now)).count()
     }
 
@@ -70,7 +96,8 @@ impl TokenStore {
     }
 
     fn expired(&self, session: &Session, now: u64) -> bool {
-        now.saturating_sub(session.last_seen_millis) > self.ttl.as_millis() as u64
+        now.saturating_sub(session.last_seen_millis)
+            > u64::try_from(self.ttl.as_millis()).unwrap_or(u64::MAX)
     }
 }
 

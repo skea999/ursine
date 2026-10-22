@@ -4,9 +4,9 @@ Stack: **Rust** (workspace, edition 2021+). Target Alpine Linux / musl. Decision
 
 - Backend daemon: `ursined` (tokio, unix socket, JSON lines)
 - Desktop GUI: `ursine` (libcosmic — COSMIC toolkit, iced-based Rust UI; decision 2026-10-19: security over visual coherence with the GTK Wayle shell)
-- Web: static assets in `web/`, served by daemon; framework TBD (any JS, zero server logic)
+- Web: static assets in `src/web/`, served by daemon; framework TBD (any JS, zero server logic)
 - Shared crates: `ursine-api` (types), `ursine-core` (modules)
-- Layout (binding): code `src/` (members `src/ursine-api`, `src/ursine-core`, `src/ursined`, `src/ursine`), tests `tests/`, generated `artifacts/` (contents gitignored, folder tracked via `.gitkeep`). **Build output in `artifacts/target`** — `.cargo/config.toml` sets `target-dir`; no `target/` at root. Temp files: `artifacts/<tool-or-task>/` only, never host `/tmp`
+- Layout (binding): code `src/` (members `src/ursine-api`, `src/ursine-core`, `src/ursined`, `src/ursine`; shipped tools `src/tools/`; web assets `src/web/`), tests `tests/`, generated `artifacts/` (contents gitignored, folder tracked via `.gitkeep`). **Build output in `artifacts/target`** — `.cargo/config.toml` sets `target-dir`; no `target/` at root. Temp files: `artifacts/<tool-or-task>/` only, never host `/tmp`
 
 ## Workflow
 
@@ -15,6 +15,14 @@ Stack: **Rust** (workspace, edition 2021+). Target Alpine Linux / musl. Decision
 **Skill-chain (simple)**: 0 context+recall → 1 interview-me / idea-refine → 2 spec → 3 plan (+decision-grounding) → 4 code-change-impact blast-radius, then implement (incremental-implementation | subagent-driven-development) → 4.1 parallel(@review @code-reviewer on git diff) → 5 test-driven-development → 6 debugging → 7 code-review-and-quality + security-and-hardening + performance-optimization (parallel) → 8 code-simplification → 9 grill-with-docs (+adr for architecture decisions) → 10 git-workflow-and-versioning → 11 ci-cd-and-automation → 12 deprecation-and-migration → 13 save summary.
 
 **Direct** (simple task): @codebase or specialist direct.
+
+**Static analysis (binding)**: canonical commands in `docs/guides/build-and-test.md`; policy and gates in `docs/STATIC-ANALYSIS.md`. All build/test/static work runs in containers (`ursine-ci:1`, `ursine-static:1`, `nixos/nix`). Never run cargo/nix/scanners on the host. `scripts/static-check.sh` is the single static entry point.
+
+**Review closure (binding)**: fix every confirmed finding — blocker, high, medium and low — before commit. "Perfect code" means zero known defects at commit time, not zero detected defects. Never silently downgrade or defer a finding: a deferral requires explicit user approval and must be recorded in `state/session-state.json` with owner and rationale. A fix cycle revalidates the full gate; findings introduced by a fix count as new defects. Do not commit while any finding is open without that recorded approval.
+
+**Parity rule (binding)**: every user-facing function ships backend first, then frontend immediately, in the same task. Do not start the next feature until daemon and frontend reach functional parity. Applies to the GUI (`ursine`) and web (`web/`). A daemon action with no frontend control is incomplete work, not a finished milestone. Deferral requires explicit user approval recorded in `state/session-state.json`.
+
+**UI reference rule (binding)**: take interaction and layout inspiration from established admin tools: **COSMIC Settings** (`cosmic-settings`) for native COSMIC structure and controls, **Webmin** for dense module/action coverage, **Cockpit** for capability gating, status visibility, and confirmation of destructive actions. Copy patterns, not code. Ursine terminology and thin-frontend rules still win.
 
 - Parallel: independent features, agents-in-step, review+tests, policy. Never parallel: tests (need code first).
 - Session: mandatory — start `memory.sh context` + read repo files; end `memory.sh save` + update files (see Session protocol).
@@ -76,6 +84,7 @@ Pre-commit (template + Ursine): secrets/PII scan + `cargo fmt --check` on staged
 ## Agents
 
 ### User-created
+
 - `researcher`
 - `information-scan`
 - `vulnerability-scan`
@@ -88,9 +97,11 @@ Pre-commit (template + Ursine): secrets/PII scan + `cargo fmt --check` on staged
 - `skills-lock.json` — valid, matches `.agents/skills/`; update via `npx skills update`
 
 ### User-created
+
 None.
 
 External skills:
+
 - `customize-opencode` → built-in
 
 ## Docs
@@ -104,6 +115,9 @@ External skills:
 
 ## Milestones
 
+- **2026-10-22 — static analysis gate (v0.4.0, uncommitted)**: strict workspace lints (clippy all/pedantic/nursery/cargo + restrictions, `unsafe_code=forbid`, rustdoc `-D warnings`), repo linters, Semgrep custom + gitleaks, cargo-deny/audit/vet/machete/geiger, SBOM, report-only duplicates; `ci/Containerfile.static` + `scripts/static-check.sh`; canonical docs `docs/guides/build-and-test.md`, `docs/STATIC-ANALYSIS.md`; activation tools moved to `src/tools/`; CI static/zizmor/GUI-test jobs; actions/images pinned; release cache removed. Gate: static-check all PASS, 143 tests all features, PAM/default matrix, clippy/fmt/doc, nix linters, zizmor clean. Version 0.4.0; commit/push next.
+- **2026-10-21 — store parity hardening (uncommitted, review-closed)**: three review cycles closed every finding incl. low. Shared installable policy; XDG-aware prune as profile owner with exact preview binding; regex preview/apply by exact names; streaming output caps + process-group kill; absolute `su`/`nix`; PAM timeout + bounded semaphore; auth rate-limit ordering; per-uid socket cap; config read/write guards; shared timeouts; search truncation flag; bounded client connects; long-action tick. Gate: 143 tests (GUI 31, API 26, integration 6, core 80) + clippy `-D warnings` + fmt green (`artifacts/final-gate-2/gate.log`). No open review findings. Next: real daemon+GUI smoke, commit, then snapshots. Harness note: `steps:` removed from `.opencode/agents/codebase.md` only; subagent max-steps still triggers — cap elsewhere.
+- **2026-10-21 — workflow + store parity**: binding backend-first/frontend-immediately parity rule and UI reference rule (cosmic-settings structure, Webmin action coverage, Cockpit gating/confirmations). GUI wired to every implemented daemon action: full `packages_nix` store mutations + `asUser`, `system.status`, `config.init`. 100 tests green; clippy `-D warnings` + fmt clean; uncommitted. Next: snapshots backend first, then GUI panel in the same feature.
 - **2026-10-20 — packaging primitives**: cross-distro `install.sh` (path overrides, `DESTDIR`, auth gate, strict paths), `/etc/pam.d/ursine` (auth + account), systemd/OpenRC/dinit units (FeralOS wrapper/config for dinit); release tarball + CI staging smoke for all three inits. Alpine real PAM (including expired account) green; Rust gate green; review-hardened. FeralOS target login still pending.
 - **2026-10-20 — v0.3 GUI**: login, capability-gated home, store view; 81 tests green; uncommitted.
 - **2026-10-19 — v0.1/v0.2**: workspace, daemon, PAM handshake, packages_nix module, release v0.1.0 and CI.

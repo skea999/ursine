@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use ursine_api::{
     Action, ApiError, ErrorCode, ModuleId, Principal, Request, RequestBody, Response,
@@ -15,6 +16,17 @@ use crate::modules;
 use crate::ratelimit::RateLimiter;
 use crate::session::TokenStore;
 
+/// PAM input caps: bound work before any audit or authentication call.
+const MAX_AUTH_USER_BYTES: usize = 256;
+const MAX_AUTH_PASSWORD_BYTES: usize = 1024;
+/// A hung PAM/NSS backend must not pin a connection slot forever.
+const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
+/// Bounded PAM concurrency: a timed-out task keeps its permit until PAM
+/// returns, so hung backends cannot accumulate blocking-pool threads.
+pub const MAX_INFLIGHT_AUTH: usize = 8;
+/// A profile target user is a local account name, never a path or a blob.
+const MAX_AS_USER_BYTES: usize = 64;
+
 /// Everything the daemon owns. Built once at startup, shared via `Arc`.
 pub struct Daemon {
     /// Live daemon configuration. Module switches can be changed while running;
@@ -23,12 +35,21 @@ pub struct Daemon {
     /// Path the daemon was started with (`config.init` writes here).
     pub config_path: PathBuf,
     pub caps: Registry,
-    pub auth: Box<dyn Authenticator>,
+    pub auth: Arc<dyn Authenticator>,
     pub sessions: TokenStore,
     pub ratelimit: RateLimiter,
+    pub auth_permits: Arc<tokio::sync::Semaphore>,
     pub audit: AuditLog,
     #[allow(dead_code)]
     pub clock: Arc<dyn Clock>,
+}
+
+impl std::fmt::Debug for Daemon {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Daemon")
+            .field("config_path", &self.config_path)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Daemon {
@@ -47,7 +68,9 @@ impl Daemon {
         }
 
         match req.body {
-            RequestBody::Auth { user, password } => self.handle_auth(id, peer, &user, &password),
+            RequestBody::Auth { user, password } => {
+                self.handle_auth(id, peer, &user, &password).await
+            }
             RequestBody::Call {
                 module,
                 action,
@@ -77,6 +100,7 @@ impl Daemon {
                 Ok(serde_json::json!({
                     "modules": config.modules,
                     "path": self.config_path.display().to_string(),
+                    "exists": self.config_path.exists(),
                 }))
             }
             Action::SetModuleSwitch { module, value } => {
@@ -100,6 +124,7 @@ impl Daemon {
                 Ok(serde_json::json!({
                     "modules": result,
                     "path": self.config_path.display().to_string(),
+                    "exists": self.config_path.exists(),
                 }))
             }
             Action::Init => {
@@ -123,38 +148,95 @@ impl Daemon {
                 Ok(serde_json::json!({
                     "modules": modules,
                     "written": self.config_path.display().to_string(),
+                    "exists": true,
                 }))
             }
             _ => Err(ApiError::invalid("configuration action required")),
         }
     }
 
-    fn handle_auth(
+    async fn handle_auth(
         &self,
         id: Option<u64>,
         peer: &PeerInfo,
         user: &str,
         password: &str,
     ) -> Response {
+        // Charge the rate limiter before the size check so oversized input
+        // cannot bypass login throttling. A limited request must not write an
+        // fsynced audit line per attempt: a local user could otherwise flood
+        // the audit disk without authenticating.
+        if !self.ratelimit.allow(peer.uid) {
+            tracing::warn!(uid = peer.uid, "auth attempt rate limited");
+            return Response::err(id, ApiError::rate_limited());
+        }
+
+        // Bound the work before any audit or PAM call. On rejection, audit the
+        // kernel peer identity so a huge claimed name cannot grow the log. The
+        // rate limiter above caps these writes per uid.
+        if user.len() > MAX_AUTH_USER_BYTES || password.len() > MAX_AUTH_PASSWORD_BYTES {
+            let peer_principal = Principal::local(peer.user.clone(), Vec::new());
+            self.audit.record(
+                &peer_principal,
+                None,
+                "auth",
+                None,
+                Outcome::Err {
+                    code: ErrorCode::Unauthorized,
+                    message: "invalid credentials".into(),
+                },
+            );
+            return Response::err(id, ApiError::unauthorized());
+        }
+
         let anonymous = Principal::local(user, Vec::new());
 
-        if !self.ratelimit.allow(peer.uid) {
+        // PAM blocks; keep it off the async worker threads. Everything the
+        // closure needs is owned so the task is 'static. A timed-out blocking
+        // task keeps its permit until PAM returns, which bounds thread growth.
+        let Ok(permit) = self.auth_permits.clone().try_acquire_owned() else {
+            tracing::warn!(uid = peer.uid, "authenticator busy");
             self.audit.record(
                 &anonymous,
                 None,
                 "auth",
                 None,
                 Outcome::Err {
-                    code: ErrorCode::RateLimited,
-                    message: "rate limited".into(),
+                    code: ErrorCode::Internal,
+                    message: "authenticator busy".into(),
                 },
             );
-            return Response::err(id, ApiError::rate_limited());
-        }
-
-        let principal = match self.auth.authenticate(peer, user, password) {
-            Ok(p) => p,
-            Err(AuthError::Invalid) => {
+            return Response::err(id, ApiError::internal("authenticator failure"));
+        };
+        let auth = self.auth.clone();
+        let peer_for_auth = peer.clone();
+        let user = user.to_owned();
+        let password = password.to_owned();
+        let attempt = tokio::time::timeout(
+            AUTH_TIMEOUT,
+            tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                auth.authenticate(&peer_for_auth, &user, &password)
+            }),
+        )
+        .await;
+        let principal = match attempt {
+            Err(_) => {
+                tracing::error!(uid = peer.uid, "authenticator timed out");
+                self.audit.record(
+                    &anonymous,
+                    None,
+                    "auth",
+                    None,
+                    Outcome::Err {
+                        code: ErrorCode::Internal,
+                        message: "authenticator timed out".into(),
+                    },
+                );
+                return Response::err(id, ApiError::internal("authenticator failure"));
+            }
+            Ok(Ok(Ok(p))) => p,
+            Ok(Ok(Err(AuthError::Invalid))) => {
                 // Generic error: no user-exists oracle.
                 self.audit.record(
                     &anonymous,
@@ -168,8 +250,32 @@ impl Daemon {
                 );
                 return Response::err(id, ApiError::unauthorized());
             }
-            Err(AuthError::Internal(msg)) => {
+            Ok(Ok(Err(AuthError::Internal(msg)))) => {
                 tracing::error!(error = %msg, "authenticator failure");
+                self.audit.record(
+                    &anonymous,
+                    None,
+                    "auth",
+                    None,
+                    Outcome::Err {
+                        code: ErrorCode::Internal,
+                        message: "authenticator failure".into(),
+                    },
+                );
+                return Response::err(id, ApiError::internal("authenticator failure"));
+            }
+            Ok(Err(error)) => {
+                tracing::error!(error = %error, "authenticator task failed");
+                self.audit.record(
+                    &anonymous,
+                    None,
+                    "auth",
+                    None,
+                    Outcome::Err {
+                        code: ErrorCode::Internal,
+                        message: "authenticator task failed".into(),
+                    },
+                );
                 return Response::err(id, ApiError::internal("authenticator failure"));
             }
         };
@@ -210,7 +316,38 @@ impl Daemon {
             return Response::err(id, ApiError::unauthorized());
         };
 
-        let target_user = as_user.clone().unwrap_or_else(|| principal.user.clone());
+        // `asUser` is meaningful only for packages actions that read or mutate
+        // one profile. Everything else (StoreGc, system, capabilities, config)
+        // acts on the daemon or the whole store and must not carry a target.
+        let profile_scoped = module == ModuleId::PackagesNix && uses_profile(&action);
+        let as_user_error = if as_user.is_some() && !profile_scoped {
+            Some(ApiError::invalid(
+                "as_user is only valid for profile-scoped packages_nix actions",
+            ))
+        } else if as_user
+            .as_ref()
+            .is_some_and(|target| target.len() > MAX_AS_USER_BYTES)
+        {
+            Some(ApiError::invalid(format!(
+                "as_user exceeds {MAX_AS_USER_BYTES} bytes"
+            )))
+        } else {
+            None
+        };
+        let as_user_valid = as_user
+            .as_ref()
+            .is_none_or(|target| target.len() <= MAX_AS_USER_BYTES);
+        // Never audit a target the action did not honor.
+        let audited_as_user = if profile_scoped && as_user_valid {
+            as_user.clone()
+        } else {
+            None
+        };
+        let target_user = if profile_scoped {
+            as_user.clone().unwrap_or_else(|| principal.user.clone())
+        } else {
+            principal.user.clone()
+        };
         let action_name = match &action {
             Action::SetModuleSwitch { module, value } => {
                 format!("set_module_switch {}={}", module.as_str(), value.as_str())
@@ -224,28 +361,51 @@ impl Daemon {
             as_user: &target_user,
         };
 
-        let result = match (module, &action) {
-            (ModuleId::Config, Action::GetConfig)
-            | (ModuleId::Config, Action::SetModuleSwitch { .. })
-            | (ModuleId::Config, Action::Init) => {
-                if as_user.is_some() {
-                    Err(ApiError::invalid("as_user is not valid for module config"))
-                } else {
-                    self.handle_config_action(&principal, &action).await
-                }
-            }
-            _ => modules::handle(module, &action, &ctx).await,
+        let result = match as_user_error {
+            Some(error) => Err(error),
+            None => match (module, &action) {
+                (
+                    ModuleId::Config,
+                    Action::GetConfig | Action::SetModuleSwitch { .. } | Action::Init,
+                ) => self.handle_config_action(&principal, &action).await,
+                _ => modules::handle(module, &action, &ctx).await,
+            },
         };
 
         let outcome = Outcome::from_result(&result);
-        self.audit
-            .record(&principal, Some(module), &action_name, as_user, outcome);
+        self.audit.record(
+            &principal,
+            Some(module),
+            &action_name,
+            audited_as_user,
+            outcome,
+        );
 
         match result {
             Ok(value) => Response::ok(id, value),
             Err(e) => Response::err(id, e),
         }
     }
+}
+
+/// Actions that operate on exactly one nix profile.
+fn uses_profile(action: &Action) -> bool {
+    matches!(
+        action,
+        Action::ListInstalled
+            | Action::Search { .. }
+            | Action::Install { .. }
+            | Action::Remove { .. }
+            | Action::RemoveAll
+            | Action::RemoveRegex { .. }
+            | Action::Upgrade { .. }
+            | Action::UpgradeRegex { .. }
+            | Action::Generations
+            | Action::Rollback { .. }
+            | Action::WipeHistory { .. }
+            | Action::DiffClosures { .. }
+            | Action::PruneGenerations { .. }
+    )
 }
 
 #[cfg(test)]
@@ -264,15 +424,16 @@ mod tests {
             audit_path: dir.join("audit.jsonl"),
             token_ttl_min: 10,
             login_rate_limit_per_min: 5,
-            modules: Default::default(),
+            modules: ursine_api::ModulesConfig::default(),
         };
         let audit = AuditLog::open(cfg.audit_path.clone(), clock.clone()).unwrap();
         let d = Daemon {
-            caps: crate::capabilities::Registry::system(),
+            caps: Registry::system(),
             config_path: dir.join("config.toml"),
-            auth: Box::new(StubAuthenticator),
+            auth: Arc::new(StubAuthenticator),
             sessions: TokenStore::new(Duration::from_secs(600), clock.clone()),
             ratelimit: RateLimiter::new(cfg.login_rate_limit_per_min, clock.clone()),
+            auth_permits: Arc::new(tokio::sync::Semaphore::new(MAX_INFLIGHT_AUTH)),
             audit,
             config: tokio::sync::RwLock::new(cfg),
             clock: clock.clone(),
@@ -303,6 +464,13 @@ mod tests {
                 user: "skea999".into(),
                 password: "pw1".into(),
             },
+        }
+    }
+
+    async fn token(daemon: &Daemon) -> SessionToken {
+        match daemon.handle(auth_request(1), &peer()).await.body {
+            ResponseBody::AuthOk { token, .. } => token,
+            other => panic!("want auth_ok, got {other:?}"),
         }
     }
 
@@ -386,8 +554,8 @@ mod tests {
             id: None,
             token: None,
             body: RequestBody::Auth {
-                user: "".into(),
-                password: "".into(),
+                user: String::new(),
+                password: String::new(),
             },
         };
         match d.handle(req, &peer()).await.body {
@@ -407,7 +575,7 @@ mod tests {
                 token: None,
                 body: RequestBody::Auth {
                     user: "x".into(),
-                    password: "".into(),
+                    password: String::new(),
                 },
             };
             last = Some(d.handle(req, &peer()).await.body);
@@ -416,6 +584,89 @@ mod tests {
             Some(ResponseBody::Err { error }) => assert_eq!(error.code, ErrorCode::RateLimited),
             other => panic!("want rate_limited, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn oversized_auth_input_is_rejected_generically() {
+        let (_clock, d) = daemon(&tmp_dir("auth-bounds"));
+        let long_user = "a".repeat(MAX_AUTH_USER_BYTES + 1);
+        let req = Request {
+            v: PROTOCOL_VERSION,
+            id: None,
+            token: None,
+            body: RequestBody::Auth {
+                user: long_user.clone(),
+                password: "pw".into(),
+            },
+        };
+        match d.handle(req, &peer()).await.body {
+            ResponseBody::Err { error } => assert_eq!(error.code, ErrorCode::Unauthorized),
+            other => panic!("want unauthorized, got {other:?}"),
+        }
+
+        let long_password = "p".repeat(MAX_AUTH_PASSWORD_BYTES + 1);
+        let req = Request {
+            v: PROTOCOL_VERSION,
+            id: None,
+            token: None,
+            body: RequestBody::Auth {
+                user: "skea999".into(),
+                password: long_password.clone(),
+            },
+        };
+        match d.handle(req, &peer()).await.body {
+            ResponseBody::Err { error } => assert_eq!(error.code, ErrorCode::Unauthorized),
+            other => panic!("want unauthorized, got {other:?}"),
+        }
+
+        let audit = std::fs::read_to_string(d.audit.path()).unwrap();
+        assert!(audit.contains("\"principal\":\"skea999\""));
+        assert!(!audit.contains(&long_user));
+        assert!(!audit.contains(&long_password));
+    }
+
+    #[tokio::test]
+    async fn system_with_as_user_is_invalid() {
+        let (_clock, d) = daemon(&tmp_dir("as-user-system"));
+        let token = token(&d).await;
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(2),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::System,
+                action: Action::Status,
+                as_user: Some("other".into()),
+            },
+        };
+        match d.handle(call, &peer()).await.body {
+            ResponseBody::Err { error } => assert_eq!(error.code, ErrorCode::Invalid),
+            other => panic!("want invalid, got {other:?}"),
+        }
+        let audit = std::fs::read_to_string(d.audit.path()).unwrap();
+        assert!(!audit.lines().last().unwrap().contains("\"as_user\""));
+    }
+
+    #[tokio::test]
+    async fn store_gc_with_as_user_is_invalid() {
+        let (_clock, d) = daemon(&tmp_dir("as-user-gc"));
+        let token = token(&d).await;
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(2),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::PackagesNix,
+                action: Action::StoreGc,
+                as_user: Some("other".into()),
+            },
+        };
+        match d.handle(call, &peer()).await.body {
+            ResponseBody::Err { error } => assert_eq!(error.code, ErrorCode::Invalid),
+            other => panic!("want invalid, got {other:?}"),
+        }
+        let audit = std::fs::read_to_string(d.audit.path()).unwrap();
+        assert!(!audit.lines().last().unwrap().contains("\"as_user\""));
     }
 
     #[tokio::test]
@@ -462,6 +713,7 @@ mod tests {
             ResponseBody::Ok { result } => {
                 assert_eq!(result["modules"]["packages_nix"], false);
                 assert_eq!(result["path"], d.config_path.display().to_string());
+                assert_eq!(result["exists"], true);
             }
             other => panic!("want ok, got {other:?}"),
         }
@@ -485,6 +737,33 @@ mod tests {
         match d.handle(get, &peer()).await.body {
             ResponseBody::Ok { result } => {
                 assert_eq!(result["modules"]["packages_nix"], false);
+                assert_eq!(result["exists"], true);
+            }
+            other => panic!("want ok, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn config_get_reports_a_missing_file() {
+        let (_clock, d) = daemon(&tmp_dir("config-missing"));
+        let resp = d.handle(auth_request(1), &peer()).await;
+        let token = match resp.body {
+            ResponseBody::AuthOk { token, .. } => token,
+            other => panic!("want auth_ok, got {other:?}"),
+        };
+        let get = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(2),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::Config,
+                action: Action::GetConfig,
+                as_user: None,
+            },
+        };
+        match d.handle(get, &peer()).await.body {
+            ResponseBody::Ok { result } => {
+                assert_eq!(result["exists"], false);
             }
             other => panic!("want ok, got {other:?}"),
         }
@@ -512,6 +791,7 @@ mod tests {
         match d.handle(init(2), &peer()).await.body {
             ResponseBody::Ok { result } => {
                 assert_eq!(result["written"], d.config_path.display().to_string());
+                assert_eq!(result["exists"], true);
             }
             other => panic!("want ok, got {other:?}"),
         }

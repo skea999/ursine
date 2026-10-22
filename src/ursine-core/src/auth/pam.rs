@@ -1,6 +1,6 @@
-//! Real PAM authentication (feature `pam`, FeralOS builds).
+//! Real PAM authentication (feature `pam`, `FeralOS` builds).
 //!
-//! Uses the system PAM service `/etc/pam.d/ursine` (pam_unix) through
+//! Uses the system PAM service `/etc/pam.d/ursine` (`pam_unix`) through
 //! `pam-client` 0.2 (maintained fork of `pam` 0.7): pam-sys 0.5 with
 //! pregenerated bindings (no bindgen/clang) and no vulnerable `users`
 //! dependency. Password values live only for the duration of this call —
@@ -19,6 +19,7 @@ use ursine_api::Principal;
 const PAM_SERVICE: &str = "ursine";
 
 /// Authenticates against linux-pam.
+#[derive(Debug)]
 pub struct PamAuthenticator;
 
 impl Authenticator for PamAuthenticator {

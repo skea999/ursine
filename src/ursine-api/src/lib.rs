@@ -12,6 +12,7 @@ pub mod error;
 pub mod module;
 pub mod nix;
 pub mod principal;
+pub mod timeouts;
 pub mod token;
 
 pub use action::Action;
@@ -20,6 +21,9 @@ pub use config::{ModulesConfig, TriState, UrsineConfig};
 pub use envelope::{Request, RequestBody, Response, ResponseBody, PROTOCOL_VERSION};
 pub use error::{ApiError, ErrorCode};
 pub use module::ModuleId;
-pub use nix::{CommandOutcome, InstalledPackage, SearchResult};
+pub use nix::{
+    installable_from_attr, is_safe_installable_atom, normalize_installable, validate_installable,
+    CommandOutcome, InstalledPackage, SearchResult,
+};
 pub use principal::{AsUser, Principal, PrincipalOrigin};
 pub use token::SessionToken;

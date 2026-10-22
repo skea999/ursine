@@ -14,6 +14,14 @@ pub struct RateLimiter {
     attempts: std::sync::Mutex<HashMap<u32, VecDeque<u64>>>,
 }
 
+impl std::fmt::Debug for RateLimiter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RateLimiter")
+            .field("max_per_min", &self.max_per_min)
+            .finish_non_exhaustive()
+    }
+}
+
 const WINDOW_MILLIS: u64 = 60_000;
 
 impl RateLimiter {
@@ -28,7 +36,10 @@ impl RateLimiter {
     /// Record/check an attempt. `false` = limited (deny).
     pub fn allow(&self, uid: u32) -> bool {
         let now = self.clock.now_millis();
-        let mut map = self.attempts.lock().expect("ratelimit lock");
+        let mut map = self
+            .attempts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let queue = map.entry(uid).or_default();
         while queue
             .front()
@@ -36,7 +47,7 @@ impl RateLimiter {
         {
             queue.pop_front();
         }
-        if queue.len() as u32 >= self.max_per_min {
+        if u32::try_from(queue.len()).unwrap_or(u32::MAX) >= self.max_per_min {
             return false;
         }
         queue.push_back(now);
@@ -45,7 +56,10 @@ impl RateLimiter {
 
     /// Drop the uid's history (called after a successful login).
     pub fn reset(&self, uid: u32) {
-        self.attempts.lock().expect("ratelimit lock").remove(&uid);
+        self.attempts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&uid);
     }
 }
 
@@ -71,7 +85,7 @@ mod tests {
     #[test]
     fn successful_login_resets_history() {
         let clock = ManualClock::new(0);
-        let rl = RateLimiter::new(2, clock.clone());
+        let rl = RateLimiter::new(2, clock);
         assert!(rl.allow(5));
         assert!(rl.allow(5));
         assert!(!rl.allow(5));

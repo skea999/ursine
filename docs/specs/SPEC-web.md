@@ -42,8 +42,8 @@ build reproducibility, no CDN dependencies, no telemetry.
 
 ## Project structure (expected)
 
-```
-web/            static assets (build output committed or produced in CI)
+```text
+src/web/        static assets (build output committed or produced in CI)
 ```
 
 Build toolchain TBD with the stack (e.g. `trunk` for Rust/WASM).

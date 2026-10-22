@@ -1,0 +1,11 @@
+include = [
+  "Cargo.toml",
+  "src/*/Cargo.toml",
+  "rust-toolchain.toml",
+  "deny.toml",
+  "taplo.toml",
+]
+
+[formatting]
+align_entries = false
+reorder_keys = false

@@ -10,6 +10,7 @@ use super::{local_groups, AuthError, Authenticator, PeerInfo};
 use ursine_api::Principal;
 
 /// Accept-everything authenticator for development builds.
+#[derive(Debug)]
 pub struct StubAuthenticator;
 
 impl Authenticator for StubAuthenticator {

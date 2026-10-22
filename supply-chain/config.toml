@@ -321,7 +321,7 @@ version = "0.3.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.crc32fast]]
-version = "1.5.2"
+version = "1.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.crossbeam-utils]]
@@ -957,11 +957,11 @@ version = "1.0.19"
 criteria = "safe-to-deploy"
 
 [[exemptions.lyon_algorithms]]
-version = "1.0.21"
+version = "1.0.22"
 criteria = "safe-to-deploy"
 
 [[exemptions.lyon_geom]]
-version = "1.0.19"
+version = "1.0.20"
 criteria = "safe-to-deploy"
 
 [[exemptions.lyon_path]]
@@ -969,7 +969,7 @@ version = "1.0.19"
 criteria = "safe-to-deploy"
 
 [[exemptions.lyon_tessellation]]
-version = "1.0.22"
+version = "1.0.23"
 criteria = "safe-to-deploy"
 
 [[exemptions.malloc_buf]]
@@ -989,7 +989,7 @@ version = "0.8.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.memmap2]]
-version = "0.9.11"
+version = "0.9.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.memoffset]]
@@ -1408,6 +1408,10 @@ criteria = "safe-to-deploy"
 version = "0.5.3"
 criteria = "safe-to-deploy"
 
+[[exemptions.regex]]
+version = "1.13.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.regex-automata]]
 version = "0.4.18"
 criteria = "safe-to-deploy"
@@ -1589,7 +1593,7 @@ version = "0.20.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.smol_str]]
-version = "0.3.6"
+version = "0.3.7"
 criteria = "safe-to-deploy"
 
 [[exemptions.socket2]]
@@ -1705,7 +1709,7 @@ version = "1.13.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio]]
-version = "1.53.3"
+version = "1.54.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio-macros]]

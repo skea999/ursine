@@ -13,7 +13,7 @@ Root daemon `ursined`: the single process owning all logic. Accepts frontend con
 
 ## Commands
 
-```
+```text
 cargo build  -p ursined                # dev (stub auth)
 cargo build  -p ursined --features pam # FeralOS build (needs linux-pam)
 cargo test   -p ursined
@@ -23,7 +23,7 @@ cargo run -p ursined -- --config /etc/ursine/config.toml
 
 ## Project Structure
 
-```
+```text
 src/ursined/
 ├─ Cargo.toml
 └─ src/

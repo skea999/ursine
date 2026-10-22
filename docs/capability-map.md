@@ -19,7 +19,7 @@ Gate: skea999 approves module boundaries, dependency direction and build order B
 
 ## Dependency direction
 
-```
+```text
 protocol ← daemon-core ← capabilities ← {packages-nix, snapshots, users, niri-editor}
                                      ↖ gui (consumes protocol only)
 packaging-infra wraps everything (no runtime deps)

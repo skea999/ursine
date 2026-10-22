@@ -25,7 +25,7 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability the daemon probes, in display order.
-    pub const ALL: [Capability; 6] = [
+    pub const ALL: [Self; 6] = [
         Self::Btrbk,
         Self::Btrfs,
         Self::Nix,

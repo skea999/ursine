@@ -28,13 +28,13 @@ Expose btrbk's own functionality — nothing reimplemented. Ursine integrates bt
 
 ## Commands
 
-```
+```text
 cargo test -p ursine-core snapshots
 ```
 
 ## Project Structure
 
-```
+```text
 src/ursine-core/src/modules/snapshots/
 ├─ mod.rs        action handlers
 ├─ btrbk.rs      exec + JSON parse of btrbk output

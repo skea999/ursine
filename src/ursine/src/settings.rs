@@ -100,9 +100,20 @@ impl SettingsState {
             text("Auto detects. Manual on forces use; manual off disables. Missing system dependencies still make a module unavailable."),
         ));
         if let Some(config) = &self.config {
+            let mut path_row: Vec<Element<'_, Message>> = vec![text(config.path.clone()).into()];
+            match config.exists {
+                Some(true) => path_row.push(text("present").into()),
+                Some(false) => path_row.push(
+                    button::text("Create if missing")
+                        .on_press_maybe((!self.config_busy).then_some(Message::InitConfig))
+                        .into(),
+                ),
+                // Old daemon: do not offer Create for a file that may exist.
+                None => path_row.push(text("status unavailable").into()),
+            }
             modules = modules.add(settings::item(
                 "Configuration file",
-                text(config.path.clone()),
+                row(path_row).spacing(8),
             ));
         }
         for switch in MODULE_SWITCHES {
@@ -194,6 +205,7 @@ mod tests {
                 ..Default::default()
             },
             path: "/etc/ursine/config.toml".into(),
+            exists: Some(true),
         };
         assert_eq!(module_switch(&config, ModuleId::PackagesNix), TriState::Off);
         assert_eq!(module_switch(&config, ModuleId::Snapshots), TriState::Auto);

@@ -1,10 +1,14 @@
 # Ursine CI — fully containerized (rule 9): no host toolchains on runners.
 #
-# Jobs: test matrix (default/pam) · lint (clippy+fmt) · vet (cargo-vet) ·
-#       audit (RustSec) · sast (Semgrep) · version (release gate) ·
-#       changes (PR build filter) · flake (nix package check/build) ·
+# Jobs: test matrix (default/pam) · lint (clippy+fmt+doc) · gui (build+test) ·
+#       static (ursine-static image + scripts/static-check.sh: rust/repo/deps/
+#       duplicates/sbom) · sast (Semgrep) · zizmor (workflow security) ·
+#       version (release gate) · changes (PR build filter) ·
+#       flake (nix package check/build + nix linters) ·
 #       package (release binaries in Alpine) · publish (tag / rolling latest) ·
 #       verify-pin (post-tag flake check on main).
+# Static analysis policy: docs/STATIC-ANALYSIS.md. Canonical commands:
+# docs/guides/build-and-test.md.
 #
 # Why binaries are built in Alpine, not Nix: nixpkgs does not cache musl
 # toolchains (stable included) — a source build takes hours. Alpine IS musl and
@@ -44,7 +48,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     container:
-      image: rust:1-alpine
+      image: rust:1-alpine@sha256:8975e9b19af39614f3fab1b03444f39e4a77dfea9a619a51dcfa54c5257785db
     strategy:
       fail-fast: false
       matrix:
@@ -52,71 +56,56 @@ jobs:
     name: test (${{ matrix.features || 'default' }})
     steps:
       - run: apk add --no-cache git nodejs linux-pam-dev
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Test
         run: |
           if [ -z "${{ matrix.features }}" ]; then
-            cargo test --workspace --exclude ursine --no-default-features
+            cargo test --workspace --exclude ursine --no-default-features --all-targets --locked
           else
-            cargo test --workspace --exclude ursine --features ${{ matrix.features }}
+            cargo test --workspace --exclude ursine --features ${{ matrix.features }} --all-targets --locked
           fi
 
   # ── Lint + format gate (all features) ──
   lint:
     runs-on: ubuntu-latest
     container:
-      image: rust:1-alpine
+      image: rust:1-alpine@sha256:8975e9b19af39614f3fab1b03444f39e4a77dfea9a619a51dcfa54c5257785db
     steps:
       - run: apk add --no-cache git nodejs linux-pam-dev
       - run: rustup component add clippy rustfmt
-      - uses: actions/checkout@v4
-      - run: cargo clippy --workspace --exclude ursine --all-features -- -D warnings
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: cargo clippy --workspace --exclude ursine --all-targets --all-features -- -D warnings
       - run: cargo fmt --check
+      - run: cargo check --workspace --exclude ursine --all-targets --all-features --locked
+      - name: Rustdoc warnings are errors
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 
   # ── GUI: libcosmic build on musl (heavy; own job) ──
   gui:
     runs-on: ubuntu-latest
     container:
-      image: rust:1-alpine
+      image: rust:1-alpine@sha256:8975e9b19af39614f3fab1b03444f39e4a77dfea9a619a51dcfa54c5257785db
     steps:
       - run: |
           apk add --no-cache git nodejs cmake fontconfig-dev freetype-dev \
             libxkbcommon-dev expat-dev pkgconf
       - run: rustup component add clippy
-      - uses: actions/checkout@v4
-      - run: cargo build -p ursine
-      - run: cargo clippy -p ursine -- -D warnings
-
-  # ── Supply-chain vetting (cargo-vet) ──
-  vet:
-    runs-on: ubuntu-latest
-    container:
-      image: rust:1-alpine
-    steps:
-      - run: apk add --no-cache git nodejs
-      - uses: actions/checkout@v4
-      # musl container: taiki-e prebuilds are glibc; build from source instead.
-      - run: cargo install cargo-vet --locked
-      - run: cargo vet --locked
-
-  # ── Dependency vulnerabilities (RustSec) ──
-  audit:
-    runs-on: ubuntu-latest
-    container:
-      image: rust:1-alpine
-    steps:
-      - run: apk add --no-cache git nodejs
-      - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          tool: cargo-audit
-      - run: cargo audit
+          persist-credentials: false
+      - run: cargo build -p ursine --locked
+      - run: cargo test -p ursine --all-targets --locked
+      - run: cargo clippy -p ursine --all-targets -- -D warnings
 
   # ── SAST (Semgrep, Rust ruleset) ──
   sast:
     runs-on: ubuntu-latest
     container:
-      image: semgrep/semgrep
+      image: semgrep/semgrep@sha256:81474464c1f07483ba0682a44787fd93c91397419762a04abe2bafaae396304b
     steps:
       # semgrep image ships git; no JS actions needed here.
       - run: |
@@ -124,7 +113,43 @@ jobs:
           cd repo
           git fetch --depth 1 origin "$GITHUB_SHA" && git checkout "$GITHUB_SHA"
       - working-directory: repo
-        run: semgrep scan --config p/rust --error --quiet
+        run: semgrep scan --config p/rust --config p/secrets --config .semgrep --error --quiet
+
+  # ── Static analysis: same image and script as local (docs/STATIC-ANALYSIS.md) ──
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v3
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        with:
+          context: .
+          file: ci/Containerfile.static
+          tags: ursine-static:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Static checks
+        run: |
+          for group in rust repo deps duplicates sbom; do
+            echo "== static-check: $group =="
+            docker run --rm -v "$PWD:/work" -w /work \
+              -e CARGO_HOME=/work/artifacts/cargo-home \
+              ursine-static:ci sh scripts/static-check.sh "$group"
+          done
+
+  # ── GitHub Actions security (unpinned uses, injection, permissions) ──
+  zizmor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@fb1d87ba4b2f888025015a269a94ad7e991f6a7b # v0.3.0
 
   # ── Release gate: build packages only for a new/tagged version ──
   version:
@@ -133,8 +158,9 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       release: ${{ steps.version.outputs.release }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Resolve workspace version
         id: version
@@ -166,8 +192,10 @@ jobs:
     outputs:
       package: ${{ steps.filter.outputs.package }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v3
         id: filter
         if: github.event_name == 'pull_request'
         with:
@@ -184,7 +212,7 @@ jobs:
   flake:
     runs-on: ubuntu-latest
     container:
-      image: nixos/nix
+      image: nixos/nix@sha256:62c506c32c75395163676006f0c00d75c31578fffaac1167d600289f72477b78
     steps:
       # No JS actions in this image (runner node cannot exec here).
       - run: |
@@ -197,6 +225,11 @@ jobs:
         run: nix flake check
       - working-directory: repo
         run: nix build --out-link artifacts/result
+      - working-directory: repo
+        run: |
+          nix run nixpkgs#statix -- check flake.nix nix
+          nix run nixpkgs#deadnix -- --fail flake.nix nix
+          nix run nixpkgs#alejandra -- --check flake.nix nix
 
   # ── Package: musl release binaries (Alpine), publish tag or rolling latest ──
   package:
@@ -204,28 +237,18 @@ jobs:
     permissions:
       contents: read
     container:
-      image: rust:1-alpine
-    needs: [test, lint, vet, audit, sast, flake, version, changes]
+      image: rust:1-alpine@sha256:8975e9b19af39614f3fab1b03444f39e4a77dfea9a619a51dcfa54c5257785db
+    needs: [test, lint, gui, static, sast, zizmor, flake, version, changes]
     if: needs.version.outputs.release == 'true' || (github.event_name == 'pull_request' && needs.changes.outputs.package == 'true')
     steps:
       - run: |
           apk add --no-cache git nodejs linux-pam-dev tar \
             cmake fontconfig-dev freetype-dev libxkbcommon-dev expat-dev pkgconf
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      # Release builds are the expensive part: reuse deps + unchanged crate
-      # artifacts, and skip this job entirely when the version is already tagged.
-      - name: Cache Cargo build
-        uses: actions/cache@v4
-        with:
-          path: |
-            /root/.cargo/registry
-            /root/.cargo/git
-            artifacts/target
-          key: cargo-release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            cargo-release-${{ runner.os }}-
+      # No dependency cache in the release path: a poisoned cache could alter
+      # release artifacts. Builds are reproducible from Cargo.lock instead.
       # gh invokes git; container ownership differs from the checkout dir owner.
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Build release binaries
@@ -235,8 +258,8 @@ jobs:
           mkdir -p artifacts/pkg/bin
           cp artifacts/target/release/ursined artifacts/target/release/ursine artifacts/pkg/bin/
           cp install.sh artifacts/pkg/
-          cp scripts/ursine-activate.sh artifacts/pkg/bin/ursine-activate
-          cp scripts/ursine-deactivate.sh artifacts/pkg/bin/ursine-deactivate
+          cp src/tools/ursine-activate.sh artifacts/pkg/bin/ursine-activate
+          cp src/tools/ursine-deactivate.sh artifacts/pkg/bin/ursine-deactivate
           chmod 755 artifacts/pkg/bin/ursine-activate artifacts/pkg/bin/ursine-deactivate
           cp -r packaging artifacts/pkg/
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
@@ -316,7 +339,7 @@ jobs:
           cp "$ASSET" "$CHECKSUM" artifacts/release/
       - name: Upload release artifact
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ursine-release
           path: artifacts/release
@@ -335,12 +358,12 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       # Checkout main explicitly: a tag build updates the release pin on main.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: ursine-release
           path: artifacts/release
@@ -351,9 +374,11 @@ jobs:
           else
             NAME="ursine-latest-x86_64-musl.tar.gz"
           fi
-          echo "ASSET=$NAME" >> "$GITHUB_ENV"
-          echo "CHECKSUM=$NAME.sha256" >> "$GITHUB_ENV"
-          echo "FLAKE_ASSET=ursine-flake-${GITHUB_REF_NAME}.tar.gz" >> "$GITHUB_ENV"
+          {
+            echo "ASSET=$NAME"
+            echo "CHECKSUM=$NAME.sha256"
+            echo "FLAKE_ASSET=ursine-flake-${GITHUB_REF_NAME}.tar.gz"
+          } >> "$GITHUB_ENV"
       - name: Publish versioned tag release
         if: startsWith(github.ref, 'refs/tags/v')
         working-directory: artifacts/release
@@ -403,7 +428,7 @@ jobs:
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
       - name: Package flake source
         run: |
-          tar czf "artifacts/release/$FLAKE_ASSET" flake.nix flake.lock nix scripts/ursine-activate.sh scripts/ursine-deactivate.sh README.md
+          tar czf "artifacts/release/$FLAKE_ASSET" flake.nix flake.lock nix src/tools/ursine-activate.sh src/tools/ursine-deactivate.sh README.md
           sha256sum "artifacts/release/$FLAKE_ASSET" > "artifacts/release/$FLAKE_ASSET.sha256"
       - name: Attach flake to tag release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -437,7 +462,7 @@ jobs:
     needs: [publish]
     if: startsWith(github.ref, 'refs/tags/v')
     container:
-      image: nixos/nix
+      image: nixos/nix@sha256:62c506c32c75395163676006f0c00d75c31578fffaac1167d600289f72477b78
     steps:
       - run: |
           git init repo && cd repo

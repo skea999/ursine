@@ -10,6 +10,7 @@ pub mod packages_nix;
 use crate::capabilities::{module_switch, Registry};
 
 /// Everything a handler may touch (no daemon internals).
+#[derive(Debug)]
 pub struct ModuleCtx<'a> {
     pub caps: &'a Registry,
     /// Snapshot of the daemon's live configuration for this request.

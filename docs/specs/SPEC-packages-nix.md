@@ -17,7 +17,7 @@ channels / `nix-env` are out of scope by decision (skea999).
 | Action | Executed as | Command shape |
 |---|---|---|
 | `nix.listInstalled` | asUser | `nix profile list --json` → `InstalledPackage[]` |
-| `nix.install` | asUser | `nix profile add <nixpkgs#pkg|flake#attr>` (bare name → `nixpkgs#name`) |
+| `nix.install` | asUser | `nix profile add <nixpkgs#pkg\|flake#attr>` (bare name → `nixpkgs#name`) |
 | `nix.remove` | asUser | `nix profile remove <element>` |
 | `nix.removeAll` | asUser | `nix profile remove --all` |
 | `nix.removeRegex` | asUser | `nix profile remove --regex <pattern>` |
@@ -49,13 +49,13 @@ ANSI escapes and has no `(current)` marker; `--delete-generations +N` needs root
 
 ## Commands
 
-```
+```text
 cargo test -p ursine-core packages_nix
 ```
 
 ## Project Structure
 
-```
+```text
 src/ursine-core/src/modules/packages_nix/
 ├─ mod.rs        action handlers
 ├─ exec.rs       asUser exec helper (su -l, env sanitization, timeout, output capture)

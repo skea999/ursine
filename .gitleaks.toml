@@ -1,0 +1,13 @@
+title = "Ursine gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures and lockfiles only"
+paths = [
+  '''tests/''',
+  '''artifacts/''',
+  '''Cargo.lock''',
+  '''flake.lock''',
+]

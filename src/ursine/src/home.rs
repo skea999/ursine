@@ -6,11 +6,13 @@ use cosmic::Element;
 use ursine_api::{Capability, CapabilityReport, ModuleId, ModulesConfig, TriState};
 
 use crate::app::Message;
+use crate::client::SystemStatus;
 
 #[derive(Default)]
 pub struct HomeState {
     pub user: String,
     pub caps: Vec<CapabilityReport>,
+    pub status: Option<SystemStatus>,
     pub busy: bool,
     pub error: Option<String>,
 }
@@ -88,6 +90,15 @@ impl HomeState {
 
         let mut items: Vec<Element<'_, Message>> = vec![header.into()];
         items.push(text(format!("session lifetime: {} min", expires_in_secs / 60)).into());
+        if let Some(status) = &self.status {
+            items.push(
+                text(format!(
+                    "daemon {} · protocol {} · auth {}",
+                    status.version, status.protocol_version, status.auth
+                ))
+                .into(),
+            );
+        }
 
         if let Some(error) = &self.error {
             items.push(text(error.clone()).into());
@@ -110,7 +121,7 @@ impl HomeState {
         entry: &ModuleEntry,
         modules: Option<&ModulesConfig>,
     ) -> Element<'_, Message> {
-        if self.is_manually_off(entry, modules) {
+        if Self::is_manually_off(entry, modules) {
             return text("disabled in Settings").into();
         }
 
@@ -119,7 +130,7 @@ impl HomeState {
             lines.push(text("no capability required").into());
         } else {
             for required in entry.requires {
-                let line = match self.report(required) {
+                let line = match self.report(*required) {
                     Some(report) if report.available => {
                         format!("{}: available", required.as_str())
                     }
@@ -137,9 +148,10 @@ impl HomeState {
         let status: Element<'_, Message> = column(lines).spacing(2).into();
         match entry.panel {
             Some(Panel::Store) => {
-                let available = !self.is_manually_off(entry, modules)
+                let available = !Self::is_manually_off(entry, modules)
                     && entry.requires.iter().all(|required| {
-                        self.report(required).is_some_and(|report| report.available)
+                        self.report(*required)
+                            .is_some_and(|report| report.available)
                     });
                 let open =
                     button::text("Open").on_press_maybe(available.then_some(Message::OpenStore));
@@ -149,17 +161,17 @@ impl HomeState {
         }
     }
 
-    fn is_manually_off(&self, entry: &ModuleEntry, modules: Option<&ModulesConfig>) -> bool {
+    fn is_manually_off(entry: &ModuleEntry, modules: Option<&ModulesConfig>) -> bool {
         let (Some(module), Some(modules)) = (entry.module, modules) else {
             return false;
         };
         module_mode(modules, module) == TriState::Off
     }
 
-    fn report(&self, capability: &Capability) -> Option<&CapabilityReport> {
+    fn report(&self, capability: Capability) -> Option<&CapabilityReport> {
         self.caps
             .iter()
-            .find(|report| report.capability == *capability)
+            .find(|report| report.capability == capability)
     }
 }
 
@@ -179,7 +191,6 @@ mod tests {
 
     #[test]
     fn manual_off_disables_the_module_row() {
-        let state = HomeState::default();
         let entry = MODULES
             .iter()
             .find(|entry| entry.module == Some(ModuleId::PackagesNix))
@@ -188,8 +199,8 @@ mod tests {
             packages_nix: TriState::Off,
             ..Default::default()
         };
-        assert!(state.is_manually_off(entry, Some(&modules)));
+        assert!(HomeState::is_manually_off(entry, Some(&modules)));
         let modules = ModulesConfig::default();
-        assert!(!state.is_manually_off(entry, Some(&modules)));
+        assert!(!HomeState::is_manually_off(entry, Some(&modules)));
     }
 }

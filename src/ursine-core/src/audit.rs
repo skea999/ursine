@@ -59,6 +59,14 @@ pub struct AuditLog {
     clock: std::sync::Arc<dyn Clock>,
 }
 
+impl std::fmt::Debug for AuditLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuditLog")
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
+}
+
 impl AuditLog {
     /// Open (or create) the log; parent directories are created.
     pub fn open(path: PathBuf, clock: std::sync::Arc<dyn Clock>) -> Result<Self, CoreError> {
@@ -149,10 +157,13 @@ impl AuditLog {
             return;
         };
         line.push('\n');
-        let mut file = self.file.lock().expect("audit lock");
+        let mut file = self
+            .file
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Err(e) = file
             .write_all(line.as_bytes())
-            .and_then(|_| file.sync_data())
+            .and_then(|()| file.sync_data())
         {
             tracing::error!(error = %e, "audit write failed");
         }

@@ -4,6 +4,8 @@
 //! principals via the PAM handshake (dev builds: loud stub), and dispatches to
 //! module handlers. Stateless: nothing survives a restart but the audit log.
 
+#![allow(clippy::print_stdout, clippy::print_stderr)] // CLI output is the interface
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -66,7 +68,10 @@ fn main() -> std::process::ExitCode {
         )
         .init();
 
-    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+    let Ok(runtime) = tokio::runtime::Runtime::new() else {
+        eprintln!("error: cannot start the async runtime");
+        return std::process::ExitCode::FAILURE;
+    };
     runtime.block_on(async_main(config_path))
 }
 
@@ -95,7 +100,7 @@ async fn async_main(config_path: PathBuf) -> std::process::ExitCode {
     };
     tracing::info!(path = %audit.path().display(), "audit log ready");
 
-    let auth: Box<dyn Authenticator> = build_authenticator();
+    let auth: Arc<dyn Authenticator> = build_authenticator();
 
     let daemon = Arc::new(Daemon {
         caps: Registry::system(),
@@ -105,6 +110,9 @@ async fn async_main(config_path: PathBuf) -> std::process::ExitCode {
             clock.clone(),
         ),
         ratelimit: RateLimiter::new(config.login_rate_limit_per_min, clock.clone()),
+        auth_permits: Arc::new(tokio::sync::Semaphore::new(
+            ursine_core::dispatch::MAX_INFLIGHT_AUTH,
+        )),
         audit,
         auth,
         config: tokio::sync::RwLock::new(config),
@@ -129,35 +137,43 @@ async fn async_main(config_path: PathBuf) -> std::process::ExitCode {
 }
 
 #[cfg(feature = "pam")]
-fn build_authenticator() -> Box<dyn Authenticator> {
+fn build_authenticator() -> Arc<dyn Authenticator> {
     tracing::info!("authentication: PAM (service \"ursine\")");
-    Box::new(ursine_core::auth::pam::PamAuthenticator)
+    Arc::new(ursine_core::auth::pam::PamAuthenticator)
 }
 
 #[cfg(not(feature = "pam"))]
-fn build_authenticator() -> Box<dyn Authenticator> {
+fn build_authenticator() -> Arc<dyn Authenticator> {
     tracing::warn!("authentication: STUB — DEVELOPMENT BUILD, never ship this binary");
-    Box::new(ursine_core::auth::stub::StubAuthenticator)
+    Arc::new(ursine_core::auth::stub::StubAuthenticator)
 }
 
 /// SIGTERM or Ctrl-C ends the accept loop cleanly.
 async fn shutdown_signal() {
     let ctrl_c = async {
-        tokio::signal::ctrl_c().await.expect("ctrl_c handler");
+        if tokio::signal::ctrl_c().await.is_err() {
+            tracing::warn!("Ctrl-C handler unavailable; waiting for SIGTERM only");
+            std::future::pending::<()>().await;
+        }
     };
     #[cfg(unix)]
     let term = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("SIGTERM handler")
-            .recv()
-            .await;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "SIGTERM handler unavailable");
+                std::future::pending::<()>().await;
+            }
+        }
     };
     #[cfg(not(unix))]
     let term = std::future::pending::<()>();
 
     tokio::select! {
-        _ = ctrl_c => {},
-        _ = term => {},
+        () = ctrl_c => {},
+        () = term => {},
     }
     tracing::info!("signal received");
 }

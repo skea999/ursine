@@ -1,0 +1,14 @@
+{
+  "Exclude": [
+    ".agents/",
+    ".opencode/",
+    "artifacts/",
+    "references/",
+    "supply-chain/",
+    "repo/",
+    "install.sh",
+    "scripts/",
+    "src/tools/",
+    "packaging/"
+  ]
+}

@@ -15,6 +15,12 @@ pub struct Registry {
     btrfs_cached: Arc<std::sync::Mutex<Option<bool>>>,
 }
 
+impl std::fmt::Debug for Registry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Registry").finish_non_exhaustive()
+    }
+}
+
 impl Registry {
     pub fn new(sysinfo: Arc<dyn Sysinfo>) -> Self {
         Self {
@@ -48,7 +54,10 @@ impl Registry {
 
     /// Refreshes cached probes (`capabilities.refresh`).
     pub fn refresh(&self) {
-        *self.btrfs_cached.lock().expect("btrfs cache lock") = None;
+        *self
+            .btrfs_cached
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
 
     /// Resolve the tri-state switch for a module and enforce availability.

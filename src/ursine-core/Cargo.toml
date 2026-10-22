@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+description.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 ursine-api.workspace = true
@@ -16,6 +20,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 getrandom.workspace = true
+regex.workspace = true
 # Real PAM on FeralOS builds; dev builds use the stub authenticator.
 # pam-client 0.2 = maintained fork of pam 0.7: pam-sys 0.5 (pregenerated
 # bindings, no bindgen), no vulnerable `users` dependency.
@@ -25,3 +30,6 @@ pam-client = { version = "0.2", optional = true, default-features = false }
 [features]
 default = []
 pam = ["dep:pam-client"]
+
+[lints]
+workspace = true

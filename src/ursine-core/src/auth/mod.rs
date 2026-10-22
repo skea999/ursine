@@ -13,7 +13,7 @@ use ursine_api::Principal;
 /// What the daemon knows about the peer before auth.
 #[derive(Debug, Clone)]
 pub struct PeerInfo {
-    /// uid from SO_PEERCRED (kernel-provided, not client-claimed).
+    /// uid from `SO_PEERCRED` (kernel-provided, not client-claimed).
     pub uid: u32,
     /// Resolved user name for that uid.
     pub user: String,

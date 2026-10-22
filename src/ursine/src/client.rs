@@ -4,26 +4,45 @@
 //! payload back. All policy (auth, capability gates, asUser scope) lives in
 //! the daemon; nothing here decides what is allowed.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use ursine_api::{
-    Action, ApiError, InstalledPackage, ModuleId, ModulesConfig, Request, RequestBody, Response,
-    ResponseBody, SessionToken, TriState, PROTOCOL_VERSION,
+    installable_from_attr, timeouts, Action, ApiError, InstalledPackage, ModuleId, ModulesConfig,
+    Request, RequestBody, Response, ResponseBody, SearchResult, SessionToken, TriState,
+    PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
 const TIMEOUT: Duration = Duration::from_secs(5);
-/// `nix profile` actions can take up to 60 s in the daemon; leave margin.
-const PROFILE_TIMEOUT: Duration = Duration::from_secs(75);
+/// Daemon work budget plus its socket write timeout plus margin.
+const REPLY_MARGIN_SECS: u64 = 10;
+const fn daemon_budget(work_secs: u64) -> Duration {
+    Duration::from_secs(work_secs + timeouts::WRITE_SECS + REPLY_MARGIN_SECS)
+}
+/// PAM is bounded at 30 s in the daemon; leave the same reply margin.
+const AUTH_TIMEOUT: Duration = daemon_budget(30);
+/// `nix profile` reads.
+pub const PROFILE_TIMEOUT: Duration = daemon_budget(timeouts::PROFILE_SECS);
+/// `nix search`.
+pub const SEARCH_TIMEOUT: Duration = daemon_budget(timeouts::SEARCH_SECS);
+/// Profile mutations.
+pub const MUTATE_TIMEOUT: Duration = daemon_budget(timeouts::MUTATE_SECS);
+/// Prune reads history then deletes under one request.
+pub const PRUNE_TIMEOUT: Duration = daemon_budget(timeouts::HISTORY_SECS + timeouts::MUTATE_SECS);
+/// Store-wide GC.
+pub const GC_TIMEOUT: Duration = daemon_budget(timeouts::GC_SECS);
+
+/// Hard upper bound for one daemon reply line (8 MiB).
+const MAX_REPLY_BYTES: usize = 8 * 1024 * 1024;
 
 /// Socket path: `URSINE_SOCKET` override, else the system default.
 pub fn socket_path() -> PathBuf {
     std::env::var_os("URSINE_SOCKET")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/run/ursine.sock"))
+        .map_or_else(|| PathBuf::from("/run/ursine.sock"), PathBuf::from)
 }
 
 /// A live session: the token and its lifetime, both issued by the daemon.
@@ -38,6 +57,17 @@ pub struct AuthSession {
 pub struct ConfigSnapshot {
     pub modules: ModulesConfig,
     pub path: String,
+    /// Whether the configuration file exists on disk right now. `None` when an
+    /// older daemon omits the flag (ambiguous; do not offer Create).
+    pub exists: Option<bool>,
+}
+
+/// `system.status` payload: daemon build and protocol facts.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SystemStatus {
+    pub version: String,
+    pub protocol_version: u16,
+    pub auth: String,
 }
 
 /// Read-only view of the target user's nix profile.
@@ -56,7 +86,7 @@ pub async fn auth(user: String, password: String) -> Result<AuthSession, ApiErro
             token: None,
             body: RequestBody::Auth { user, password },
         };
-        match roundtrip(&request, TIMEOUT)? {
+        match roundtrip(&request, AUTH_TIMEOUT)? {
             ResponseBody::AuthOk {
                 token,
                 expires_in_secs,
@@ -84,7 +114,7 @@ pub async fn call(
 }
 
 /// Authenticated call with an explicit socket timeout.
-async fn call_with_timeout(
+pub async fn call_with_timeout(
     token: SessionToken,
     module: ModuleId,
     action: Action,
@@ -113,9 +143,22 @@ async fn call_with_timeout(
     .await
 }
 
+/// Daemon build, protocol and auth mode.
+pub async fn system_status(token: SessionToken) -> Result<SystemStatus, ApiError> {
+    let value = call(token, ModuleId::System, Action::Status, None).await?;
+    serde_json::from_value(value)
+        .map_err(|error| ApiError::internal(format!("cannot read daemon status: {error}")))
+}
+
 /// Read the daemon's configurable module switches.
 pub async fn modules_config(token: SessionToken) -> Result<ConfigSnapshot, ApiError> {
     let value = call(token, ModuleId::Config, Action::GetConfig, None).await?;
+    parse_config_snapshot(value)
+}
+
+/// Write the commented default config when the daemon has none yet.
+pub async fn init_config(token: SessionToken) -> Result<ConfigSnapshot, ApiError> {
+    let value = call(token, ModuleId::Config, Action::Init, None).await?;
     parse_config_snapshot(value)
 }
 
@@ -139,33 +182,120 @@ fn parse_config_snapshot(value: serde_json::Value) -> Result<ConfigSnapshot, Api
     #[derive(serde::Deserialize)]
     struct Payload {
         modules: ModulesConfig,
-        path: String,
+        // v0.3.1 omitted `exists`; `written` is only present when Init wrote.
+        #[serde(default)]
+        exists: Option<bool>,
+        #[serde(default)]
+        path: Option<String>,
+        #[serde(default)]
+        written: Option<String>,
     }
     let parsed: Payload = serde_json::from_value(value).map_err(|error| {
         ApiError::internal(format!("cannot read daemon configuration: {error}"))
     })?;
+    let exists = parsed
+        .exists
+        .or_else(|| parsed.written.as_ref().map(|_| true));
+    let path = parsed
+        .path
+        .or(parsed.written)
+        .ok_or_else(|| ApiError::internal("daemon configuration response has no path"))?;
     Ok(ConfigSnapshot {
         modules: parsed.modules,
-        path: parsed.path,
+        path,
+        exists,
     })
 }
 
+/// Bounded search page returned by the daemon.
+#[derive(Debug, Clone, Default)]
+pub struct SearchPage {
+    pub results: Vec<SearchResult>,
+    pub truncated: bool,
+}
+
+/// New daemons return `{results, truncated}`; v0.3.1 returned a bare array.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum SearchPayload {
+    Page {
+        results: Vec<SearchResult>,
+        #[serde(default)]
+        truncated: bool,
+    },
+    Legacy(Vec<SearchResult>),
+}
+
+fn parse_search_payload(value: serde_json::Value) -> Result<SearchPage, ApiError> {
+    let page = serde_json::from_value::<SearchPayload>(value)
+        .map_err(|error| ApiError::internal(format!("cannot read search results: {error}")))?;
+    Ok(match page {
+        SearchPayload::Page { results, truncated } => SearchPage { results, truncated },
+        SearchPayload::Legacy(mut results) => {
+            // Older daemons may omit `installable`; derive it from the attr so
+            // install-from-search never sends the raw attr layout.
+            for result in &mut results {
+                if result.installable.is_none() {
+                    result.installable = Some(installable_from_attr(&result.attr));
+                }
+            }
+            SearchPage {
+                results,
+                truncated: false,
+            }
+        }
+    })
+}
+
+/// Search nixpkgs. Slow by design; the daemon allows 300 s.
+pub async fn search(
+    token: SessionToken,
+    query: String,
+    as_user: Option<String>,
+) -> Result<SearchPage, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesNix,
+        Action::Search { query },
+        as_user,
+        SEARCH_TIMEOUT,
+    )
+    .await?;
+    parse_search_payload(value)
+}
+
+/// Run one `packages_nix` action with the timeout that action needs.
+pub async fn package_call(
+    token: SessionToken,
+    action: Action,
+    as_user: Option<String>,
+    timeout: Duration,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(token, ModuleId::PackagesNix, action, as_user, timeout).await
+}
+
 /// Installed packages and generation history for the target user's profile.
-pub async fn store_snapshot(token: SessionToken) -> Result<StoreSnapshot, ApiError> {
-    let packages = installed(token.clone()).await?;
-    let generations = generations(token).await?;
+pub async fn store_snapshot(
+    token: SessionToken,
+    as_user: Option<String>,
+) -> Result<StoreSnapshot, ApiError> {
+    let packages = installed(token.clone(), as_user.clone()).await?;
+    let generations = generations(token, as_user).await?;
     Ok(StoreSnapshot {
         packages,
         generations,
     })
 }
 
-async fn installed(token: SessionToken) -> Result<Vec<InstalledPackage>, ApiError> {
+async fn installed(
+    token: SessionToken,
+    as_user: Option<String>,
+) -> Result<Vec<InstalledPackage>, ApiError> {
     let value = call_with_timeout(
         token,
         ModuleId::PackagesNix,
         Action::ListInstalled,
-        None,
+        as_user,
         PROFILE_TIMEOUT,
     )
     .await?;
@@ -173,12 +303,15 @@ async fn installed(token: SessionToken) -> Result<Vec<InstalledPackage>, ApiErro
         .map_err(|error| ApiError::internal(format!("cannot read installed packages: {error}")))
 }
 
-async fn generations(token: SessionToken) -> Result<Vec<String>, ApiError> {
+async fn generations(
+    token: SessionToken,
+    as_user: Option<String>,
+) -> Result<Vec<String>, ApiError> {
     let value = call_with_timeout(
         token,
         ModuleId::PackagesNix,
         Action::Generations,
-        None,
+        as_user,
         PROFILE_TIMEOUT,
     )
     .await?;
@@ -211,33 +344,159 @@ fn roundtrip(request: &Request, timeout: Duration) -> Result<ResponseBody, ApiEr
     let path = socket_path();
     let line = serde_json::to_string(request)
         .map_err(|error| ApiError::internal(format!("cannot encode request: {error}")))?;
+    // One deadline for the whole round trip: write time counts against it.
+    let deadline = Instant::now() + timeout;
 
-    let mut stream = UnixStream::connect(&path).map_err(|error| {
-        ApiError::internal(format!(
-            "ursined not reachable at {}: {error}",
-            path.display()
-        ))
-    })?;
+    let mut stream = connect_before(&path, deadline, timeout)?;
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(reply_timeout(timeout));
+    }
     stream
-        .set_read_timeout(Some(timeout))
-        .map_err(|error| ApiError::internal(error.to_string()))?;
-    stream
-        .set_write_timeout(Some(timeout))
+        .set_write_timeout(Some(remaining))
         .map_err(|error| ApiError::internal(error.to_string()))?;
 
     stream
         .write_all(format!("{line}\n").as_bytes())
         .map_err(|error| ApiError::internal(format!("cannot send request: {error}")))?;
 
-    let mut reply = String::new();
-    BufReader::new(stream)
-        .read_line(&mut reply)
-        .map_err(|error| ApiError::internal(format!("cannot read reply: {error}")))?;
-
+    let reply = read_reply_bounded(&mut stream, deadline, timeout, MAX_REPLY_BYTES)?;
     let response: Response = serde_json::from_str(reply.trim()).map_err(|error| {
         ApiError::internal(format!("ursined sent an unreadable reply: {error}"))
     })?;
     Ok(response.body)
+}
+
+/// A timed-out connect thread can stay blocked in the kernel. Cap the number
+/// of outstanding helpers so repeated retries cannot grow threads without bound.
+const MAX_CONNECTING: usize = 4;
+static CONNECTING: AtomicUsize = AtomicUsize::new(0);
+
+struct ConnectGuard;
+
+impl ConnectGuard {
+    fn acquire() -> Option<Self> {
+        let previous = CONNECTING.fetch_add(1, Ordering::AcqRel);
+        if previous >= MAX_CONNECTING {
+            CONNECTING.fetch_sub(1, Ordering::AcqRel);
+            return None;
+        }
+        Some(Self)
+    }
+}
+
+impl Drop for ConnectGuard {
+    fn drop(&mut self) {
+        CONNECTING.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Connect without letting a saturated socket backlog block past the deadline.
+/// The helper thread may outlive a timeout; it drops the stream when it returns.
+fn connect_before(
+    path: &Path,
+    deadline: Instant,
+    timeout: Duration,
+) -> Result<UnixStream, ApiError> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(reply_timeout(timeout));
+    }
+    let Some(guard) = ConnectGuard::acquire() else {
+        return Err(ApiError::internal(
+            "daemon busy: too many pending connection attempts",
+        ));
+    };
+    let display = path.display().to_string();
+    let path = path.to_path_buf();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _guard = guard;
+        let _ = sender.send(UnixStream::connect(&path));
+    });
+    match receiver.recv_timeout(remaining) {
+        Ok(Ok(stream)) => Ok(stream),
+        Ok(Err(error)) => Err(ApiError::internal(format!(
+            "ursined not reachable at {display}: {error}"
+        ))),
+        Err(_) => Err(reply_timeout(timeout)),
+    }
+}
+
+/// Read one newline-terminated reply with a byte cap and one absolute deadline.
+///
+/// Each read gets only the time left before `deadline`, so a slow trickle
+/// cannot keep the client waiting past `timeout`. Bytes after the first
+/// newline belong to no response this client asks for and are ignored.
+fn read_reply_bounded(
+    stream: &mut UnixStream,
+    deadline: Instant,
+    timeout: Duration,
+    max_bytes: usize,
+) -> Result<String, ApiError> {
+    let mut reply = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(reply_timeout(timeout));
+        }
+        stream
+            .set_read_timeout(Some(remaining))
+            .map_err(|error| ApiError::internal(error.to_string()))?;
+
+        match stream.read(&mut chunk) {
+            Ok(0) => {
+                if reply.is_empty() {
+                    return Err(ApiError::internal(
+                        "daemon closed the connection without a reply",
+                    ));
+                }
+                break;
+            }
+            Ok(n) => {
+                let bytes = chunk.get(..n).unwrap_or_default();
+                if let Some(newline) = bytes.iter().position(|byte| *byte == b'\n') {
+                    if reply.len() + newline > max_bytes {
+                        return Err(reply_too_large(max_bytes));
+                    }
+                    reply.extend_from_slice(bytes.get(..newline).unwrap_or_default());
+                    break;
+                }
+                if reply.len() + n > max_bytes {
+                    return Err(reply_too_large(max_bytes));
+                }
+                reply.extend_from_slice(bytes);
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                // An early timeout or signal: retry with the time left.
+            }
+            Err(error) => {
+                return Err(ApiError::internal(format!("cannot read reply: {error}")));
+            }
+        }
+    }
+
+    String::from_utf8(reply)
+        .map_err(|error| ApiError::internal(format!("ursined sent invalid UTF-8: {error}")))
+}
+
+fn reply_timeout(timeout: Duration) -> ApiError {
+    ApiError::internal(format!(
+        "daemon did not reply within {} s; the operation may still be running",
+        timeout.as_secs()
+    ))
+}
+
+fn reply_too_large(max_bytes: usize) -> ApiError {
+    ApiError::internal(format!("daemon reply exceeds the {max_bytes} byte limit"))
 }
 
 #[cfg(test)]
@@ -270,10 +529,80 @@ mod tests {
         let snapshot = parse_config_snapshot(serde_json::json!({
             "modules": {"packages_nix": true, "snapshots": "auto"},
             "path": "/etc/ursine/config.toml",
+            "exists": true,
         }))
         .unwrap();
         assert_eq!(snapshot.modules.packages_nix, TriState::On);
         assert_eq!(snapshot.path, "/etc/ursine/config.toml");
+        assert_eq!(snapshot.exists, Some(true));
+    }
+
+    #[test]
+    fn init_response_uses_the_written_path() {
+        let snapshot = parse_config_snapshot(serde_json::json!({
+            "modules": {"packages_nix": "auto"},
+            "written": "/etc/ursine/config.toml",
+            "exists": true,
+        }))
+        .unwrap();
+        assert_eq!(snapshot.path, "/etc/ursine/config.toml");
+        assert_eq!(snapshot.exists, Some(true));
+    }
+
+    #[test]
+    fn config_snapshot_defaults_exists_for_old_daemons() {
+        // v0.3.1 GetConfig omitted `exists`; a missing file is the safe read.
+        let snapshot = parse_config_snapshot(serde_json::json!({
+            "modules": {"packages_nix": "auto"},
+            "path": "/etc/ursine/config.toml",
+        }))
+        .unwrap();
+        assert_eq!(snapshot.exists, None);
+
+        // Init wrote the file, so `written` implies existence.
+        let initialized = parse_config_snapshot(serde_json::json!({
+            "modules": {"packages_nix": "auto"},
+            "written": "/etc/ursine/config.toml",
+        }))
+        .unwrap();
+        assert_eq!(initialized.exists, Some(true));
+    }
+
+    #[test]
+    fn search_payload_reads_page_and_legacy_shapes() {
+        let page = parse_search_payload(serde_json::json!({
+            "results": [{"attr": "legacyPackages.x86_64-linux.hello", "installable": "hello"}],
+            "truncated": true,
+        }))
+        .unwrap();
+        assert_eq!(page.results.len(), 1);
+        assert!(page.truncated);
+
+        // v0.3.1 daemons returned a bare array and never flagged truncation.
+        let legacy = parse_search_payload(serde_json::json!([
+            {"attr": "legacyPackages.x86_64-linux.hello"}
+        ]))
+        .unwrap();
+        assert_eq!(legacy.results.len(), 1);
+        assert!(!legacy.truncated);
+        assert_eq!(
+            legacy.results[0].installable.as_deref(),
+            Some("hello"),
+            "missing installable is derived from the attr"
+        );
+    }
+
+    #[test]
+    fn system_status_parses_the_daemon_payload() {
+        let status: SystemStatus = serde_json::from_value(serde_json::json!({
+            "version": "0.3.1",
+            "protocol_version": 1,
+            "auth": "pam",
+        }))
+        .unwrap();
+        assert_eq!(status.version, "0.3.1");
+        assert_eq!(status.protocol_version, 1);
+        assert_eq!(status.auth, "pam");
     }
 
     #[test]
@@ -286,5 +615,56 @@ mod tests {
             vec!["Version 1", "Version 2 (current)"]
         );
         assert!(parse_generations(serde_json::json!({"other": []})).is_err());
+    }
+
+    #[test]
+    fn reply_reader_accepts_one_line() {
+        let (mut client, mut server) = UnixStream::pair().unwrap();
+        let writer = std::thread::spawn(move || {
+            server.write_all(b"{\"type\":\"ok\"}\n").unwrap();
+        });
+        let reply = read_reply_bounded(
+            &mut client,
+            Instant::now() + Duration::from_secs(5),
+            Duration::from_secs(5),
+            1024,
+        )
+        .unwrap();
+        writer.join().unwrap();
+        assert_eq!(reply, "{\"type\":\"ok\"}");
+    }
+
+    #[test]
+    fn reply_reader_reports_eof_without_a_reply() {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        drop(server);
+        let error = read_reply_bounded(
+            &mut client,
+            Instant::now() + Duration::from_secs(5),
+            Duration::from_secs(5),
+            1024,
+        )
+        .unwrap_err();
+        assert!(error
+            .message
+            .contains("daemon closed the connection without a reply"));
+    }
+
+    #[test]
+    fn reply_reader_rejects_an_oversized_reply() {
+        let (mut client, mut server) = UnixStream::pair().unwrap();
+        let writer = std::thread::spawn(move || {
+            let _ = server.write_all(&[b'a'; 256]);
+        });
+        let error = read_reply_bounded(
+            &mut client,
+            Instant::now() + Duration::from_secs(5),
+            Duration::from_secs(5),
+            64,
+        )
+        .unwrap_err();
+        drop(client);
+        writer.join().unwrap();
+        assert!(error.message.contains("exceeds"));
     }
 }

@@ -35,6 +35,7 @@ Rust workspace. See `AGENTS.md#Stack`, `docs/architecture/overview.md`.
 ## Harness alignment (2026-10-16)
 
 Hidden harness dirs were missing from the initial copy (`.agents/`, `.opencode/`, `.githooks/`, `.github/`, `.agent-memory/`, `.vscode/`, `.editorconfig`, `.env.example`). Re-aligned from `/home/gab/projects/skea-store`:
+
 - `.agents/skills/` — universal workflow skills (spec-driven-development, interview-me, planning, TDD, security scans…)
 - `.opencode/` — 20 agents, commands, instructions (incl. `rust.instructions.md`), local plugin, 5 template rules + `ursine.md` (ours), skills (incl. `rust`)
 - `.githooks/pre-commit` — template version + Ursine cargo fmt gate appended

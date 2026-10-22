@@ -81,7 +81,7 @@ npx github:dmicheneau/opencode-template-agent install --pack security --force
 
 ## Context7 MCP API key
 
-If the key in `~/.config/opencode/opencode.json` expires, replace it from https://context7.com.
+If the key in `~/.config/opencode/opencode.json` expires, replace it from <https://context7.com>.
 
 ## Notes
 

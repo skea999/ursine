@@ -11,14 +11,14 @@ use crate::module::ModuleId;
 use crate::token::SessionToken;
 
 /// Current protocol version. Bump on breaking wire changes.
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
 
 const fn wire_version() -> u16 {
     PROTOCOL_VERSION
 }
 
 /// Client -> daemon message.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Request {
     #[serde(default = "wire_version")]
     pub v: u16,
@@ -32,7 +32,7 @@ pub struct Request {
 }
 
 /// Tagged body of a request.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RequestBody {
     /// One-time handshake: credentials verified by the daemon via PAM.
@@ -48,7 +48,7 @@ pub enum RequestBody {
 }
 
 /// Daemon -> client message.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Response {
     #[serde(default = "wire_version")]
     pub v: u16,
@@ -59,7 +59,7 @@ pub struct Response {
 }
 
 /// Tagged body of a response.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResponseBody {
     /// Handshake succeeded.

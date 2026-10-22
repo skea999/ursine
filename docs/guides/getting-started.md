@@ -8,57 +8,33 @@ service and systemd/OpenRC/dinit units. This guide covers building from source.
 ## Prerequisites
 
 - [opencode](https://opencode.ai) CLI
-- Rust stable via rustup (NOT installed on this machine yet)
+- podman (or docker; same commands)
 - Git
 
-## Toolchain setup (once)
+No Rust/Nix/scanner toolchain is installed on the host. Everything runs in the
+project containers.
 
-Container runtime: **podman** on this machine (docker works identically — same commands).
+## Canonical build and test
 
-Preferred: NO local toolchain — build in the dev image (Alpine/musl, same as CI and FeralOS):
+One-time image build:
 
 ```bash
-# one-time: build the dev image (rust + linux-pam-dev + clippy/rustfmt)
 podman build -t ursine-ci:1 -f ci/Containerfile.dev .
-
-# build / test / lint (network=host: pasta cannot set up tap on this host)
-podman run --rm --network=host -v "$PWD:/work" -w /work \
-  -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 cargo build --workspace
-
-podman run --rm --network=host -v "$PWD:/work" -w /work \
-  -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 cargo test --workspace --all-features
-
-podman run --rm --network=host -v "$PWD:/work" -w /work \
-  -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 sh -c \
-  "cargo clippy --workspace --all-features -- -D warnings && cargo fmt --check"
 ```
 
-Binaries land in `artifacts/target/debug/`. Run the daemon against a test config:
+Then use the exact commands in [build-and-test.md](build-and-test.md). They are
+the same commands CI runs: `cargo fmt --check`, `cargo check`, strict clippy,
+`cargo test` in the Alpine/musl container.
 
-```bash
-artifacts/target/debug/ursined --config artifacts/ursine-dev/config.toml
-```
+Static analysis uses `ci/Containerfile.static` and `scripts/static-check.sh`;
+policy and gates are in [../STATIC-ANALYSIS.md](../STATIC-ANALYSIS.md).
 
-Optional native toolchain (if you want cargo on the host):
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source "$HOME/.cargo/env"
-rustup component add clippy rustfmt
-rustup target add x86_64-unknown-linux-musl
-cargo install cargo-audit   # optional: dependency vulnerability scan
-```
+## Release and Nix
 
 The release flake (`flake.nix`) packages the pinned dynamic-musl release
 tarball in `nix/binary.nix`; it does not compile the workspace inside Nix. CI
-runs `nix flake check` + `nix build` and publishes the release tarball plus a
-flake source archive. See [README](../../README.md) for Nix commands and flake
-input setup.
-
-```bash
-# nix build (local): ALWAYS out-link into artifacts/ — nothing at repo root
-nix build --out-link artifacts/result .#ursine
-```
+builds the release tarball and runs `nix flake check` + `nix build`. See
+[README](../../README.md) and [build-and-test.md](build-and-test.md).
 
 ## Disk space
 
@@ -69,7 +45,7 @@ scripts/clean-artifacts.sh        # keep LAST 3 build copies + nix gc
 scripts/clean-artifacts.sh --all  # + cargo clean (artifacts/target)
 ```
 
-Run it after builds or whenever disk is tight (it freed 443 MB on first run here).
+Run it after builds or whenever disk is tight.
 
 Note: `libpam0g-dev` is NOT needed on the dev machine — PAM sits behind the
 `pam` cargo feature. Dev builds compile a stub auth path. The FeralOS package
@@ -98,24 +74,19 @@ At session end, update: `handoff/latest.md`, `state/session-state.json`,
 
 ## Build / test / lint
 
-```bash
-cargo build --workspace                    # build all (dev profile, stub auth)
-cargo build -p ursined --features pam      # daemon with real PAM (needs libpam)
-cargo test --workspace                     # tests
-cargo clippy --workspace -- -D warnings    # lint gate
-cargo fmt                                  # format
-cargo run -p ursined                       # run daemon (skeleton)
-```
+Use [build-and-test.md](build-and-test.md). Do not run cargo/nix on the host.
 
 ## Layout
 
 All code under `src/`, all tests under `tests/`, build output + generated files under `artifacts/` (gitignored contents, folder tracked):
 
-```
+```text
 src/ursine-api       shared protocol/config types (serde)
 src/ursine-core      module implementations (apk, flatpak, nix, pam, btrfs, caps)
 src/ursined          root daemon (dinit service)
 src/ursine           libcosmic GUI (COSMIC toolkit, iced-based)
+src/tools            shipped shell tools (activation/deactivation)
+src/web              static web assets (not implemented yet)
 tests/               integration tests (per area)
 artifacts/           build output (artifacts/target via .cargo/config.toml) + generated files
 ```

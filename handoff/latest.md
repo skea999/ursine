@@ -6,6 +6,73 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-22 — static analysis gate + v0.4.0 (uncommitted, gate-green)
+
+**Status**: strict static/security/dependency gate implemented; version bumped to 0.4.0; ready to commit/push. App is not containerized; only tooling images are used.
+
+- Rust lints: pinned `rust-toolchain.toml` (1.99.1), `rustfmt.toml`, `clippy.toml`, workspace `[lints]` with clippy all/pedantic/nursery/cargo + restriction set (`unwrap_used`, `expect_used`, `panic`, `indexing_slicing`, `string_slice`, ...), `unsafe_code = forbid`. Fixed all production findings.
+- Repo lint: `typos`, `editorconfig-checker`, `shellcheck`, `shfmt`, `taplo`, `markdownlint-cli2`, `actionlint`, `zizmor` (CI action), `statix`/`deadnix`/`alejandra`.
+- SAST: Semgrep `p/rust` + `p/secrets` + `.semgrep/ursine.yml` custom rules (no unsafe, no Command outside exec, no temp_dir, no secret literals); gitleaks history scan; cargo-geiger reports.
+- Dependencies: `cargo-deny` (advisories, licenses, bans, sources; wildcard deny; pinned git allowlist), `cargo-audit` with warn <10 / block >=10 threshold (`scripts/audit-threshold.sh`), `cargo-vet --locked` (regex exemption added), `cargo-machete`, per-crate CycloneDX SBOM. Duplicates: `cargo tree -d` + `jscpd`, report-only.
+- Tooling: `ci/Containerfile.static` (pinned tools), `scripts/static-check.sh` groups `rust|repo|sast|deps|duplicates|sbom|all`; canonical build/test commands in `docs/guides/build-and-test.md`; policy in `docs/STATIC-ANALYSIS.md`; exceptions in `docs/static-analysis-exceptions.md`.
+- Layout: shipped activation/deactivation tools moved to `src/tools/`; web placeholder at `src/web/`; dev/CI tooling stays in `scripts/`.
+- CI: GUI tests now run; lint/check/doc added; `static` job builds the static image with cache and runs all groups; Semgrep custom rules; zizmor job; Nix linters; GitHub Actions pinned by SHA; release job cache removed (cache poisoning); container images pinned by digest.
+- Gate: `scripts/static-check.sh all` PASS; cargo test 143 (GUI 31, API 26, integration 6, core 80) all features; PAM/default matrix; clippy `-D warnings`; fmt; rustdoc; nix linters; zizmor clean.
+- Version: workspace 0.4.0 (minor bump). `nix/binary.nix` stays pinned to 0.3.1 until the next tag release.
+
+**Next**:
+1. Commit + push 0.4.0.
+2. Tag/release later per policy (updates `nix/binary.nix`).
+3. Then snapshots feature (btrbk backend first, GUI panel same feature).
+
+## Session 2026-10-21 — v0.3 store parity hardening (uncommitted, all findings closed)
+
+**Status**: every confirmed review finding — blocker, high, medium and low — is fixed. Gate green; no commit yet. Real daemon+GUI smoke still pending.
+
+- Review closure: trust predicate now uses the shared `ursine-api` installable policy; explicit target-user installs and all upgrades prompt because that user's flake registry can redirect `nixpkgs`.
+- Prune: resolves the actual `nix profile` path in the user's login env (XDG/NIX_STATE_HOME aware), runs `nix-env` as the profile owner (no root write into user state), rejects unknown active generation, and applies only an exact previewed `{current, would_delete}` plan. GUI requires a matching preview before apply.
+- Regex actions: daemon computes matches once and applies them by exact package name, so preview and mutation use the same engine; dry-run lists matches. Quoted shell values allow regex syntax without weakening injection checks.
+- Exec: streaming stdout/stderr with hard caps (search 32 MiB complete, other output 64 KiB), process-group kill on timeout/overflow, absolute trusted `su`/`nix` paths for root helpers.
+- Auth/socket: rate limit charged before size checks, no fsynced audit per limited attempt, 30 s PAM timeout with a bounded 8-permit semaphore (timed-out tasks keep the permit), per-uid 8-connection cap, protocol busy reply on rejection.
+- Config: read and write reject symlinks, group/world-writable files, non-root owners, oversized input; atomic writes keep `0640`.
+- Client: deadlines derive from shared `ursine-api` timeouts + 30 s write + 10 s margin; bounded connect helper threads; legacy search/config payloads stay compatible; one-second redraw tick while a long action runs.
+- Search caps now return `truncated` and the GUI says "first 200 of more"; unknown payloads no longer dump raw JSON.
+- Gate in `ursine-ci:1`: build + test + clippy `-D warnings` + fmt → **143 tests** (GUI 31, API 26, integration 6, core 80); log `artifacts/final-gate-2/gate.log`.
+- `steps:` is gone from `.opencode/agents/codebase.md` only; subagent max-steps still triggers (cap elsewhere). No open review findings.
+
+**Next**:
+1. Real daemon + GUI smoke (display + root activation), then commit with the conventional message.
+2. Snapshots: btrbk daemon module first, GUI panel in the same feature (parity rule).
+3. Optional distro policy: `pam_faillock` in `packaging/pam.d/ursine`; daemon rate limiting already covers failed logins.
+
+## Session 2026-10-21 — v0.3 store parity (uncommitted)
+
+**Status**: GUI covers every `packages_nix` daemon action. Backend untouched; no commit yet.
+
+- `client.rs`: typed nixpkgs search, generic package call, daemon-matched timeouts (310 s search, 910 s mutations, 3610 s GC), `asUser` on every store call.
+- `store.rs`: search + install, direct install, per-package upgrade/remove, upgrade all, regex upgrade/remove, generations list, rollback, diff closures, wipe history (preview + apply), prune generations (preview + apply), store GC.
+- Destructive actions use an inline confirmation panel with exact consequences; dry-runs preview before apply; long output is clipped.
+- `app.rs`: store action routing, numeric input validation, post-mutation profile reload, session expiry handling.
+- Remaining backend actions wired: `system.status` on Home (version/protocol/auth) and `config.init` in Settings (create commented default config).
+- Tests: 12 GUI, 24 API, 6 integration, 58 core = **100 green**; `cargo clippy --workspace --all-features -- -D warnings` + `cargo fmt --check` green in `ursine-ci:1`.
+- Docs/state updated: AGENTS parity + UI reference rules, `.opencode/rules/{workflow,ursine}.md`, TASKS, CHANGELOG, session state.
+
+**Next**:
+1. Real daemon + GUI smoke for all store actions (display required); verify a real nix profile and long-action feedback.
+2. Pre-Commit Review Gate, then commit.
+3. Snapshots: implement the btrbk daemon module first, then the GUI panel in the same feature (parity rule).
+
+## Session 2026-10-21 — workflow: frontend/backend parity
+
+**Status**: binding workflow updated (docs only).
+
+- Parity rule added to `AGENTS.md`, `.opencode/rules/workflow.md`, and `.opencode/rules/ursine.md` (invariant 15).
+- UI reference rule added (invariant 16): cosmic-settings for COSMIC structure, Webmin for action coverage, Cockpit for capability gating/status/destructive confirmations.
+- Backend first, frontend immediately, same feature. No new feature until daemon and frontend reach functional parity. Deferral only with explicit user approval recorded in state.
+- Consequence: `packages_nix` store mutations (daemon already complete) are the next work; GUI controls ship before snapshots/users/niri.
+
+**Next**: implement GUI store mutations (search/install/remove/upgrade/rollback/GC/prune) against existing daemon actions.
+
 ## Session 2026-10-21 — v0.3.1 RELEASED
 
 **Status**: `v0.3.1` tagged and released. Tag CI run `39602272962` green; `nix/binary.nix` auto-pinned on `main` in `8dada79`; `verify-pin` green.

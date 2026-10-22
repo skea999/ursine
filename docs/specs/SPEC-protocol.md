@@ -12,7 +12,7 @@ Define the ONLY shared contract between daemon and frontends: a crate `ursine-ap
 
 ## Commands
 
-```
+```text
 cargo build -p ursine-api
 cargo test  -p ursine-api
 cargo clippy -p ursine-api -- -D warnings
@@ -22,7 +22,7 @@ cargo clippy -p ursine-api -- -D warnings
 
 Layout (binding, per skea999): **all code under `src/`, all tests under `tests/`, generated files AND build output under `artifacts/`** (gitignored contents via `.gitignore`; folder tracked via `.gitkeep`; `.cargo/config.toml` sets `target-dir = "artifacts/target"`).
 
-```
+```text
 src/ursine-api/
 ├─ Cargo.toml
 └─ src/
@@ -53,7 +53,7 @@ pub enum Request {
 
 - serde tag/adjacently tagged enums for every payload; `snake_case` wire names
 - Every type: `Debug, Clone, Serialize, Deserialize, PartialEq`
-- Wire format is versioned: `Request`/`Response` carry `v: u16` (starts at 1)
+- Wire format is versioned: `Request`/`Response` carry `v: u16` (currently 2; v2 adds the search `{results, truncated}` page and exact prune preview fields)
 
 ## Testing Strategy
 

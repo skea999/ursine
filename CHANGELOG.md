@@ -1,13 +1,46 @@
 # Changelog
 
+## [0.4.0] — 2026-10-22
+
+### Added
+
+- Static-analysis gate: strict workspace lints (clippy all/pedantic/nursery/cargo + restriction set, `unsafe_code = forbid`), `cargo-deny`/`cargo-audit`/`cargo-vet`/`cargo-machete`, Semgrep custom rules, gitleaks history scan, `actionlint`/`zizmor`, shell/Nix/TOML/Markdown linters, SBOM (`cargo-cyclonedx`), and report-only duplicate detection. Canonical commands: `docs/guides/build-and-test.md`; policy: `docs/STATIC-ANALYSIS.md`; entry point `scripts/static-check.sh` in `ursine-static:1`.
+- Pinned Rust toolchain (`rust-toolchain.toml`), `clippy.toml`, `rustfmt.toml`, `deny.toml`, `typos.toml`, `taplo.toml`.
+- Shipped activation/deactivation tools moved to `src/tools/`; web assets path is `src/web/`.
+
+- Store GUI now reaches parity with the `packages_nix` backend: nixpkgs search + install, direct install, per-package upgrade/remove, upgrade all, regex preview + upgrade/remove, generation rollback, closure diff, history wipe with dry-run preview, generation prune with exact preview, store GC, and a target-user (`asUser`) field. Destructive actions require explicit confirmation; timeouts match the daemon limits (search 300 s, profile mutations 900 s, GC 3600 s).
+- Home shows `system.status` (daemon version, protocol, auth mode); Settings can create the default config file when missing (`config.init`).
+
+### Changed
+
+- Workflow is now binding on backend/frontend parity: implement the daemon action first, then the frontend control immediately, in the same feature; no new feature until parity is reached. UI patterns follow cosmic-settings (structure), Webmin (action coverage), and Cockpit (capability gating, status visibility, destructive confirmations).
+
+### Security
+
+- Daemon socket hardening: 64 concurrent connections max, 1 MiB request cap, idle/first-request/write timeouts; whitespace-only lines close the connection.
+- PAM handshake runs on a blocking thread pool; oversized credentials get the same generic `unauthorized` and are audited with the kernel peer identity only.
+- Store inputs reject option-like values (leading `-`) and wildcard-only search queries; nixpkgs search results are capped at 200.
+- Generation prune applies exactly the previewed generations through `nix-env -p <profile> --delete-generations` and validates the profile symlink; `asUser` is rejected for non-profile actions, including store GC.
+- GUI reply reader is bounded at 8 MiB with one deadline covering write+read; connect attempts use bounded helper threads.
+- Per-uid socket cap (8) and a protocol `daemon busy` reply when the global/per-user limit is hit.
+- PAM auth has a 30 s timeout and a bounded 8-permit pool; timed-out tasks keep their permit, so hung NSS/PAM backends cannot accumulate threads. Rate limiting is charged before size checks and limited attempts no longer write an fsynced audit line.
+- Command execution streams stdout/stderr with hard caps, kills the whole process group on timeout/overflow, and resolves `su`/root `nix` from trusted absolute paths.
+- Generation prune resolves the same XDG/NIX_STATE_HOME profile as `nix profile`, runs as the profile owner, and refuses to apply unless the exact previewed active generation and deletion list still match.
+- Regex preview and apply share one match list computed by the daemon; mutation uses exact package names.
+- Configuration load and write reject symlinks, group/world-writable files, non-root owners, and files over 1 MiB.
+- Target-user installs and every upgrade prompt because the target user's flake registry can redirect `nixpkgs`.
+- Search results expose a `truncated` flag; the GUI shows "first 200 of more" instead of silently presenting a partial list.
+
 ## [0.3.1] — 2026-10-21
 
 ### Added
+
 - Settings screen: capabilities refresh plus manual module modes (`auto`, `manual on`, `manual off`) backed by new `config.get_config` and `config.set_module_switch` daemon actions. Module switches persist atomically and durably, preserve unrelated TOML, and apply live. `config.init` no longer overwrites an existing config.
 
 ## [0.3.0] — 2026-10-20
 
 ### Added
+
 - `README.md`: Nix flake install/input instructions and project overview.
 - Nix package chain: `ursine` depends on `ursined`; the daemon package owns `ursine-activate`/`ursine-deactivate` (`bin/ursine-activate`, `bin/ursine-deactivate`) and the packaging assets. Activation detects systemd/OpenRC/dinit, installs PAM as a profile symlink, renders the init unit against the stable profile, and restarts the daemon. Deactivation stops/disables it and removes PAM/init files. Both are idempotent.
 - CI release gate reads the workspace version; the expensive `package` job runs only for a tag or a new version, while PR packaging smoke runs only when build inputs change. Cargo registry and `artifacts/target` use GitHub Actions cache.
@@ -21,6 +54,7 @@
 - v0.3 libcosmic spike: pinned rev builds on musl; minimal window + real socket round-trip (`capabilities.list`); `URSINE_SOCKET` override; dev image and CI `gui` job updated with libcosmic build deps.
 
 ### Changed
+
 - **GUI toolkit: GTK4/relm4 → libcosmic** (COSMIC toolkit, iced-based Rust UI), pinned rev `430f3d48a97d8779f9c1985473912e594ccca1ae`. Reason: security — remove GTK/gdk-pixbuf/librsvg C parsers from the GUI process; visual coherence with the GTK Wayle shell is best-effort (distro already mixes COSMIC apps on niri). UX principles remain toolkit-independent.
 - Web frontend (v3): stack still undecided, but **memory-safe is now a binding constraint** (Rust→WASM preferred; TypeScript acceptable fallback) — `docs/specs/SPEC-web.md`.
 - CI release publishing split from the build job: build keeps `contents: read`; a separate publish job holds `contents: write` for tags/main, requires the flake job, verifies checksums, and publishes only missing tag assets without overwriting existing ones.
@@ -30,6 +64,7 @@
 ## [0.1.0] — 2026-10-19
 
 ### Added
+
 - v0.2 packages.nix: new-CLI-only nix profiles (`nix profile`), as-user execution
   with strict validation, 9 operations (list/add/remove/upgrade/search/history/
   rollback/wipe-history/diff-closures), total store GC and keep-last-N
@@ -49,6 +84,7 @@ All notable changes to Ursine. Format: Keep a Changelog, semver.
 ## [Unreleased] — 2026-10-16
 
 ### Added
+
 - Workflow updated to the new harness chains: Pattern 8 Pre-Commit Review Gate (Tier 1 cargo build/test/clippy/fmt → Tier 2 `@review` lens briefs requirements|code|security|ux-responsive, ≤2 cycles) and skill-chain with decision-grounding, code-change-impact, adr steps — 18/18 referenced skills verified present.
 - Agent hygiene: 16/23 agents hidden from Tab (subagents dispatch-only), model overrides removed (default model everywhere), all frontmatters valid YAML, orchestrator can dispatch the 3 new agents (compliance-auditor, legacy-modernizer, smart-contract-auditor).
 - Harness re-aligned after template update: new agents (compliance-auditor, legacy-modernizer, smart-contract-auditor — 23 total), updated researcher agent + workflow rules (security lens, decision-grounding, adr), refreshed agents-guide + global-setup docs. opencode.json merged (template bash permissions + our instructions).
@@ -66,6 +102,7 @@ All notable changes to Ursine. Format: Keep a Changelog, semver.
 - `.githooks/pre-commit` — secrets scan + `cargo fmt --check`.
 
 ### Decided
+
 - Name: Ursine. Binaries `ursined` (root daemon, dinit), `ursine` (GUI GTK4/libadwaita). Crates `ursine-api`, `ursine-core`. Web assets `web/`. Packaging in `skea999/feralos-aports`.
 - Stack: Rust everywhere (single workspace). GUI must be gtk4-rs anyway; shared serde types make a second backend language a liability.
 - Modules v1: packages (nix first — no GUI exists on any distro), snapshots, users, niri config editor. NOT building printers/scanners/bluetooth/network/firewall/disks (already packaged on Alpine).

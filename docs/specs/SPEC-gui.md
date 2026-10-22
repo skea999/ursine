@@ -29,7 +29,7 @@ The native frontend `ursine`: **libcosmic** app, thin client of `ursined`. Login
 
 ## Commands
 
-```
+```text
 cargo build -p ursine
 cargo run -p ursine
 cargo clippy -p ursine -- -D warnings
@@ -37,7 +37,7 @@ cargo clippy -p ursine -- -D warnings
 
 ## Project Structure
 
-```
+```text
 src/ursine/src/
 ├─ main.rs           cosmic::Application setup
 ├─ client.rs         socket client: connect, auth, Bearer calls (tokio)

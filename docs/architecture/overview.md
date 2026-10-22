@@ -4,7 +4,7 @@ Decided 2026-10-16 (session with skea999). Each decision lists the rationale. Do
 
 ## Components
 
-```
+```text
 ursined (root daemon, dinit service)          ← all logic, exactly once
 ├─ modules: packages (apk/flatpak/nix), users,
 │           snapshots, niri, capabilities
@@ -27,7 +27,7 @@ Why one repo: `ursine-api` types change atomically with daemon and GUI; one Carg
 
 No polkit. The polkit/JS-rule machinery was rejected as over-engineering for software where the daemon, GUI and rules are all ours. polkit stays installed on desktops for third-party tools (NetworkManager, fwupd, cups-pk-helper use it independently); Ursine does not touch it.
 
-```
+```text
 Desktop GUI: connect unix socket → prompt password ONCE per session
              → daemon verifies via PAM (service /etc/pam.d/ursine, pam_unix)
              + group check (wheel)
@@ -70,6 +70,7 @@ Daemon restart mid-operation → re-read real state from the system; nothing to 
 2. Runtime (capabilities): whether the machine can use a module. NEVER persisted (it would go stale at the first `apk add`). Detected at daemon start via cheap checks (stat binaries, /sys/fs/btrfs, PID1 = dinit); re-checked per request (`ensure_available()?` — one stat before executing); `capabilities.refresh` API exists.
 
 Config tri-state per module: `"auto" | true | false`
+
 - `"auto"` (default): detection decides
 - `true`: force (warn if missing)
 - `false`: off even if present
@@ -106,7 +107,7 @@ docker run --rm -it -v "$PWD:/work" -w /work rust:alpine sh     # interactive sh
 
 GitHub CI (`.github/workflows/ci.yml`, to be created at v0.1) — **all jobs in Docker containers, no toolchain on the host**:
 
-1. **test matrix, musl**: `alpine:3.22` container (FeralOS target; `apk add rust cargo git nodejs`; `linux-pam-dev` only on pam jobs); `cargo test` runs once per cargo feature combination that exists — default, `pam` (`full` when web/oidc land in v3). Clippy + fmt gate on all features. (`nodejs` in-container so JS actions work on musl.)
+1. **test matrix, musl**: `alpine:3.22` container (FeralOS target; `apk add rust cargo git nodejs`; `linux-pam-dev` only on pam jobs); `cargo test` runs once per cargo feature combination that exists — default, `pam` (`full` when web/oidc land in v3). Clippy (strict workspace lints) + fmt + rustdoc gate on all features; static analysis (repo/SAST/deps/SBOM) runs in the `ursine-static` image via `scripts/static-check.sh` (policy: `docs/STATIC-ANALYSIS.md`). (`nodejs` in-container so JS actions work on musl.)
 2. **nix flake**: `nixos/nix` **container** → `nix flake check` + `nix build --out-link artifacts/result` on every push. `flake.nix` packages the **pinned musl artifact** (`nix/binary.nix`, URL+sha256): nixpkgs does not cache musl toolchains (stable included), so from-source musl builds take hours; Alpine builds the binary, Nix publishes it reproducibly.
 3. **publish**: on tag, same `nixos/nix` container builds musl binaries and CI attaches them to a GitHub Release; the flake itself is "published" by living in the repo (`github:skea999/ursine`).
 

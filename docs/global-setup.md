@@ -155,7 +155,7 @@ npx -y skills add ast-grep/agent-skill -g -y -a opencode   # skills → ~/.agent
 
 ## 7. Context7 MCP
 
-Configured in the global `mcp.context7` section (section 2). Requires a valid API key from https://context7.com.
+Configured in the global `mcp.context7` section (section 2). Requires a valid API key from <https://context7.com>.
 
 ## 8. Permission Configuration
 

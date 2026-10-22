@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::ModuleId;
 
 /// Serialized with an internal `action` tag: `{"action":"list","query":null}`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Action {
     // -- system --
@@ -49,18 +49,22 @@ pub enum Action {
     },
     /// Remove every package from the profile.
     RemoveAll,
-    /// Remove all packages whose name matches a regex.
+    /// Remove all packages whose name matches a regex. `dry_run` lists matches.
     RemoveRegex {
         pattern: String,
+        #[serde(default)]
+        dry_run: bool,
     },
     /// Upgrade one package (or all when `all`).
     Upgrade {
         package: Option<String>,
         all: bool,
     },
-    /// Upgrade all packages whose name matches a regex.
+    /// Upgrade all packages whose name matches a regex. `dry_run` lists matches.
     UpgradeRegex {
         pattern: String,
+        #[serde(default)]
+        dry_run: bool,
     },
     /// Profile history (generations).
     Generations,
@@ -79,10 +83,17 @@ pub enum Action {
     },
     /// Garbage-collect the whole nix store (unreachable paths only).
     StoreGc,
-    /// Prune profile generations, keeping the last `keep` (dry_run = no changes).
+    /// Prune profile generations, keeping the last `keep` (`dry_run` = no changes).
     PruneGenerations {
         keep: u32,
         dry_run: bool,
+        /// Current generation seen at preview time. Apply refuses when the
+        /// profile changed in between, so the preview stays exact.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_current: Option<u32>,
+        /// Exact generation list the preview would delete.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_delete: Option<Vec<u32>>,
     },
 
     // -- snapshots (btrbk) --
@@ -168,6 +179,66 @@ mod tests {
         assert!(s.contains("\"action\":\"set_module_switch\""));
         assert!(s.contains("\"module\":\"packages_nix\""));
         assert!(s.contains("\"value\":true"));
+    }
+
+    #[test]
+    fn regex_actions_default_to_apply_for_older_clients() {
+        let parsed: Action = serde_json::from_value(serde_json::json!({
+            "action": "remove_regex",
+            "pattern": "^python",
+        }))
+        .unwrap();
+        assert_eq!(
+            parsed,
+            Action::RemoveRegex {
+                pattern: "^python".into(),
+                dry_run: false,
+            }
+        );
+        let preview: Action = serde_json::from_value(serde_json::json!({
+            "action": "upgrade_regex",
+            "pattern": "^python",
+            "dry_run": true,
+        }))
+        .unwrap();
+        assert_eq!(
+            preview,
+            Action::UpgradeRegex {
+                pattern: "^python".into(),
+                dry_run: true,
+            }
+        );
+    }
+
+    #[test]
+    fn prune_expected_generation_is_optional_on_the_wire() {
+        let old = serde_json::json!({
+            "action": "prune_generations",
+            "keep": 3,
+            "dry_run": true,
+        });
+        let parsed: Action = serde_json::from_value(old).unwrap();
+        assert_eq!(
+            parsed,
+            Action::PruneGenerations {
+                keep: 3,
+                dry_run: true,
+                expected_current: None,
+                expected_delete: None,
+            }
+        );
+        let with_preview = Action::PruneGenerations {
+            keep: 3,
+            dry_run: false,
+            expected_current: Some(7),
+            expected_delete: Some(vec![3, 4]),
+        };
+        let json = serde_json::to_value(&with_preview).unwrap();
+        assert_eq!(json["expected_current"], 7);
+        assert_eq!(
+            serde_json::from_value::<Action>(json).unwrap(),
+            with_preview
+        );
     }
 
     #[test]

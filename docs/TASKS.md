@@ -2,21 +2,43 @@
 
 **Milestone**: v0.3 — store GUI (login + home + store view DONE)
 **Updated**: 2026-10-21
+**Workflow rule (binding)**: backend first, frontend immediately, same feature. No next feature until daemon + frontend reach parity.
+**UI rule (binding)**: patterns from cosmic-settings (structure), Webmin (action coverage), Cockpit (gating/status/confirmations).
 
 ## Current Sprint
 
 ### Done — settings + config modes (2026-10-21)
+
 - [x] Separate Settings screen with gear navigation, capability refresh, and module switches (`auto` / `manual on` / `manual off`); daemon `config.get_config` and `config.set_module_switch`; TOML edits preserve unrelated content, write durably with hardened temp files, and apply live; `config.init` refuses overwrite | P0
 
+### Done — v0.3 GUI store parity (2026-10-21)
+
+- [x] Store UI covers every `packages_nix` daemon action: search + install, direct install, per-package upgrade/remove, upgrade all, regex upgrade/remove, generation rollback, closure diff, history wipe (preview + apply), generation prune (preview + apply), store GC, and `asUser` target user. Destructive actions confirm; timeouts match the daemon; busy/error/output states. Remaining backend actions wired: `system.status` (Home) and `config.init` (Settings). 100 tests green, clippy `-D warnings`, fmt clean | P0
+
+### Done — static analysis + security gate, v0.4.0 (2026-10-22)
+- [x] Strict lints: pinned toolchain, workspace clippy all/pedantic/nursery/cargo + restrictions, `unsafe_code = forbid`, rustdoc warnings | P0
+- [x] Repo/SAST/deps: typos, editorconfig, shellcheck/shfmt, taplo, markdownlint, actionlint, zizmor, Semgrep custom, gitleaks, cargo-deny/audit/vet/machete, geiger, SBOM; duplicates report-only | P0
+- [x] `ursine-static:1` + `scripts/static-check.sh` + docs; CI static/zizmor jobs; actions/images pinned | P0
+- [x] Layout: `src/tools/` shipped scripts, `src/web/` placeholder; version 0.4.0 | P1
+
+### Done — v0.3 store parity hardening (2026-10-21)
+
+- [x] Review closure (three cycles, every finding incl. low): socket caps + per-uid connection cap + busy reply; PAM `spawn_blocking` with 30 s timeout, bounded 8-permit semaphore and audit; auth rate limit charged before size checks; streaming command output caps (32 MiB complete search / 64 KiB normal) with process-group kill; absolute trusted `su`/`nix`; XDG-aware prune as the profile owner with exact `{current, would_delete}` binding; regex preview + apply by exact names; config read/write symlink/mode/owner/size guards; shared timeout budgets; search truncation flag; bounded client connect threads; stale search/scope fences; one-second long-action redraw | P0
+- [x] Gate green: **143 tests** (GUI 31, API 26, integration 6, core 80), clippy `-D warnings`, fmt clean (`artifacts/final-gate-2/gate.log`). No open review findings | P0
+- [ ] Real daemon + GUI smoke (display + root activation), then commit | P0 | agent
+
 ### Todo
-- [ ] v0.3: store GUI (libcosmic): search/install/remove/upgrade + snapshots panel (snapshots daemon module still `NotImplemented`) | P0 | agent
+
+- [ ] v0.3: snapshots module in the daemon (btrbk), then the GUI panel immediately in the same feature (daemon still `NotImplemented`) | P0 | agent
 - [ ] v0.4 users (accountsservice) + niri editor forms | P1 | agent
 - [ ] v3 (deferred): choose web GUI stack — **must be memory-safe** (Rust→WASM preferred: Leptos/Yew/Dioxus; TypeScript acceptable fallback). See `docs/specs/SPEC-web.md` | P2 | skea999
 
 ### In Progress
+
 - (empty)
 
 ### Done — packaging primitives (2026-10-20)
+
 - [x] Cross-distro `install.sh`: absolute-path overrides + `DESTDIR` staging, PAM `pam_unix.so` detection with distro-specific install hints, conflict refusal + backup, automatic enable/start; **P1** | P1
 - [x] Installer hardening: `ursined --version` auth gate (stub refused unless `--allow-stub`; cross-arch staging refused unless `--allow-unverified-auth`), `mktemp` temps, strict path allowlist + `.`/`..` rejection, PAM `0644` via temp + rename, `0750` config dir, staging ownership warning | P0
 - [x] PAM service `packaging/pam.d/ursine` (auth + account, no session); release tarball installs it as root:root 0644 | P1
@@ -33,18 +55,23 @@
 - [x] systemd unit `[Install] WantedBy=multi-user.target` restored; audit dir enforced `0750` with parent/target checks; review findings triaged | P0
 
 ### Done — v0.3 GUI store view (2026-10-20)
+
 - [x] `store.rs`: installed profile packages + generation history via `packages_nix.list_installed` / `packages_nix.generations`; Home ↔ Store navigation; Open disabled when the Nix capability is missing; busy/empty/error states; 75 s profile timeout; expired token returns to login; 81 tests green, clippy `-D warnings`, fmt clean | P0
 
 ### Done — v0.3 GUI login + home (2026-10-20)
+
 - [x] GUI split into `app.rs` / `client.rs` / `login.rs` / `home.rs`; thin Unix-socket client (`auth` + `call`, 5 s timeout, `spawn_blocking`); login screen (username default from `USER`, password field, friendly auth errors); capability-gated home mirroring the daemon gate, with missing-capability reasons/fixes, refresh and sign out; session token RAM-only; 80 tests green, clippy `-D warnings`, fmt clean in dev container | P0
 
 ### Done — v0.3 libcosmic spike (2026-10-19)
+
 - [x] libcosmic pinned rev builds on musl; minimal window + real socket round-trip (`capabilities.list`, unauthenticated → expected `unauthorized`); env `URSINE_SOCKET` override; build deps added to `ci/Containerfile.dev`; CI `gui` job (build + clippy) added; daemon jobs exclude the GUI for speed | P0
 
 ### Done — v0.2 packages.nix (2026-10-19)
+
 - [x] New-CLI-only nix module: list/add/remove/removeAll/removeRegex/upgrade/upgradeRegex/search/history/rollback/wipe-history/diff-closures + **storeGc** (root, total) + **pruneGenerations** (root exec, keep last N, dry-run with current from symlink); `su -l -s /bin/sh` as target user; strict validation; uid 1000..60000; timeouts; 78 tests green. **Verified against real nix 2.31.5** (list JSON schema, history ANSI/no-current, --regex flags, prune lock semantics) | P0
 
 ### Done — v0.1 skeleton (2026-10-19)
+
 - [x] Cargo workspace `src/{ursine-api,ursine-core,ursined,ursine}`; template `src/` subdirs removed | P0
 - [x] `ursine-api`: envelope with Bearer token, ModuleId, full Action surface, Principal/AsUser, SessionToken (redacted Debug), Capability::ALL, TriState serde, UrsineConfig | P0
 - [x] `ursine-core`: config (load/render/write atomic), capability Registry + `ensure_available`, auth trait + stub + PAM (feature), TokenStore (10 min sliding TTL), RateLimiter, JSONL audit, unix socket (std peer creds, 0666), dispatch (auth → wheel check → token → modules) | P0
@@ -58,16 +85,19 @@
 - [x] Dynamic musl decision: `.cargo/config.toml` `-crt-static` off (static musl cannot link libpam.so; Alpine-style) | P0
 
 ### Done — planning (2026-10-16)
+
 - [x] Naming, architecture, intent v1-v6, capability map, 9 module specs
 - [x] Harness aligned (agents hidden, models removed, workflow Pattern 8, host isolation rules)
 
 ## Backlog
+
 - packages.nix (v0.2) → apk + flatpak (v2)
 - snapshots: btrbk read-write config (subvolumes + scheduler), restore flow
 - web + OIDC (v3), Incus UI (v4), ZFS+Pirateus (v5), multi-distro (v6)
 - APKBUILDs in feralos-aports (v1.0)
 
 ## Known Issues
+
 | Issue | Status | Workaround |
 |-------|--------|------------|
 | Nix flake full build never run locally (eval only) | open | first CI run validates; CI flake job is the gate |

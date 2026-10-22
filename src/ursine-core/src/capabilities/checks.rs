@@ -15,6 +15,7 @@ pub trait Sysinfo: Send + Sync {
 }
 
 /// Real system access.
+#[derive(Debug)]
 pub struct SystemSysinfo;
 
 impl Sysinfo for SystemSysinfo {

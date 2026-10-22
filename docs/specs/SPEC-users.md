@@ -25,13 +25,13 @@ Users and group management via the accountsservice D-Bus API (`org.freedesktop.A
 
 ## Commands
 
-```
+```text
 cargo test -p ursine-core users
 ```
 
 ## Project Structure
 
-```
+```text
 src/ursine-core/src/modules/users/
 ├─ mod.rs        action handlers
 ├─ accounts.rs   zbus proxy for org.freedesktop.Accounts

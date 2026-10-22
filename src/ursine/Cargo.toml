@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+description.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 ursine-api.workspace = true
@@ -15,4 +19,13 @@ tokio.workspace = true
 # COSMIC toolkit (iced-based Rust UI). Pinned: pre-1.0 git dependency — isolate
 # behind our own UI layer and bump deliberately.
 # https://github.com/pop-os/libcosmic
-libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "430f3d48a97d8779f9c1985473912e594ccca1ae", features = ["wgpu"] }
+libcosmic = { version = "1.0.0", git = "https://github.com/pop-os/libcosmic", rev = "430f3d48a97d8779f9c1985473912e594ccca1ae", features = [
+  "wgpu",
+] }
+
+[lints]
+workspace = true
+
+[package.metadata.cargo-machete]
+# The libcosmic package exposes the `cosmic` crate name.
+ignored = ["libcosmic"]

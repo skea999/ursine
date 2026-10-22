@@ -45,6 +45,7 @@ impl ApiError {
         }
     }
 
+    #[must_use]
     pub fn with_fix(mut self, fix: impl Into<String>) -> Self {
         self.fix = Some(fix.into());
         self
