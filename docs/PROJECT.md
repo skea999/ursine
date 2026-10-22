@@ -19,7 +19,7 @@ FeralOS ships a hardened musl-based desktop (niri + Wayle shell) but has no cont
 
 - No GUI for Nix (none exists on any distro) or for a unified apk+flatpak+nix store.
 - No lightweight users GUI (only heavy gnome-control-center).
-- No btrfs snapshot/rollback GUI (snapper/timeshift not packaged on Alpine; btrbk is CLI-only).
+- btrbk snapshot GUI: list, stats, create, config init, restore preview+confirm. No rollback/retention editor yet (setConfig deferred).
 - No niri config GUI (config.kdl has no editor anywhere).
 
 Standalone tools exist (system-config-printer, blueman, nm-applet, firewalld-gui, simple-scan, gnome-disk-utility) — they remain usable fallbacks, but Ursine will cover all these areas natively via the daemons' own D-Bus/CLI interfaces, capability-gated, so the user has ONE product instead of a pile of apps.
