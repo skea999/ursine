@@ -19,7 +19,7 @@
 
 - [x] Strict lints: pinned toolchain, workspace clippy all/pedantic/nursery/cargo + restrictions, `unsafe_code = forbid`, rustdoc warnings | P0
 - [x] Repo/SAST/deps: typos, editorconfig, shellcheck/shfmt, taplo, actionlint, zizmor, gitleaks, cargo-deny/audit/machete/geiger, SBOM; duplicates report-only | P0
-- [x] Alpine 3.24 images `ursine-ci`/`ursine-static`/`ursine-docs`; `scripts/dev.sh` + `scripts/static-check.sh` + `scripts/docs-check.sh`; CI builds `ursine-ci` once and uses GHCR; static/docs/zizmor jobs; actions/images pinned | P0
+- [x] Alpine 3.24 images `ursine-ci`/`ursine-static`/`ursine-docs`; `scripts/dev.sh` + `scripts/static-check.sh` + `scripts/docs-check.sh`; CI builds `ursine-ci` once and uses GHCR; static/docs/zizmor jobs; actions/images pinned. CI run 39833951848 green (image/static/docs/test/lint/gui/package/publish) | P0
 - [x] Layout: `src/tools/` shipped scripts, `src/web/` placeholder; version 0.4.0 | P1
 
 ### Done — v0.3 store parity hardening (2026-10-21)

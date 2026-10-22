@@ -8,7 +8,7 @@ See `AGENTS.md` for project context and milestone history.
 
 ## Session 2026-10-22 — static analysis gate + v0.4.0 (uncommitted, gate-green)
 
-**Status**: strict static/security/dependency gate implemented; version bumped to 0.4.0; ready to commit/push. App is not containerized; only tooling images are used.
+**Status**: strict static/security/dependency gate implemented, version 0.4.0 pushed. GitHub CI run 39833951848 green: image, flake, docs, zizmor, static, gui, test, lint, package, publish. App is not containerized; only tooling images are used.
 
 - Rust lints: pinned `rust-toolchain.toml` (1.99.1), `rustfmt.toml`, `clippy.toml`, workspace `[lints]` with clippy all/pedantic/nursery/cargo + restriction set (`unwrap_used`, `expect_used`, `panic`, `indexing_slicing`, `string_slice`, ...), `unsafe_code = forbid`. Fixed all production findings.
 - Repo lint: `typos`, `editorconfig-checker`, `shellcheck`, `shfmt`, `taplo`, `actionlint`, `zizmor`, `statix`/`deadnix`/`alejandra`; Markdown via `ursine-docs:1` + `scripts/docs-check.sh`.
@@ -21,9 +21,8 @@ See `AGENTS.md` for project context and milestone history.
 - Version: workspace 0.4.0 (minor bump). `nix/binary.nix` stays pinned to 0.3.1 until the next tag release.
 
 **Next**:
-1. Commit + push 0.4.0.
-2. Tag/release later per policy (updates `nix/binary.nix`).
-3. Then snapshots feature (btrbk backend first, GUI panel same feature).
+1. Tag/release later per policy (updates `nix/binary.nix`).
+2. Snapshots feature: btrbk backend first, GUI panel in the same feature.
 
 ## Session 2026-10-21 — v0.3 store parity hardening (uncommitted, all findings closed)
 

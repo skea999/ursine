@@ -17,13 +17,15 @@ rustfmt, PAM headers and the GUI build dependencies.
 
 ## 2. Standard checks
 
-Shortcut (same images and commands as CI):
+Canonical shortcut (same images and commands as CI):
 
 ```bash
-scripts/dev.sh check
-scripts/dev.sh static all
-scripts/dev.sh docs
+scripts/dev.sh check        # fmt + clippy + test
+scripts/dev.sh static all   # analyzers
+scripts/dev.sh docs         # Markdown
 ```
+
+Manual equivalents, if you need one command:
 
 ```bash
 podman run --rm --network=host -v "$PWD:/work" -w /work \
@@ -32,43 +34,32 @@ podman run --rm --network=host -v "$PWD:/work" -w /work \
 
 podman run --rm --network=host -v "$PWD:/work" -w /work \
   -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 \
-podman run --rm --network=host -v "$PWD:/work" -w /work \
-  -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 \
   sh -c 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
 
 podman run --rm --network=host -v "$PWD:/work" -w /work \
   -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 \
-  sh -c 'cargo test --workspace --all-features'
+  sh -c 'cargo test --workspace --all-features --locked'
 ```
 
 `--network=host` is required on this host: pasta cannot create the tap device.
 
 ## 3. Static analysis
 
-Static tools live in `ci/Containerfile.static` and are driven by
-`scripts/static-check.sh`. Build the image once:
+Analyzers live in `ci/Containerfile.static`; Rust lints use `ursine-ci:1`.
+Build both:
 
 ```bash
-podman build -t ursine-static:1 -f ci/Containerfile.static .
+scripts/dev.sh image
 ```
 
-Run everything:
+Run everything (analyzers only; Rust lints run in `ursine-ci`):
 
 ```bash
-podman run --rm --network=host -v "$PWD:/work" -w /work \
-  -e CARGO_HOME=/work/artifacts/cargo-home ursine-static:1 \
-  sh scripts/static-check.sh
+scripts/dev.sh static all
 ```
 
-Run one group:
-
-```bash
-podman run --rm --network=host -v "$PWD:/work" -w /work \
-  -e CARGO_HOME=/work/artifacts/cargo-home ursine-static:1 \
-  sh scripts/static-check.sh rust
-```
-
-Groups: `rust`, `repo`, `sast`, `deps`, `duplicates`, `all`.
+Groups: `repo`, `sast`, `deps`, `duplicates`, `sbom`, `all`. The `rust` group
+is available only in `ursine-ci:1` (`scripts/dev.sh check`).
 
 Policy and gates: `docs/STATIC-ANALYSIS.md`.
 
