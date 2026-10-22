@@ -50,7 +50,8 @@ repo_group() {
   if have actionlint; then run actionlint; else step "actionlint: not installed"; fi
   if have zizmor; then run zizmor .github/workflows; else step "zizmor: not installed (CI runs the official image)"; fi
   if have statix && have deadnix && have alejandra; then
-    run statix check flake.nix nix
+    run statix check flake.nix
+    run statix check nix
     run deadnix --fail flake.nix nix
     run alejandra --check flake.nix nix
   else

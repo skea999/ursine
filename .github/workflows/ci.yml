@@ -184,6 +184,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -266,7 +267,8 @@ jobs:
         run: nix build --out-link artifacts/result
       - working-directory: repo
         run: |
-          nix run nixpkgs#statix -- check flake.nix nix
+          nix run nixpkgs#statix -- check flake.nix
+          nix run nixpkgs#statix -- check nix
           nix run nixpkgs#deadnix -- --fail flake.nix nix
           nix run nixpkgs#alejandra -- --check flake.nix nix
 
