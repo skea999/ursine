@@ -136,8 +136,8 @@ podman run --rm --network=host -v "$PWD:/work" -w /work nixos/nix \
 10. **verify-pin** runs after a tag publish and executes `nix flake check` and
     `nix build` against the new pin on `main`.
 
-Cargo cache policy: test/lint/gui use `actions/cache/restore`; only pushes to
-`main` save (`actions/cache/save`). Tag/PR refs are restore-only, and the
+Cargo cache policy: test/lint/gui/static use `actions/cache/restore`; only
+pushes to `main` save (`actions/cache/save`). Tag/PR refs are restore-only, and the
 release package path is never cached. This keeps zizmor's cache-poisoning
 audit clean while avoiding repeated dependency compilation on main.
 
