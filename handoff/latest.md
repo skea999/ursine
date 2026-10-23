@@ -8,7 +8,7 @@ See `AGENTS.md` for project context and milestone history.
 
 ## Session 2026-10-22 — snapshots (btrbk), uncommitted
 
-**Status**: backend + GUI implemented, pushed; GitHub CI run 39861294723 green (image/static/docs/test/lint/gui/package/publish).
+**Status**: backend + GUI implemented, released as v0.5.0. Tag CI run 39871807747 green (package + publish + verify-pin); Nix pin 2250abc; local `nix profile upgrade ursine` → ursined 0.5.0 (auth: pam).
 
 - Backend: raw parser for `btrbk --format raw` list/stats, `btrbk snapshot`, btrbk config read/init, restore preview/apply via `btrfs subvolume snapshot` (btrbk 0.32 has no restore; approved fallback). Capability gate Btrbk+Btrfs; audit through dispatch.
 - GUI: Snapshots panel from Home (Open), list, stats, create, config init, restore preview + explicit confirm. Thin frontend; all decisions in daemon.
@@ -16,8 +16,9 @@ See `AGENTS.md` for project context and milestone history.
 - Deferred explicitly in spec: `snapshots.setConfig` and pre-update hooks.
 
 **Next**:
-1. Tag/release later per policy (updates `nix/binary.nix`).
-2. Next feature: users (accountsservice) or niri editor.
+1. Root activation/restart on FeralOS: blocked in this environment by the sudo policy; run `sudo "$HOME/.nix-profile/bin/ursine-activate"` manually.
+2. Real btrfs snapshot/restore smoke requires root (btrfs subvolume list is EPERM as user).
+3. Next feature: users (accountsservice) or niri editor.
 
 ## Session 2026-10-22 — static analysis gate + v0.4.0 (uncommitted, gate-green)
 

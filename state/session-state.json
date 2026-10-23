@@ -1,7 +1,8 @@
 {
   "goal": "Ursine — FeralOS complete control center (Webmin-style): root daemon + libcosmic GUI (v1), full module coverage (v2), OIDC+web (v3, memory-safe stack), Incus UI (v4), ZFS+Pirateus (v5), multi-distro (v6). Intent source of truth: docs/intent/ursine.md.",
-  "status": "v0.4.0-pushed",
+  "status": "v0.5.0-released",
   "active_goals": [
+    "v0.5.0 SNAPSHOTS RELEASED (2026-10-22): tag v0.5.0 CI 39871807747 green; release assets + flake archive published; nix/binary.nix auto-pinned 2250abc; local profile upgraded to ursined 0.5.0 (pam). Real btrfs snapshot/restore smoke blocked by root policy; requires manual activation as root.",
     "v0.4.0 SNAPSHOTS (2026-10-22): btrbk raw list/stats, snapshot create, config read/init, restore preview/apply via btrfs subvolume snapshot; GUI panel with confirmation. 150 tests green, static/docs/clippy/fmt/nix green. Pushed; CI run 39861294723 green. Deferred: setConfig + pre-update hooks.",
     "v0.4.0 STATIC ANALYSIS (2026-10-22): strict Rust lints + repo/dependency gates; three Alpine 3.24 images (ursine-ci/ursine-static/ursine-docs); scripts/dev.sh single local entry point; CI builds ursine-ci once and uses it from GHCR; docs/static jobs use their own images. Version 0.4.0 pushed; CI run 39833951848 green. No open findings.",
     "v0.1 SKELETON + v0.2 packages.nix DONE & GREEN (78 tests, CI all green, release latest published). GUI stack decided 2026-10-19: libcosmic. v0.3 login + home + settings/config modes + FULL store parity implemented 2026-10-21 (search, install, remove, upgrade, regex preview+apply, rollback, diff, wipe, prune, GC, asUser) plus system.status and config.init. Hardened 2026-10-21 after three review cycles: shared installable policy, exact prune binding, XDG-aware prune as profile owner, streaming output caps, PAM timeout+semaphore, per-uid socket cap, config read/write guards, shared timeouts, search truncation, bounded connect helpers. Gate 143 tests + clippy -D warnings + fmt green (artifacts/final-gate-2/gate.log). Pending: real daemon+GUI smoke, commit. NEXT: snapshots backend (btrbk) then panel, same feature.",
@@ -9,6 +10,7 @@
     "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
+    "FERALOS SMOKE 2026-10-22: run `sudo \"$HOME/.nix-profile/bin/ursine-activate\"` then restart ursined; test snapshots with real btrfs as root. Blocked here: bash sudo denied by policy.",
     "PUSH 2026-10-22: snapshots backend+GUI pushed; CI run 39861294723 green (image/static/docs/test/lint/gui/package/publish). Then users/niri next.",
     "PUSH 2026-10-22: 0.4.0 static gate pushed; CI run 39833951848 green (image/static/docs/test/lint/gui/package/publish). No tag yet (tag later updates nix/binary.nix). Then snapshots btrbk backend + GUI panel same feature.",
     "PARITY WORKFLOW 2026-10-21 (binding): backend first, frontend immediately, same feature. Store parity DONE: all 14 packages_nix daemon actions have GUI controls + asUser target user + regex dry-run previews.",
