@@ -30,6 +30,8 @@ struct ModuleEntry {
 enum Panel {
     Store,
     Snapshots,
+    Users,
+    Niri,
 }
 
 const MODULES: &[ModuleEntry] = &[
@@ -61,13 +63,13 @@ const MODULES: &[ModuleEntry] = &[
         title: "Users",
         module: Some(ModuleId::Users),
         requires: &[Capability::Accountsservice],
-        panel: None,
+        panel: Some(Panel::Users),
     },
     ModuleEntry {
         title: "Niri desktop",
         module: Some(ModuleId::Niri),
         requires: &[Capability::Niri],
-        panel: None,
+        panel: Some(Panel::Niri),
     },
 ];
 
@@ -148,7 +150,7 @@ impl HomeState {
 
         let status: Element<'_, Message> = column(lines).spacing(2).into();
         match entry.panel {
-            Some(Panel::Store | Panel::Snapshots) => {
+            Some(Panel::Store | Panel::Snapshots | Panel::Users | Panel::Niri) => {
                 let available = !Self::is_manually_off(entry, modules)
                     && entry.requires.iter().all(|required| {
                         self.report(*required)
@@ -157,6 +159,8 @@ impl HomeState {
                 let open_message = match entry.panel {
                     Some(Panel::Store) => Message::OpenStore,
                     Some(Panel::Snapshots) => Message::OpenSnapshots,
+                    Some(Panel::Users) => Message::OpenUsers,
+                    Some(Panel::Niri) => Message::OpenNiri,
                     None => unreachable!(),
                 };
                 let open = button::text("Open").on_press_maybe(available.then_some(open_message));

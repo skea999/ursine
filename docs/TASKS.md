@@ -1,6 +1,6 @@
 # Tasks — Ursine
 
-**Milestone**: v0.3 — store GUI (login + home + store view DONE)
+**Milestone**: v0.4 — users + niri baseline (0.7.0)
 **Updated**: 2026-10-21
 **Workflow rule (binding)**: backend first, frontend immediately, same feature. No next feature until daemon + frontend reach parity.
 **UI rule (binding)**: patterns from cosmic-settings (structure), Webmin (action coverage), Cockpit (gating/status/confirmations).
@@ -34,10 +34,17 @@
 - [x] Gate green: **143 tests** (GUI 31, API 26, integration 6, core 80), clippy `-D warnings`, fmt clean (`artifacts/final-gate-2/gate.log`). No open review findings | P0
 - [ ] Real daemon + GUI smoke (display + root activation), then commit | P0 | agent
 
+### Done — v0.4 users + niri baseline (0.7.0)
+
+- [x] Users backend: accountsservice list/create/delete/set-password, `/etc/group` memberships, `usermod` group replacement, uid policy, self-wheel lockout guard, SHA-512 crypt hashing off the async worker | P0
+- [x] Users GUI: create (admin toggle), select, password + confirmation, supplementary groups, delete confirmation with home cleanup | P0
+- [x] Niri backend: KDL round-trip for layout gaps, animations, touchpad, cursor; `niri validate` gate; atomic user-scoped write + backup; fail-closed passwd lookup; validate action | P0
+- [x] Niri GUI: managed-section forms, validation result, save | P0
+- [x] Gate: 161 tests (GUI 35, API 26, integration 6, core 94), clippy/fmt, static all, docs | P0
+
 ### Todo
 
-- [ ] v0.3: snapshots module in the daemon (btrbk), then the GUI panel immediately in the same feature (daemon still `NotImplemented`) | P0 | agent
-- [ ] v0.4 users (accountsservice) + niri editor forms | P1 | agent
+- [ ] Niri v1 form groups: outputs, keybinds, gestures, keyboard/pointer, environment/spawn lists, screenshot path, hotkey overlay | P1 | agent
 - [ ] v3 (deferred): choose web GUI stack — **must be memory-safe** (Rust→WASM preferred: Leptos/Yew/Dioxus; TypeScript acceptable fallback). See `docs/specs/SPEC-web.md` | P2 | skea999
 
 ### In Progress

@@ -12,6 +12,15 @@ A schema-driven settings GUI for the niri Wayland compositor — the user SELECT
 - **Sections (v1 forms)**: input (keyboard: layouts, repeat; touchpad: tap, natural scroll, dwt), pointer speed, outputs (mode, scale, position, VRR, transform), layout (gaps, struts, border/focus-ring: width+colors, preset widths/heights), animations (on/off, durations, curves from schema), keybinds (capture widget: press combo → recorded binding + action dropdown), gestures, environment variables (add/remove list), spawn-at-startup (add/remove list), cursor (size, theme), screenshot path prefix, hotkey overlay toggle
 - **Live validation**: `niri validate --config <tmp>` on every change batch; errors mapped back to the offending form field
 
+## Implementation status (0.7.0 baseline)
+
+The daemon and GUI currently manage: layout gaps, animations off,
+touchpad tap/natural-scroll/dwt, and cursor size/theme. The KDL round-trip,
+`niri validate` gate, atomic write, timestamped backup, ownership preservation,
+and user-scoped I/O (no root file access) are implemented. Additional v1 form groups below
+(outputs, keybinds, gestures, environment/spawn lists, keyboard/pointer,
+screenshot path, hotkey overlay) remain to be added to the schema and GUI.
+
 ## API surface
 
 | Action | Implementation |

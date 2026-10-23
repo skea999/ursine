@@ -3,7 +3,7 @@ resolver = "2"
 members = ["src/ursine-api", "src/ursine-core", "src/ursined", "src/ursine"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 license = "ISC"
 authors = ["skea999 <sket999@disroot.org>"]
@@ -14,8 +14,8 @@ keywords = ["linux", "system-administration", "nix", "cosmic", "daemon"]
 categories = ["system-tools", "command-line-utilities"]
 
 [workspace.dependencies]
-ursine-api = { path = "src/ursine-api", version = "0.6.0" }
-ursine-core = { path = "src/ursine-core", version = "0.6.0" }
+ursine-api = { path = "src/ursine-api", version = "0.7.0" }
+ursine-core = { path = "src/ursine-core", version = "0.7.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -34,6 +34,9 @@ tokio = { version = "1", features = [
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 getrandom = "0.2"
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+pwhash = "1"
+kdl = "6"
 regex = "1"
 
 [workspace.lints.rust]

@@ -8,20 +8,22 @@ Users and group management via the accountsservice D-Bus API (`org.freedesktop.A
 
 - `zbus` (pure Rust D-Bus, async, tokio-compatible) — no libdbus C bindings
 - accountsservice covers: create/delete users, set real name, set groups via daemon+`usermod` where accountsservice lacks the call (groups: accountsservice has no full group API — group membership via `/etc/group` edit through our own validated code path is NOT allowed in v1; use `usermod` exec as root)
+- Group-membership tooling is selected at runtime: `usermod` (shadow) first, then `addgroup`/`delgroup` (Alpine/BusyBox), then `gpasswd` (minimal shadow). No distro is assumed at build time.
 
 ## API surface
 
 | Action | Implementation |
 |---|---|
 | `users.list` | accountsservice ListCachedUsers + properties (uid, real name, shell, home) |
-| `users.create` | accountsservice CreateUser(name, fullname, accountType, hashedPw via crypt) |
+| `users.create` | accountsservice CreateUser(name, fullname, accountType) then SetPassword("!") to create the account locked; the GUI sets a real password separately |
 | `users.delete` | accountsservice DeleteUser(uid, removeFiles bool) — CONFIRMATION in GUI |
 | `users.setPassword` | accountsservice SetPassword (hashed) |
-| `users.setGroups` | `usermod -G ...` exec (validated group names, argv items) |
+| `users.setGroups` | runtime tool: `usermod -G ...`, `addgroup`/`delgroup` diff, or `gpasswd -a/-d` (validated group names, argv items) |
 | `users.groups.list` | parse `/etc/group` read-only |
-| `users.self` | current principal info |
 
 - `asUser` NOT applicable: user management is root-scope by definition
+- `users.list` returns supplementary memberships parsed read-only from `/etc/group`
+- `users.setGroups` blocks removing the invoking principal's own `wheel` membership (lockout guard)
 
 ## Commands
 
@@ -42,7 +44,8 @@ src/ursine-core/src/modules/users/
 
 ```rust
 let accounts = AccountsProxy::new(&conn).await?;
-accounts.create_user(&name, &fullname, account_type, &hashed).await?;
+accounts.create_user(&name, &fullname, account_type).await?;
+accounts.set_password(&user_path, &hashed).await?;
 ```
 
 - Passwords: received in request, hashed immediately (crypt SHA-512 via `pwhash` crate), never stored, never logged, never in audit (audit records "password set for uid X", no value)

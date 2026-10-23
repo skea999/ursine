@@ -1,10 +1,18 @@
 # Changelog
 
+## [0.7.0] — 2026-10-23
+
+### Added
+
+- Users panel backed by accountsservice: list human accounts with group membership, create locked accounts with an optional administrator (`wheel`) flag, set passwords (SHA-512 crypt, hashed off the async worker), replace supplementary groups through runtime-selected `usermod`, `addgroup`/`delgroup` (Alpine/BusyBox), or `gpasswd`, and delete accounts with home cleanup after explicit confirmation. System and nobody-style uids are rejected; removing your own `wheel` membership is blocked.
+- Niri config editor for managed sections: layout gaps, animations off, touchpad tap/natural-scroll/dwt, and cursor size/theme. The daemon parses KDL, preserves unknown nodes/comments, runs `niri validate` before writing, and writes atomically with a backup (`.ursine-backup`). All file I/O and validation run as the target user through `su`; the root daemon never opens or replaces a user-controlled path. Missing password entries fail closed.
+- Niri validation action for the current or a proposed config; the GUI shows the validation result before saving.
+
 ## [0.6.0] — 2026-10-23
 
 ### Added
 
-- Snapshots GUI: btrbk global options as dropdowns (retention, schedule, compression), restore source dropdown with in-place target default and timestamped backup, and single/bulk snapshot removal for selected stats sources.
+- Snapshots GUI: btrbk global options as dropdowns (retention, schedule, compression), restore source dropdown with in-place target default and backup (`.ursine-backup`), and single/bulk snapshot removal for selected stats sources.
 
 ## [0.5.0] — 2026-10-22
 

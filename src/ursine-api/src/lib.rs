@@ -10,11 +10,13 @@ pub mod config;
 pub mod envelope;
 pub mod error;
 pub mod module;
+pub mod niri;
 pub mod nix;
 pub mod principal;
 pub mod snapshot;
 pub mod timeouts;
 pub mod token;
+pub mod users;
 
 pub use action::Action;
 pub use capability::{Capability, CapabilityReport};
@@ -22,6 +24,7 @@ pub use config::{ModulesConfig, TriState, UrsineConfig};
 pub use envelope::{Request, RequestBody, Response, ResponseBody, PROTOCOL_VERSION};
 pub use error::{ApiError, ErrorCode};
 pub use module::ModuleId;
+pub use niri::{NiriConfigView, NiriValues};
 pub use nix::{
     installable_from_attr, is_safe_installable_atom, normalize_installable, validate_installable,
     CommandOutcome, InstalledPackage, SearchResult,
@@ -29,3 +32,4 @@ pub use nix::{
 pub use principal::{AsUser, Principal, PrincipalOrigin};
 pub use snapshot::{BtrbkConfigView, BtrbkSettings, Snapshot, SnapshotStats};
 pub use token::SessionToken;
+pub use users::UserSummary;

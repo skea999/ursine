@@ -9,9 +9,11 @@ use ursine_api::{
 use crate::client::{self, AuthSession, ConfigSnapshot, SearchPage};
 use crate::home::HomeState;
 use crate::login::LoginState;
+use crate::niri::NiriState;
 use crate::settings::SettingsState;
 use crate::snapshots::{SnapAction, SnapSetting, SnapshotsState};
 use crate::store::{PendingStoreAction, StoreAction, StoreScope, StoreState};
+use crate::users::UsersState;
 
 /// Live session. The token stays in RAM: never written to disk, never logged.
 struct Session {
@@ -26,6 +28,8 @@ enum Screen {
     Settings,
     Store,
     Snapshots,
+    Users,
+    Niri,
 }
 
 pub struct App {
@@ -35,6 +39,8 @@ pub struct App {
     settings: SettingsState,
     store: StoreState,
     snapshots: SnapshotsState,
+    users: UsersState,
+    niri: NiriState,
     screen: Screen,
     session: Option<Session>,
     /// Bumped on sign-in/sign-out so late async results cannot repopulate a
@@ -59,6 +65,8 @@ pub enum Message {
     ModuleSwitchSaved(u64, Result<ConfigSnapshot, ApiError>),
     OpenStore,
     OpenSnapshots,
+    OpenUsers,
+    OpenNiri,
     BackHome,
     SnapshotsLoaded(u64, Result<Box<client::SnapshotPage>, ApiError>),
     RefreshSnapshots,
@@ -80,6 +88,35 @@ pub enum Message {
     SnapshotDeleteCancelled,
     InitBtrbkConfig,
     SnapshotActionFinished(u64, SnapAction, Result<serde_json::Value, ApiError>),
+    UsersLoaded(u64, Result<client::UsersPage, ApiError>),
+    RefreshUsers,
+    NewUserNameChanged(String),
+    NewUserFullnameChanged(String),
+    NewUserAdminToggled(bool),
+    CreateUserRequested,
+    UserSelected(u32),
+    UserPasswordChanged(String),
+    UserPasswordConfirmChanged(String),
+    SetPasswordRequested(u32),
+    UserGroupsChanged(String),
+    SetGroupsRequested(u32),
+    DeleteUserRequested(u32),
+    DeleteUserConfirmed,
+    DeleteUserCancelled,
+    UsersActionFinished(u64, String, Result<serde_json::Value, ApiError>),
+    NiriLoaded(u64, Result<ursine_api::NiriConfigView, ApiError>),
+    RefreshNiri,
+    NiriGapsChanged(String),
+    NiriAnimationsToggled(bool),
+    NiriTapToggled(bool),
+    NiriNaturalScrollToggled(bool),
+    NiriDwtToggled(bool),
+    NiriCursorSizeChanged(String),
+    NiriCursorThemeChanged(String),
+    SaveNiriRequested,
+    ValidateNiriRequested,
+    NiriSaveFinished(u64, Result<ursine_api::NiriConfigView, ApiError>),
+    NiriValidateFinished(u64, Result<serde_json::Value, ApiError>),
     StoreLoaded(u64, StoreScope, Result<client::StoreSnapshot, ApiError>),
     RefreshStore,
     StoreAsUserChanged(String),
@@ -137,6 +174,8 @@ impl cosmic::Application for App {
             settings: SettingsState::default(),
             store: StoreState::default(),
             snapshots: SnapshotsState::default(),
+            users: UsersState::default(),
+            niri: NiriState::default(),
             screen: Screen::Home,
             session: None,
             epoch: 0,
@@ -170,6 +209,14 @@ impl cosmic::Application for App {
                 self.screen = Screen::Snapshots;
                 return self.load_snapshots();
             }
+            Message::OpenUsers => {
+                self.screen = Screen::Users;
+                return self.load_users();
+            }
+            Message::OpenNiri => {
+                self.screen = Screen::Niri;
+                return self.load_niri();
+            }
             Message::SnapshotsLoaded(epoch, result) => return self.finish_snapshots(epoch, result),
             Message::RefreshSnapshots => return self.load_snapshots(),
             Message::SnapshotSectionChanged(value) => self.snapshots.section = value,
@@ -197,6 +244,48 @@ impl cosmic::Application for App {
             Message::InitBtrbkConfig => return self.init_btrbk_config(),
             Message::SnapshotActionFinished(epoch, action, result) => {
                 return self.finish_snapshot_action(epoch, &action, result)
+            }
+            Message::UsersLoaded(epoch, result) => return self.finish_users(epoch, result),
+            Message::RefreshUsers => return self.load_users(),
+            Message::NewUserNameChanged(value) => self.users.new_name = value,
+            Message::NewUserFullnameChanged(value) => self.users.new_fullname = value,
+            Message::NewUserAdminToggled(value) => self.users.new_admin = value,
+            Message::CreateUserRequested => return self.create_user(),
+            Message::UserSelected(uid) => self.users.select(uid),
+            Message::UserPasswordChanged(value) => self.users.password = value,
+            Message::UserPasswordConfirmChanged(value) => self.users.password_confirm = value,
+            Message::SetPasswordRequested(uid) => return self.set_user_password(uid),
+            Message::UserGroupsChanged(value) => self.users.groups_input = value,
+            Message::SetGroupsRequested(uid) => return self.set_user_groups(uid),
+            Message::DeleteUserRequested(uid) => {
+                self.users.pending_delete = self
+                    .users
+                    .users
+                    .iter()
+                    .find(|user| user.uid == uid)
+                    .cloned();
+            }
+            Message::DeleteUserConfirmed => return self.confirm_delete_user(),
+            Message::DeleteUserCancelled => self.users.pending_delete = None,
+            Message::UsersActionFinished(epoch, label, result) => {
+                return self.finish_users_action(epoch, &label, result)
+            }
+            Message::NiriLoaded(epoch, result) => return self.finish_niri(epoch, result),
+            Message::RefreshNiri => return self.load_niri(),
+            Message::NiriGapsChanged(value) => self.niri.gaps = value,
+            Message::NiriAnimationsToggled(value) => self.niri.animations_off = value,
+            Message::NiriTapToggled(value) => self.niri.tap = value,
+            Message::NiriNaturalScrollToggled(value) => self.niri.natural_scroll = value,
+            Message::NiriDwtToggled(value) => self.niri.dwt = value,
+            Message::NiriCursorSizeChanged(value) => self.niri.cursor_size = value,
+            Message::NiriCursorThemeChanged(value) => self.niri.cursor_theme = value,
+            Message::SaveNiriRequested => return self.save_niri(),
+            Message::ValidateNiriRequested => return self.validate_niri(),
+            Message::NiriSaveFinished(epoch, result) => {
+                return self.finish_niri_save(epoch, result)
+            }
+            Message::NiriValidateFinished(epoch, result) => {
+                return self.finish_niri_validate(epoch, result)
             }
             Message::BackHome => self.screen = Screen::Home,
             Message::StoreLoaded(epoch, scope, result) => {
@@ -276,6 +365,8 @@ impl cosmic::Application for App {
                 }
                 Screen::Store => self.store.view(),
                 Screen::Snapshots => self.snapshots.view(),
+                Screen::Users => self.users.view(),
+                Screen::Niri => self.niri.view(),
             },
         )
     }
@@ -585,6 +676,325 @@ impl App {
         Task::none()
     }
 
+    fn load_users(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.users.busy || self.users.action_busy {
+            return Task::none();
+        }
+        self.users.busy = true;
+        self.users.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move { Message::UsersLoaded(epoch, client::users_page(token).await) })
+            .map(cosmic::Action::App)
+    }
+
+    fn finish_users(
+        &mut self,
+        epoch: u64,
+        result: Result<client::UsersPage, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.users.busy = false;
+        match result {
+            Ok(page) => self.users.apply(page.users, page.groups),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.users.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn create_user(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.users.action_busy {
+            return Task::none();
+        }
+        let name = self.users.new_name.trim().to_string();
+        let fullname = self.users.new_fullname.trim().to_string();
+        if name.is_empty() {
+            self.users.error = Some("Enter a user name.".into());
+            return Task::none();
+        }
+        self.users.action_busy = true;
+        self.users.error = None;
+        let admin = self.users.new_admin;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            let result = client::create_user(token, name, fullname, admin).await;
+            Message::UsersActionFinished(epoch, "created".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn set_user_password(&mut self, uid: u32) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.users.action_busy {
+            return Task::none();
+        }
+        if self.users.password.is_empty() {
+            self.users.error = Some("Enter a new password.".into());
+            return Task::none();
+        }
+        if self.users.password != self.users.password_confirm {
+            self.users.error = Some("Passwords do not match.".into());
+            return Task::none();
+        }
+        self.users.action_busy = true;
+        self.users.error = None;
+        let password = self.users.password.clone();
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            let result = client::set_password(token, uid, password).await;
+            Message::UsersActionFinished(epoch, "password_set".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn set_user_groups(&mut self, uid: u32) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.users.action_busy {
+            return Task::none();
+        }
+        let mut groups = Vec::new();
+        for group in self.users.groups_input.split(',') {
+            let group = group.trim();
+            if !group.is_empty() && !groups.iter().any(|known: &String| known == group) {
+                groups.push(group.to_string());
+            }
+        }
+        self.users.action_busy = true;
+        self.users.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            let result = client::set_groups(token, uid, groups).await;
+            Message::UsersActionFinished(epoch, "groups_set".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn confirm_delete_user(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some(user) = self.users.pending_delete.take() else {
+            return Task::none();
+        };
+        self.users.action_busy = true;
+        self.users.error = None;
+        let uid = user.uid;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            let result = client::delete_user(token, uid, true).await;
+            Message::UsersActionFinished(epoch, "deleted".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_users_action(
+        &mut self,
+        epoch: u64,
+        label: &str,
+        result: Result<serde_json::Value, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.users.action_busy = false;
+        match result {
+            Ok(_) => {
+                self.users.error = None;
+                self.users.message = Some(label.to_string());
+                match label {
+                    "created" => {
+                        self.users.new_name.clear();
+                        self.users.new_fullname.clear();
+                        self.users.new_admin = false;
+                    }
+                    "password_set" => {
+                        self.users.password.clear();
+                        self.users.password_confirm.clear();
+                    }
+                    "deleted" => {
+                        self.users.selected = None;
+                        self.users.groups_input.clear();
+                    }
+                    _ => {}
+                }
+                return self.load_users();
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.users.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn load_niri(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.niri.busy || self.niri.action_busy {
+            return Task::none();
+        }
+        self.niri.busy = true;
+        self.niri.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(
+            async move { Message::NiriLoaded(epoch, client::get_niri_config(token).await) },
+        )
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_niri(
+        &mut self,
+        epoch: u64,
+        result: Result<ursine_api::NiriConfigView, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.niri.busy = false;
+        match result {
+            Ok(view) => self.niri.apply(view),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.niri.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn save_niri(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.niri.action_busy {
+            return Task::none();
+        }
+        let sections = match self.niri.sections() {
+            Ok(sections) => sections,
+            Err(error) => {
+                self.niri.error = Some(error);
+                return Task::none();
+            }
+        };
+        self.niri.action_busy = true;
+        self.niri.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            let mut last = None;
+            for (section, value) in sections {
+                match client::set_niri_section(token.clone(), section, value).await {
+                    Ok(view) => last = Some(view),
+                    Err(error) => return Message::NiriSaveFinished(epoch, Err(error)),
+                }
+            }
+            let result = last.ok_or_else(|| ApiError::internal("no niri sections applied"));
+            Message::NiriSaveFinished(epoch, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn validate_niri(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.niri.action_busy {
+            return Task::none();
+        }
+        self.niri.action_busy = true;
+        self.niri.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            Message::NiriValidateFinished(epoch, client::validate_niri_config(token, None).await)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_niri_save(
+        &mut self,
+        epoch: u64,
+        result: Result<ursine_api::NiriConfigView, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.niri.action_busy = false;
+        match result {
+            Ok(view) => {
+                self.niri.apply(view);
+                self.niri.message = Some("niri config validated and saved.".into());
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.niri.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn finish_niri_validate(
+        &mut self,
+        epoch: u64,
+        result: Result<serde_json::Value, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.niri.action_busy = false;
+        match result {
+            Ok(value) => {
+                if value.get("valid").and_then(serde_json::Value::as_bool) == Some(true) {
+                    self.niri.message = Some("niri accepts the current configuration.".into());
+                    self.niri.error = None;
+                } else {
+                    let detail = value
+                        .get("stderr")
+                        .and_then(serde_json::Value::as_str)
+                        .filter(|text| !text.trim().is_empty())
+                        .or_else(|| value.get("stdout").and_then(serde_json::Value::as_str))
+                        .unwrap_or("niri rejected the configuration");
+                    self.niri.error = Some(detail.trim().to_string());
+                }
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.niri.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
     fn sign_in(&mut self) -> Task<cosmic::Action<Message>> {
         if self.login.busy {
             return Task::none();
@@ -618,6 +1028,8 @@ impl App {
                 self.screen = Screen::Home;
                 self.epoch = self.epoch.wrapping_add(1);
                 self.store = StoreState::default();
+                self.users = UsersState::default();
+                self.niri = NiriState::default();
                 self.home.user.clone_from(&user);
                 self.home.busy = true;
                 self.home.error = None;
@@ -1161,6 +1573,8 @@ impl App {
         self.home = HomeState::default();
         self.settings = SettingsState::default();
         self.store = StoreState::default();
+        self.users = UsersState::default();
+        self.niri = NiriState::default();
         self.screen = Screen::Home;
         self.login.password.clear();
         self.login.error = None;

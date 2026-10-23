@@ -11,7 +11,7 @@
 | v0.1 | Skeleton | Planned | Workspace, ursine-api types, ursined skeleton (socket, PAM handshake, capabilities, audit), flake.nix musl, CI (test matrix per feature + flake build/publish) |
 | v0.2 | nix module | Planned | install/remove/search/list via nix profiles per asUser |
 | v0.3 | Store GUI | Planned | ursine GUI: nix store + snapshots panel |
-| v0.4 | Users + niri | Planned | accountsservice panel, niri config.kdl editor with `niri validate` |
+| v0.4 | Users + niri | Baseline in 0.7.0 | accountsservice panel, niri config.kdl editor with `niri validate`; remaining niri form groups tracked in TASKS |
 | **v1.0** | **v1 release** | — | **backend + GUI complete (nix, users, snapshots, niri), packaged in feralos-aports** |
 | v2 | Full coverage | Planned | apk + flatpak; printers (CUPS), scanners (SANE), bluetooth (BlueZ), network (NetworkManager), firewall (firewalld), disks (UDisks2) — all via D-Bus/CLI, capability-gated |
 | v3 | OIDC + web | Planned | OIDC auth, web interface (LAST frontend), same UX model; **memory-safe stack required** (Rust→WASM preferred; see SPEC-web) |

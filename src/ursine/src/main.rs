@@ -9,9 +9,11 @@ mod app;
 mod client;
 mod home;
 mod login;
+mod niri;
 mod settings;
 mod snapshots;
 mod store;
+mod users;
 
 use cosmic::app::Settings;
 

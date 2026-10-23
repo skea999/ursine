@@ -12,8 +12,9 @@ use std::time::{Duration, Instant};
 
 use ursine_api::{
     installable_from_attr, timeouts, Action, ApiError, BtrbkConfigView, BtrbkSettings,
-    InstalledPackage, ModuleId, ModulesConfig, Request, RequestBody, Response, ResponseBody,
-    SearchResult, SessionToken, Snapshot, SnapshotStats, TriState, PROTOCOL_VERSION,
+    InstalledPackage, ModuleId, ModulesConfig, NiriConfigView, Request, RequestBody, Response,
+    ResponseBody, SearchResult, SessionToken, Snapshot, SnapshotStats, TriState, UserSummary,
+    PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
@@ -774,4 +775,132 @@ mod tests {
         writer.join().unwrap();
         assert!(error.message.contains("exceeds"));
     }
+}
+
+/// Users and system groups in one refresh.
+#[derive(Debug, Clone, Default)]
+pub struct UsersPage {
+    pub users: Vec<UserSummary>,
+    pub groups: Vec<String>,
+}
+
+pub async fn users_page(token: SessionToken) -> Result<UsersPage, ApiError> {
+    let users = call(token.clone(), ModuleId::Users, Action::ListUsers, None).await?;
+    let groups = call(token, ModuleId::Users, Action::ListGroups, None).await?;
+    let users = users
+        .get("users")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon users response has no list"))?;
+    let groups = groups
+        .get("groups")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon users response has no groups"))?;
+    Ok(UsersPage {
+        users: serde_json::from_value(users)
+            .map_err(|e| ApiError::internal(format!("cannot read users: {e}")))?,
+        groups: serde_json::from_value(groups)
+            .map_err(|e| ApiError::internal(format!("cannot read groups: {e}")))?,
+    })
+}
+
+pub async fn create_user(
+    token: SessionToken,
+    name: String,
+    fullname: String,
+    admin: bool,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Users,
+        Action::CreateUser {
+            name,
+            fullname,
+            admin,
+        },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn delete_user(
+    token: SessionToken,
+    uid: u32,
+    remove_files: bool,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Users,
+        Action::DeleteUser { uid, remove_files },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn set_password(
+    token: SessionToken,
+    uid: u32,
+    new_password: String,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Users,
+        Action::SetPassword { uid, new_password },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn set_groups(
+    token: SessionToken,
+    uid: u32,
+    groups: Vec<String>,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Users,
+        Action::SetGroups { uid, groups },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn get_niri_config(token: SessionToken) -> Result<NiriConfigView, ApiError> {
+    let value = call(token, ModuleId::Niri, Action::GetNiriConfig, None).await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read niri config: {e}")))
+}
+
+pub async fn validate_niri_config(
+    token: SessionToken,
+    proposed: Option<String>,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Niri,
+        Action::ValidateNiriConfig { proposed },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn set_niri_section(
+    token: SessionToken,
+    section: String,
+    value: serde_json::Value,
+) -> Result<NiriConfigView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Niri,
+        Action::SetNiriSection { section, value },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read niri config: {e}")))
 }
