@@ -1,13 +1,15 @@
 # Ursine CI — fully containerized (rule 9): no host toolchains on runners.
 #
-# Jobs: test matrix (default/pam) · lint (clippy+fmt+doc) · gui (build+test) ·
-#       static (ursine-static image + scripts/static-check.sh: repo/sast/deps/
-#       duplicates/sbom) · docs (ursine-docs image + markdownlint) ·
-#       zizmor (workflow security) ·
-#       version (release gate) · changes (PR build filter) ·
-#       flake (nix package check/build + nix linters) ·
-#       package (release binaries in Alpine) · publish (tag / rolling latest) ·
-#       verify-pin (post-tag flake check on main).
+# Jobs: image · test matrix (default/pam) · lint (clippy+fmt+doc) · gui (tests) ·
+#       static (repo/sast/deps/duplicates/sbom) · docs · zizmor ·
+#       version + changes (release/path gates) ·
+#       package (release binaries, starts in parallel with tests) ·
+#       publish (waits for test/lint/gui/static/docs) ·
+#       flake (PR-only, only when Nix inputs changed) ·
+#       verify-pin (post-tag Nix build on main).
+#
+# Cargo caches are restore-only from untrusted refs; only main may save.
+# The release package path is deliberately uncached.
 # Static analysis policy: docs/STATIC-ANALYSIS.md. Canonical commands:
 # docs/guides/build-and-test.md.
 #
@@ -43,6 +45,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
   NIX_CONFIG: "experimental-features = nix-command flakes"
 
 jobs:
@@ -92,6 +95,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            artifacts/cargo-home/registry/index
+            artifacts/cargo-home/registry/cache
+            artifacts/cargo-home/git/db
+            artifacts/target
+          key: cargo-test-${{ matrix.features || 'default' }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'ci/Containerfile.dev') }}
+          restore-keys: |
+            cargo-test-${{ matrix.features || 'default' }}-
       - name: Test
         run: |
           if [ -z "${{ matrix.features }}" ]; then
@@ -99,6 +112,17 @@ jobs:
           else
             cargo test --workspace --exclude ursine --features ${{ matrix.features }} --all-targets --locked
           fi
+      - name: Save Cargo cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            artifacts/cargo-home/registry/index
+            artifacts/cargo-home/registry/cache
+            artifacts/cargo-home/git/db
+            artifacts/target
+          key: cargo-test-${{ matrix.features || 'default' }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'ci/Containerfile.dev') }}
 
   # ── Lint + format gate (all features) ──
   lint:
@@ -113,12 +137,33 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - run: cargo clippy --workspace --exclude ursine --all-targets --all-features -- -D warnings
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            artifacts/cargo-home/registry/index
+            artifacts/cargo-home/registry/cache
+            artifacts/cargo-home/git/db
+            artifacts/target
+          key: cargo-lint-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'ci/Containerfile.dev') }}
+          restore-keys: |
+            cargo-lint-
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo fmt --check
       - name: Rustdoc warnings are errors
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+      - name: Save Cargo cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            artifacts/cargo-home/registry/index
+            artifacts/cargo-home/registry/cache
+            artifacts/cargo-home/git/db
+            artifacts/target
+          key: cargo-lint-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'ci/Containerfile.dev') }}
 
-  # ── GUI: libcosmic build on musl (heavy; own job) ──
+  # ── GUI: libcosmic tests on musl (clippy runs in `lint`) ──
   gui:
     runs-on: ubuntu-latest
     needs: image
@@ -131,9 +176,28 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - run: cargo build -p ursine --locked
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            artifacts/cargo-home/registry/index
+            artifacts/cargo-home/registry/cache
+            artifacts/cargo-home/git/db
+            artifacts/target
+          key: cargo-gui-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'ci/Containerfile.dev') }}
+          restore-keys: |
+            cargo-gui-
       - run: cargo test -p ursine --all-targets --locked
-      - run: cargo clippy -p ursine --all-targets -- -D warnings
+      - name: Save Cargo cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            artifacts/cargo-home/registry/index
+            artifacts/cargo-home/registry/cache
+            artifacts/cargo-home/git/db
+            artifacts/target
+          key: cargo-gui-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'ci/Containerfile.dev') }}
 
   # ── Static analysis: same image and script as local (docs/STATIC-ANALYSIS.md) ──
   static:
@@ -231,6 +295,7 @@ jobs:
       pull-requests: read
     outputs:
       package: ${{ steps.filter.outputs.package }}
+      nix: ${{ steps.filter.outputs.nix }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -247,10 +312,16 @@ jobs:
               - 'packaging/**'
               - 'install.sh'
               - 'scripts/**'
+            nix:
+              - 'flake.nix'
+              - 'flake.lock'
+              - 'nix/**'
 
-  # ── Nix flake: package the pinned musl artifact (fast, reproducible) ──
+  # ── Nix flake: PR-only, when Nix inputs change; tags verify after publish ──
   flake:
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.nix == 'true'
     container:
       image: nixos/nix@sha256:62c506c32c75395163676006f0c00d75c31578fffaac1167d600289f72477b78
     steps:
@@ -272,7 +343,7 @@ jobs:
           nix run nixpkgs#deadnix -- --fail flake.nix nix
           nix run nixpkgs#alejandra -- --check flake.nix nix
 
-  # ── Package: musl release binaries (Alpine), publish tag or rolling latest ──
+  # ── Package: release binaries start in parallel; publish is the quality gate ──
   package:
     runs-on: ubuntu-latest
     permissions:
@@ -282,7 +353,7 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    needs: [image, test, lint, gui, static, docs, zizmor, flake, version, changes]
+    needs: [image, version, changes]
     if: needs.version.outputs.release == 'true' || (github.event_name == 'pull_request' && needs.changes.outputs.package == 'true')
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -387,10 +458,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # ── Publish: write token isolated from build code ──────────────────────────
+  # ── Publish: quality gates + write token isolated from build code ──────────
   publish:
     runs-on: ubuntu-latest
-    needs: [package]
+    needs: [package, test, lint, gui, static, docs, zizmor]
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     permissions:
       contents: write
@@ -511,3 +582,4 @@ jobs:
           git fetch --depth 1 origin main
           git checkout FETCH_HEAD
           nix flake check
+          nix build --out-link artifacts/result

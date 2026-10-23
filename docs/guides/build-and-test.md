@@ -103,6 +103,49 @@ podman run --rm --network=host -v "$PWD:/work" -w /work nixos/nix \
 - `Cargo.lock` is committed; every CI cargo command uses `--locked`.
 - Do not skip hooks or checks. Fix the finding.
 
+## 8. GitHub Actions pipeline
+
+`ci.yml` is ordered for wall-clock time, not for duplicating builds:
+
+1. **image** builds the Alpine musl dev image once and pushes
+   `ursine-ci:main` (or uses the GHA layer cache). Test/lint/gui/package pull
+   that image.
+2. **test (default)** and **test (pam)** run `cargo test` for API/core/daemon
+   and integration tests. The GUI is excluded here because it has its own job.
+3. **lint** runs one `cargo clippy --workspace --all-targets --all-features`,
+   `cargo fmt --check`, and rustdoc with `-D warnings`. The GUI clippy pass is
+   no longer a second job.
+4. **gui** runs `cargo test -p ursine --all-targets --locked`. This compiles
+   and runs the GUI tests; there is no separate `cargo build`, and clippy is
+   not repeated.
+5. **static**, **docs**, and **zizmor** run in parallel. `static` runs the
+   repo/sast/deps/duplicates/sbom groups; `docs` runs markdownlint; `zizmor`
+   audits workflow security.
+6. **version** resolves the workspace version and whether a package is due.
+   **changes** supplies the PR package/nix path filters.
+7. **package** starts after `image`/`version`/`changes`, in parallel with the
+   test/lint/gui/static/docs jobs. It builds release PAM `ursined` and the GUI,
+   runs the installer smoke tests, creates the tarball/checksum, and uploads
+   `ursine-release`. This path has no dependency cache on purpose.
+8. **publish** waits for `package` plus `test`, `lint`, `gui`, `static`,
+   `docs`, and `zizmor`. It publishes tag assets or the rolling `latest`, and
+   updates `nix/binary.nix` on tags.
+9. **flake** is PR-only and runs only when `flake.nix`, `flake.lock`, or
+   `nix/**` changed. It is not a dependency of `package`, so a tag does not
+   try to fetch a not-yet-published artifact.
+10. **verify-pin** runs after a tag publish and executes `nix flake check` and
+    `nix build` against the new pin on `main`.
+
+Cargo cache policy: test/lint/gui use `actions/cache/restore`; only pushes to
+`main` save (`actions/cache/save`). Tag/PR refs are restore-only, and the
+release package path is never cached. This keeps zizmor's cache-poisoning
+audit clean while avoiding repeated dependency compilation on main.
+
+`cargo test` builds the test binaries before running them; a separate
+`cargo build` cannot replace that work. The optimization is to remove a
+second GUI build and to start the release build before the tests finish,
+with `publish` still blocked on every quality gate.
+
 ## Static image contents
 
 `ci/Containerfile.static` is based on `alpine:3.24`. It installs from apk:
