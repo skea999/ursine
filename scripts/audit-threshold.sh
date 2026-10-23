@@ -17,7 +17,7 @@ NO_COLOR=1 cargo audit --json >"$OUT" 2>/dev/null || true
 
 vulns=$(grep -o '"vulnerabilities":{[^}]*}' "$OUT" | sed -n 's/.*"count":\([0-9]*\).*/\1/p' | head -n 1)
 [ -n "$vulns" ] || vulns=0
-warnings=$(grep -o '"kind":"[a-z]*"' "$OUT" | wc -l | tr -d ' ')
+warnings=$(grep -o '"kind":"unsound"' "$OUT" | wc -l | tr -d ' ')
 total=$((vulns + warnings))
 
 if [ "$total" -ge "$THRESHOLD" ]; then

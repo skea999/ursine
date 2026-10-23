@@ -32,10 +32,43 @@ pub struct SnapshotStats {
     pub incomplete: u64,
 }
 
+/// Managed global options exposed as dropdowns in the GUI.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BtrbkSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_create: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub incremental: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_preserve_min: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_preserve: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_preserve_min: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_preserve: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_preserve_min: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_preserve: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preserve_hour_of_day: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preserve_day_of_week: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_compress: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub btrfs_commit_delete: Option<String>,
+}
+
 /// Read-only view of `/etc/btrbk/btrbk.conf`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BtrbkConfigView {
     pub path: String,
     pub exists: bool,
     pub content: String,
+    #[serde(default)]
+    pub settings: BtrbkSettings,
 }

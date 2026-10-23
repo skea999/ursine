@@ -27,5 +27,5 @@ pub use nix::{
     CommandOutcome, InstalledPackage, SearchResult,
 };
 pub use principal::{AsUser, Principal, PrincipalOrigin};
-pub use snapshot::{BtrbkConfigView, Snapshot, SnapshotStats};
+pub use snapshot::{BtrbkConfigView, BtrbkSettings, Snapshot, SnapshotStats};
 pub use token::SessionToken;

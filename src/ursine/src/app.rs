@@ -10,7 +10,7 @@ use crate::client::{self, AuthSession, ConfigSnapshot, SearchPage};
 use crate::home::HomeState;
 use crate::login::LoginState;
 use crate::settings::SettingsState;
-use crate::snapshots::{SnapAction, SnapshotsState};
+use crate::snapshots::{SnapAction, SnapSetting, SnapshotsState};
 use crate::store::{PendingStoreAction, StoreAction, StoreScope, StoreState};
 
 /// Live session. The token stays in RAM: never written to disk, never logged.
@@ -60,7 +60,7 @@ pub enum Message {
     OpenStore,
     OpenSnapshots,
     BackHome,
-    SnapshotsLoaded(u64, Result<client::SnapshotPage, ApiError>),
+    SnapshotsLoaded(u64, Result<Box<client::SnapshotPage>, ApiError>),
     RefreshSnapshots,
     SnapshotSectionChanged(String),
     SnapshotRestoreSnapshotChanged(String),
@@ -70,6 +70,14 @@ pub enum Message {
     SnapshotRestorePreviewed(u64, String, String, Result<serde_json::Value, ApiError>),
     SnapshotRestoreConfirmed,
     SnapshotRestoreCancelled,
+    SnapshotSettingChanged(SnapSetting, usize),
+    SaveBtrbkConfig,
+    SnapshotSelected(usize),
+    SnapshotRemoveSelected,
+    SnapshotRemoveAllRequested,
+    SnapshotRemoveSourceToggled(String),
+    SnapshotDeleteConfirmed,
+    SnapshotDeleteCancelled,
     InitBtrbkConfig,
     SnapshotActionFinished(u64, SnapAction, Result<serde_json::Value, ApiError>),
     StoreLoaded(u64, StoreScope, Result<client::StoreSnapshot, ApiError>),
@@ -176,6 +184,16 @@ impl cosmic::Application for App {
             }
             Message::SnapshotRestoreConfirmed => return self.confirm_restore(),
             Message::SnapshotRestoreCancelled => self.snapshots.pending_restore = None,
+            Message::SnapshotSettingChanged(setting, index) => {
+                setting.apply(&mut self.snapshots.settings, index);
+            }
+            Message::SaveBtrbkConfig => return self.save_btrbk_config(),
+            Message::SnapshotSelected(index) => self.select_snapshot(index),
+            Message::SnapshotRemoveSelected => self.request_delete_selected(),
+            Message::SnapshotRemoveAllRequested => self.request_delete_all(),
+            Message::SnapshotRemoveSourceToggled(source) => self.toggle_remove_source(&source),
+            Message::SnapshotDeleteConfirmed => return self.confirm_delete(),
+            Message::SnapshotDeleteCancelled => self.snapshots.pending_delete = None,
             Message::InitBtrbkConfig => return self.init_btrbk_config(),
             Message::SnapshotActionFinished(epoch, action, result) => {
                 return self.finish_snapshot_action(epoch, &action, result)
@@ -275,23 +293,23 @@ impl App {
         self.snapshots.error = None;
         let token = session.token.clone();
         let epoch = self.epoch;
-        Task::future(
-            async move { Message::SnapshotsLoaded(epoch, client::snapshot_page(token).await) },
-        )
+        Task::future(async move {
+            Message::SnapshotsLoaded(epoch, client::snapshot_page(token).await.map(Box::new))
+        })
         .map(cosmic::Action::App)
     }
 
     fn finish_snapshots(
         &mut self,
         epoch: u64,
-        result: Result<client::SnapshotPage, ApiError>,
+        result: Result<Box<client::SnapshotPage>, ApiError>,
     ) -> Task<cosmic::Action<Message>> {
         if epoch != self.epoch {
             return Task::none();
         }
         self.snapshots.busy = false;
         match result {
-            Ok(page) => self.snapshots.apply(page),
+            Ok(page) => self.snapshots.apply(*page),
             Err(error) => {
                 if self.handle_session_error(&error) {
                     return Task::none();
@@ -420,6 +438,121 @@ impl App {
         .map(cosmic::Action::App)
     }
 
+    fn save_btrbk_config(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.snapshots.action_busy {
+            return Task::none();
+        }
+        self.snapshots.action_busy = true;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        let settings = self.snapshots.settings.clone();
+        Task::future(async move {
+            let result = client::set_btrbk_config(token, settings)
+                .await
+                .map(|config| serde_json::json!({"path": config.path, "exists": config.exists}));
+            Message::SnapshotActionFinished(epoch, SnapAction::SetConfig, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn select_snapshot(&mut self, index: usize) {
+        let Some(snapshot) = self.snapshots.snapshots.get(index) else {
+            return;
+        };
+        self.snapshots.selected_snapshot = Some(index);
+        self.snapshots.restore_snapshot = snapshot.snapshot_subvolume.clone();
+        self.snapshots.restore_target = snapshot.source_subvolume.clone();
+    }
+
+    fn request_delete_selected(&mut self) {
+        let Some(index) = self.snapshots.selected_snapshot else {
+            self.snapshots.error = Some("Select a snapshot first.".into());
+            return;
+        };
+        let Some(snapshot) = self.snapshots.snapshots.get(index) else {
+            self.snapshots.error = Some("Selected snapshot is no longer available.".into());
+            return;
+        };
+        if self.snapshots.action_busy {
+            return;
+        }
+        self.snapshots.pending_delete = Some(vec![snapshot.snapshot_subvolume.clone()]);
+    }
+
+    fn request_delete_all(&mut self) {
+        if self.snapshots.action_busy {
+            return;
+        }
+        let paths: Vec<String> = self
+            .snapshots
+            .snapshots
+            .iter()
+            .filter(|snapshot| {
+                self.snapshots.remove_sources.is_empty()
+                    || self
+                        .snapshots
+                        .remove_sources
+                        .contains(&snapshot.source_subvolume)
+            })
+            .map(|snapshot| snapshot.snapshot_subvolume.clone())
+            .collect();
+        if paths.is_empty() {
+            self.snapshots.error = Some("No snapshots match the selected sources.".into());
+            return;
+        }
+        self.snapshots.pending_delete = Some(paths);
+    }
+
+    fn toggle_remove_source(&mut self, source: &str) {
+        if let Some(index) = self
+            .snapshots
+            .remove_sources
+            .iter()
+            .position(|value| value == source)
+        {
+            self.snapshots.remove_sources.remove(index);
+        } else {
+            self.snapshots.remove_sources.push(source.to_string());
+        }
+    }
+
+    fn confirm_delete(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some(paths) = self.snapshots.pending_delete.take() else {
+            return Task::none();
+        };
+        self.snapshots.action_busy = true;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        let action_paths = paths.clone();
+        Task::future(async move {
+            let mut deleted = Vec::new();
+            for path in paths {
+                match client::delete_snapshot(token.clone(), path.clone()).await {
+                    Ok(_) => deleted.push(path),
+                    Err(error) => {
+                        return Message::SnapshotActionFinished(
+                            epoch,
+                            SnapAction::Delete(action_paths),
+                            Err(error),
+                        );
+                    }
+                }
+            }
+            Message::SnapshotActionFinished(
+                epoch,
+                SnapAction::Delete(action_paths),
+                Ok(serde_json::json!({"deleted": deleted})),
+            )
+        })
+        .map(cosmic::Action::App)
+    }
+
     fn finish_snapshot_action(
         &mut self,
         epoch: u64,
@@ -435,7 +568,9 @@ impl App {
                 self.snapshots.action_message = Some(match action {
                     SnapAction::Create(_) => "Snapshot created.".into(),
                     SnapAction::Restore { .. } => "Restore completed.".into(),
+                    SnapAction::Delete(paths) => format!("Deleted {} snapshot(s).", paths.len()),
                     SnapAction::InitConfig => "btrbk configuration created.".into(),
+                    SnapAction::SetConfig => "btrbk configuration saved.".into(),
                 });
                 self.snapshots.error = None;
                 return self.load_snapshots();

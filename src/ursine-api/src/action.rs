@@ -115,6 +115,18 @@ pub enum Action {
     GetBtrbkConfig,
     /// Write a commented default btrbk.conf from detected subvolumes.
     InitBtrbkConfig,
+    /// Update managed global btrbk options.
+    SetBtrbkConfig {
+        settings: Box<crate::BtrbkSettings>,
+    },
+    /// Delete one btrbk snapshot (destructive).
+    DeleteSnapshot {
+        snapshot: String,
+    },
+    /// Delete all snapshots for the selected source subvolumes (empty = all).
+    DeleteSnapshots {
+        sources: Vec<String>,
+    },
 
     // -- users --
     /// List human users (uid >= 1000).

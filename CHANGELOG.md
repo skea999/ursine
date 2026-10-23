@@ -1,10 +1,16 @@
 # Changelog
 
+## [0.6.0] — 2026-10-23
+
+### Added
+
+- Snapshots GUI: btrbk global options as dropdowns (retention, schedule, compression), restore source dropdown with in-place target default and timestamped backup, and single/bulk snapshot removal for selected stats sources.
+
 ## [0.5.0] — 2026-10-22
 
 ### Added
 
-- Snapshots (btrbk): raw list/stats parser, snapshot creation, config read/init, and restore via `btrfs subvolume snapshot` with preview + confirmation. Snapshots panel in the GUI.
+- Snapshots (btrbk): raw list/stats parser, snapshot creation, config read/init, restore via `btrfs subvolume snapshot` with preview + confirmation. Snapshots panel in the GUI.
 
 ## [0.4.0] — 2026-10-22
 

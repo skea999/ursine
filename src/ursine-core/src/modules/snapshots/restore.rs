@@ -11,43 +11,96 @@ use ursine_api::ApiError;
 use super::btrbk;
 
 pub(super) fn preview(snapshot: &str, target: &str) -> Result<serde_json::Value, ApiError> {
-    let snapshot_path = validated_path(snapshot, "snapshot")?;
-    let target_path = validated_path(target, "target")?;
-
-    let meta = std::fs::symlink_metadata(snapshot_path)
-        .map_err(|e| ApiError::invalid(format!("snapshot is not accessible: {e}")))?;
-    if !meta.is_dir() {
-        return Err(ApiError::invalid("snapshot is not a directory"));
-    }
-    if target_path.exists() {
-        return Err(ApiError::new(
-            ursine_api::ErrorCode::Conflict,
-            "restore target already exists",
-        ));
-    }
-
+    let (_snapshot_path, _target_path, backup) = plan(snapshot, target)?;
+    let backup_display = backup.as_ref().map(|p| p.display().to_string());
+    let command = backup_display.as_ref().map_or_else(
+        || format!("btrfs subvolume snapshot {snapshot} {target}"),
+        |backup| format!("mv {target} {backup}; btrfs subvolume snapshot {snapshot} {target}"),
+    );
     Ok(json!({
         "dry_run": true,
         "snapshot": snapshot,
         "target": target,
-        "command": format!("btrfs subvolume snapshot {snapshot} {target}"),
+        "backup": backup_display,
+        "command": command,
     }))
+}
+
+fn plan(
+    snapshot: &str,
+    target: &str,
+) -> Result<
+    (
+        std::path::PathBuf,
+        std::path::PathBuf,
+        Option<std::path::PathBuf>,
+    ),
+    ApiError,
+> {
+    let snapshot_path = validated_path(snapshot, "snapshot")?.to_path_buf();
+    let target_path = validated_path(target, "target")?.to_path_buf();
+    let meta = std::fs::symlink_metadata(&snapshot_path)
+        .map_err(|e| ApiError::invalid(format!("snapshot is not accessible: {e}")))?;
+    if !meta.is_dir() {
+        return Err(ApiError::invalid("snapshot is not a directory"));
+    }
+    if snapshot_path == target_path {
+        return Err(ApiError::invalid("snapshot and target must differ"));
+    }
+    let backup = if target_path.exists() {
+        let meta = std::fs::symlink_metadata(&target_path)
+            .map_err(|e| ApiError::invalid(format!("target is not accessible: {e}")))?;
+        if !meta.is_dir() {
+            return Err(ApiError::invalid("restore target is not a directory"));
+        }
+        let name = target_path
+            .file_name()
+            .map_or_else(|| "restore".into(), |n| n.to_string_lossy().into_owned());
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let backup = target_path.with_file_name(format!("{name}.ursine-backup-{stamp}"));
+        if backup.exists() {
+            return Err(ApiError::new(
+                ursine_api::ErrorCode::Conflict,
+                "restore backup path already exists",
+            ));
+        }
+        Some(backup)
+    } else {
+        None
+    };
+    Ok((snapshot_path, target_path, backup))
 }
 
 pub(super) async fn apply(snapshot: &str, target: &str) -> Result<serde_json::Value, ApiError> {
     // Re-run the preview checks: the path can change between confirm and apply.
-    let _ = preview(snapshot, target)?;
+    let (_, _, backup) = plan(snapshot, target)?;
+    if let Some(backup) = &backup {
+        std::fs::rename(target, backup)
+            .map_err(|e| ApiError::internal(format!("move existing target aside: {e}")))?;
+    }
     let program = btrbk::btrfs_path()?;
-    let out = crate::modules::packages_nix::exec::run_root_program(
+    let result = crate::modules::packages_nix::exec::run_root_program(
         program,
         &["subvolume", "snapshot", snapshot, target],
         btrbk::MUTATE_TIMEOUT,
     )
-    .await?;
+    .await;
+    let out = match result {
+        Ok(out) => out,
+        Err(error) => {
+            if let Some(backup) = &backup {
+                let _ = std::fs::rename(backup, target);
+            }
+            return Err(error);
+        }
+    };
     Ok(json!({
         "dry_run": false,
         "snapshot": snapshot,
         "target": target,
+        "backup": backup.map(|p| p.display().to_string()),
         "stdout": out.stdout,
         "stderr": out.stderr,
     }))

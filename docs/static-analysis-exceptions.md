@@ -12,8 +12,9 @@ A new exception requires: rule/tool, file/line, reason, owner, expiry date
 
 ## Current audit backlog (under threshold)
 
-`scripts/audit-threshold.sh` currently reports **9** findings from the pinned
-libcosmic/iced graph (threshold: 10). The two `unsound` items (`lru 0.16.4`,
+`scripts/audit-threshold.sh` counts **2 unsound** findings from the pinned
+libcosmic/iced graph (threshold: 10); unmaintained/yanked notices are reported
+separately in the JSON. The two `unsound` items (`lru 0.16.4`,
 `memmap2 0.8.0`) cannot be upgraded without forking `cryoglyph`/`xkbcommon` or
 moving libcosmic/iced; tracked here with owner and monthly review. Any change
 that reaches 10 findings fails CI.

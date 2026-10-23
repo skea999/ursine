@@ -11,9 +11,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use ursine_api::{
-    installable_from_attr, timeouts, Action, ApiError, BtrbkConfigView, InstalledPackage, ModuleId,
-    ModulesConfig, Request, RequestBody, Response, ResponseBody, SearchResult, SessionToken,
-    Snapshot, SnapshotStats, TriState, PROTOCOL_VERSION,
+    installable_from_attr, timeouts, Action, ApiError, BtrbkConfigView, BtrbkSettings,
+    InstalledPackage, ModuleId, ModulesConfig, Request, RequestBody, Response, ResponseBody,
+    SearchResult, SessionToken, Snapshot, SnapshotStats, TriState, PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
@@ -271,6 +271,37 @@ pub async fn restore_snapshot(
             target,
             dry_run,
         },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn set_btrbk_config(
+    token: SessionToken,
+    settings: BtrbkSettings,
+) -> Result<BtrbkConfigView, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Snapshots,
+        Action::SetBtrbkConfig {
+            settings: Box::new(settings),
+        },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read btrbk config: {e}")))
+}
+
+pub async fn delete_snapshot(
+    token: SessionToken,
+    snapshot: String,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Snapshots,
+        Action::DeleteSnapshot { snapshot },
         None,
         MUTATE_TIMEOUT,
     )

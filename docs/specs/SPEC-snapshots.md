@@ -16,15 +16,15 @@ Expose btrbk's own functionality — nothing reimplemented. Ursine integrates bt
 | `snapshots.list` | `btrbk --format raw list snapshots` → parsed |
 | `snapshots.stats` | `btrbk --format raw stats` |
 | `snapshots.create` | `btrbk snapshot [<section>]` |
-| `snapshots.restore` | `btrfs subvolume snapshot <snapshot> <target>` — CONFIRMATION REQUIRED in GUI (destructive); preview validates paths and exact argv first |
-| `snapshots.delete` | btrbk retention owns deletion; manual delete only via `btrbk clean` (honors config) |
+| `snapshots.restore` | `btrfs subvolume snapshot <snapshot> <target>` — CONFIRMATION REQUIRED in GUI (destructive); preview validates paths and exact argv first. Existing target is moved to `<target>.ursine-backup-<ts>` before the snapshot; failure restores it. |
+| `snapshots.delete` | GUI single-snapshot dropdown + bulk delete for selected stats sources; daemon validates each path against the current btrbk list, then `btrfs subvolume delete`. Confirmation required. |
 | `snapshots.getConfig` | parsed view of `/etc/btrbk/btrbk.conf` (sources, targets, retention, timestamp/scheduler) |
-| `snapshots.setConfig` | **deferred**: not in the v1 API yet; needs managed-line config writer + `.bak` + validation. |
+| `snapshots.setConfig` | Managed global options written as a top block, preserving sections/comments; `.bak` backup; validated with `btrbk --format raw list config` before atomic replace. GUI exposes dropdowns. |
 | `snapshots.initConfig` | **create** `/etc/btrbk/btrbk.conf` from scratch: conservative default for the FeralOS btrfs layout (hourly keep 24, daily keep 14), `/home` or `@` subvolume |
 | `snapshots.preUpdate` | **deferred**: package install/upgrade hook not wired yet. |
 
 - `--format raw`; parser for the documented raw keys. btrbk 0.32 has no JSON output.
-- `initConfig` writes a conservative template and validates it with `btrbk --format raw list config`. Managed-line editing is deferred.
+- `setConfig` rewrites only managed global keys, backs up `.conf.bak`, and rejects values that fail btrbk validation. Per-subvolume overrides are preserved.
 
 ## Commands
 
@@ -67,11 +67,11 @@ let snaps = btrbk::parse_snapshots(&out)?;
 ## Success Criteria
 
 - GUI shows btrbk-managed snapshots with timestamps/sources from `btrbk list`
-- GUI shows and initializes btrbk config; editing subvolumes/retention is deferred
+- GUI shows btrbk config as dropdowns and saves managed global options
 - If btrbk.conf is absent: `snapshots.initConfig` creates a conservative default (`/home` or `@`, hourly+daily retention) and validates it
-- Pre-update snapshots on package changes are deferred with `snapshots.setConfig`
+- Pre-update snapshots on package changes are deferred (separate hook)
 - Restore requires preview + explicit confirmation, then creates a writable btrfs snapshot
 
 ## Open Questions
 
-- Editing the schedule/subvolumes from the GUI is deferred (`snapshots.setConfig`).
+- Per-subvolume overrides and pre-update hooks remain future work.

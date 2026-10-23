@@ -11,7 +11,7 @@ See `AGENTS.md` for project context and milestone history.
 **Status**: backend + GUI implemented, released as v0.5.0. Tag CI run 39871807747 green (package + publish + verify-pin); Nix pin 2250abc; local `nix profile upgrade ursine` → ursined 0.5.0 (auth: pam).
 
 - Backend: raw parser for `btrbk --format raw` list/stats, `btrbk snapshot`, btrbk config read/init, restore preview/apply via `btrfs subvolume snapshot` (btrbk 0.32 has no restore; approved fallback). Capability gate Btrbk+Btrfs; audit through dispatch.
-- GUI: Snapshots panel from Home (Open), list, stats, create, config init, restore preview + explicit confirm. Thin frontend; all decisions in daemon.
+- GUI: Snapshots panel from Home, list, stats, create, dropdown config editor, restore source dropdown + in-place target default/backup, single/bulk removal with confirmation. Thin frontend; all decisions in daemon.
 - Tests: 150 total (GUI 31, API 26, integration 6, core 87), clippy/fmt, static all, docs, nix linters green.
 - Deferred explicitly in spec: `snapshots.setConfig` and pre-update hooks.
 

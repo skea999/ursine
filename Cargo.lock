@@ -5089,7 +5089,7 @@ checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "ursine"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "libcosmic",
  "serde",
@@ -5100,7 +5100,7 @@ dependencies = [
 
 [[package]]
 name = "ursine-api"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5109,7 +5109,7 @@ dependencies = [
 
 [[package]]
 name = "ursine-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "getrandom 0.2.17",
  "pam-client",
@@ -5126,7 +5126,7 @@ dependencies = [
 
 [[package]]
 name = "ursined"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "tokio",
  "tracing",
