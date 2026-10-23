@@ -15,6 +15,10 @@ pub enum Capability {
     Btrfs,
     /// Nix store + nix binary present.
     Nix,
+    /// Alpine apk binary present.
+    Apk,
+    /// Flatpak binary present.
+    Flatpak,
     /// org.freedesktop.Accounts reachable on D-Bus.
     Accountsservice,
     /// niri binary + user config present.
@@ -25,10 +29,12 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability the daemon probes, in display order.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::Btrbk,
         Self::Btrfs,
         Self::Nix,
+        Self::Apk,
+        Self::Flatpak,
         Self::Accountsservice,
         Self::Niri,
         Self::Dinit,
@@ -39,6 +45,8 @@ impl Capability {
             Self::Btrbk => "btrbk",
             Self::Btrfs => "btrfs",
             Self::Nix => "nix",
+            Self::Apk => "apk",
+            Self::Flatpak => "flatpak",
             Self::Accountsservice => "accountsservice",
             Self::Niri => "niri",
             Self::Dinit => "dinit",
@@ -86,6 +94,13 @@ impl CapabilityReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn all_capabilities_are_listed_once() {
+        assert_eq!(Capability::ALL.len(), 8);
+        assert!(Capability::ALL.contains(&Capability::Apk));
+        assert!(Capability::ALL.contains(&Capability::Flatpak));
+    }
 
     #[test]
     fn report_skips_none_fields() {

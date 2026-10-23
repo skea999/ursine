@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use cosmic::widget::{button, column, row, scrollable, settings, text, text_input};
+use cosmic::widget::{button, column, dropdown, row, scrollable, settings, text, text_input};
 use cosmic::Element;
 use ursine_api::{Action, CommandOutcome, InstalledPackage, SearchResult};
 
@@ -464,7 +464,6 @@ impl StoreState {
 
     pub fn view(&self) -> Element<'_, Message> {
         let header = row(vec![
-            button::text("Home").on_press(Message::BackHome).into(),
             text::title2("Nix store").into(),
             text("").width(cosmic::iced::Length::Fill).into(),
             button::standard(if self.busy {
@@ -797,6 +796,14 @@ impl StoreState {
             .add(settings::item(
                 "Keep last generations",
                 row(vec![
+                    dropdown(
+                        vec!["1", "3", "5", "10", "20"],
+                        ["1", "3", "5", "10", "20"]
+                            .iter()
+                            .position(|value| *value == self.keep_input),
+                        Message::StoreKeepPreset,
+                    )
+                    .into(),
                     text_input("5", self.keep_input.clone())
                         .on_input(Message::StoreKeepChanged)
                         .into(),
@@ -812,6 +819,14 @@ impl StoreState {
             .add(settings::item(
                 "Wipe history older than",
                 row(vec![
+                    dropdown(
+                        vec!["7d", "30d", "90d", "1y"],
+                        ["7d", "30d", "90d", "1y"]
+                            .iter()
+                            .position(|value| *value == self.history_age),
+                        Message::StoreHistoryAgePreset,
+                    )
+                    .into(),
                     text_input("30d", self.history_age.clone())
                         .on_input(Message::StoreHistoryAgeChanged)
                         .into(),

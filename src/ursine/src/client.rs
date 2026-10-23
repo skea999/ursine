@@ -11,10 +11,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use ursine_api::{
-    installable_from_attr, timeouts, Action, ApiError, BtrbkConfigView, BtrbkSettings,
-    InstalledPackage, ModuleId, ModulesConfig, NiriConfigView, Request, RequestBody, Response,
-    ResponseBody, SearchResult, SessionToken, Snapshot, SnapshotStats, TriState, UserSummary,
-    PROTOCOL_VERSION,
+    installable_from_attr, timeouts, Action, ApiError, ApkPackage, BtrbkConfigView, BtrbkSettings,
+    FlatpakPackage, InstalledPackage, ModuleId, ModulesConfig, NiriConfigView, Request,
+    RequestBody, Response, ResponseBody, SearchResult, SessionToken, Snapshot, SnapshotStats,
+    TriState, UserSummary, PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
@@ -903,4 +903,167 @@ pub async fn set_niri_section(
     .await?;
     serde_json::from_value(value)
         .map_err(|e| ApiError::internal(format!("cannot read niri config: {e}")))
+}
+
+pub async fn apk_list(token: SessionToken) -> Result<Vec<ApkPackage>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesApk,
+        Action::ListApk,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let rows = value
+        .get("packages")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon apk response has no packages"))?;
+    serde_json::from_value(rows)
+        .map_err(|e| ApiError::internal(format!("cannot read apk packages: {e}")))
+}
+
+pub async fn apk_search(token: SessionToken, query: String) -> Result<Vec<ApkPackage>, ApiError> {
+    apk_packages(token, Action::SearchApk { query }, MUTATE_TIMEOUT).await
+}
+
+pub async fn apk_refresh(token: SessionToken) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesApk,
+        Action::RefreshApk,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn apk_install(
+    token: SessionToken,
+    package: String,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesApk,
+        Action::InstallApk { package },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn apk_remove(
+    token: SessionToken,
+    package: String,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesApk,
+        Action::RemoveApk { package },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn apk_upgrade(token: SessionToken) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesApk,
+        Action::UpgradeApk,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+async fn apk_packages(
+    token: SessionToken,
+    action: Action,
+    timeout: Duration,
+) -> Result<Vec<ApkPackage>, ApiError> {
+    let value = call_with_timeout(token, ModuleId::PackagesApk, action, None, timeout).await?;
+    let rows = value
+        .get("packages")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon apk response has no packages"))?;
+    serde_json::from_value(rows)
+        .map_err(|e| ApiError::internal(format!("cannot read apk packages: {e}")))
+}
+
+pub async fn flatpak_list(
+    token: SessionToken,
+    system: bool,
+) -> Result<Vec<FlatpakPackage>, ApiError> {
+    flatpak_packages(token, Action::ListFlatpak { system }, MUTATE_TIMEOUT).await
+}
+
+pub async fn flatpak_search(
+    token: SessionToken,
+    query: String,
+    system: bool,
+) -> Result<Vec<FlatpakPackage>, ApiError> {
+    flatpak_packages(
+        token,
+        Action::SearchFlatpak { query, system },
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn flatpak_install(
+    token: SessionToken,
+    app_id: String,
+    system: bool,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::InstallFlatpak { app_id, system },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn flatpak_remove(
+    token: SessionToken,
+    app_id: String,
+    system: bool,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::RemoveFlatpak { app_id, system },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn flatpak_update(
+    token: SessionToken,
+    system: bool,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::UpdateFlatpak { system },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+async fn flatpak_packages(
+    token: SessionToken,
+    action: Action,
+    timeout: Duration,
+) -> Result<Vec<FlatpakPackage>, ApiError> {
+    let value = call_with_timeout(token, ModuleId::PackagesFlatpak, action, None, timeout).await?;
+    let rows = value
+        .get("packages")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon flatpak response has no packages"))?;
+    serde_json::from_value(rows)
+        .map_err(|e| ApiError::internal(format!("cannot read flatpak packages: {e}")))
 }

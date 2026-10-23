@@ -1,7 +1,7 @@
 //! Settings screen: live capability facts and manual module switches.
 
 use cosmic::iced::Length;
-use cosmic::widget::{button, column, row, settings, text};
+use cosmic::widget::{button, column, dropdown, row, settings, text};
 use cosmic::Element;
 use ursine_api::{CapabilityReport, ModuleId, TriState};
 
@@ -26,6 +26,14 @@ const MODULE_SWITCHES: &[ModuleSwitch] = &[
         title: "Packages (Nix)",
     },
     ModuleSwitch {
+        module: ModuleId::PackagesApk,
+        title: "Packages (APK)",
+    },
+    ModuleSwitch {
+        module: ModuleId::PackagesFlatpak,
+        title: "Flatpak applications",
+    },
+    ModuleSwitch {
         module: ModuleId::Snapshots,
         title: "Snapshots",
     },
@@ -46,9 +54,7 @@ impl SettingsState {
         caps_busy: bool,
         caps_error: Option<&'a str>,
     ) -> Element<'a, Message> {
-        let back = button::text("Home").on_press(Message::BackHome);
         let header = row(vec![
-            back.into(),
             text::title2("Settings").into(),
             text("").width(Length::Fill).into(),
         ])
@@ -141,25 +147,23 @@ impl SettingsState {
             .into();
         };
         let current = module_switch(config, module);
-        let enabled = !self.config_busy;
-
-        let choice = |value: TriState, label: &'static str| {
-            let mut b = button::text(label);
-            if enabled && current != value {
-                b = b.on_press(Message::SetModuleSwitch(module, value));
-            }
-            if current == value {
-                b = b.class(cosmic::theme::Button::Standard);
-            }
-            b.into()
+        let selected = match current {
+            TriState::Auto => 0,
+            TriState::On => 1,
+            TriState::Off => 2,
         };
-
-        row(vec![
-            choice(TriState::Auto, "Auto"),
-            choice(TriState::On, "Manual on"),
-            choice(TriState::Off, "Manual off"),
-        ])
-        .spacing(8)
+        dropdown(
+            vec!["Auto", "Manual on", "Manual off"],
+            Some(selected),
+            move |index| {
+                let value = match index {
+                    0 => TriState::Auto,
+                    1 => TriState::On,
+                    _ => TriState::Off,
+                };
+                Message::SetModuleSwitch(module, value)
+            },
+        )
         .into()
     }
 }
@@ -167,6 +171,8 @@ impl SettingsState {
 fn module_switch(config: &ConfigSnapshot, module: ModuleId) -> TriState {
     match module {
         ModuleId::PackagesNix => config.modules.packages_nix,
+        ModuleId::PackagesApk => config.modules.packages_apk,
+        ModuleId::PackagesFlatpak => config.modules.packages_flatpak,
         ModuleId::Snapshots => config.modules.snapshots,
         ModuleId::Users => config.modules.users,
         ModuleId::Niri => config.modules.niri,

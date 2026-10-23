@@ -1,7 +1,9 @@
 //! Niri screen: schema-driven form for managed `config.kdl` sections.
 
 use cosmic::iced::Length;
-use cosmic::widget::{button, column, row, scrollable, settings, text, text_input, toggler};
+use cosmic::widget::{
+    button, column, dropdown, row, scrollable, settings, text, text_input, toggler,
+};
 use cosmic::Element;
 use serde_json::json;
 use ursine_api::NiriConfigView;
@@ -92,7 +94,6 @@ impl NiriState {
 
     pub fn view(&self) -> Element<'_, Message> {
         let mut items: Vec<Element<'_, Message>> = vec![row(vec![
-            button::text("Home").on_press(Message::BackHome).into(),
             text::title2("Niri desktop").into(),
             text("").width(Length::Fill).into(),
             button::text("Refresh")
@@ -142,7 +143,17 @@ impl NiriState {
             settings::section()
                 .title("Layout")
                 .add(settings::item(
-                    "Gaps (empty = leave unchanged)",
+                    "Gaps preset",
+                    dropdown(
+                        vec!["unchanged", "0", "4", "8", "12", "16", "24", "32"],
+                        ["", "0", "4", "8", "12", "16", "24", "32"]
+                            .iter()
+                            .position(|value| *value == self.gaps),
+                        Message::NiriGapsPreset,
+                    ),
+                ))
+                .add(settings::item(
+                    "Gaps custom (overrides preset)",
                     text_input("16", self.gaps.clone()).on_input(Message::NiriGapsChanged),
                 ))
                 .into(),
@@ -180,7 +191,17 @@ impl NiriState {
             settings::section()
                 .title("Cursor")
                 .add(settings::item(
-                    "Size (8..128, empty = leave unchanged)",
+                    "Size preset",
+                    dropdown(
+                        vec!["unchanged", "16", "24", "32", "48", "64"],
+                        ["", "16", "24", "32", "48", "64"]
+                            .iter()
+                            .position(|value| *value == self.cursor_size),
+                        Message::NiriCursorSizePreset,
+                    ),
+                ))
+                .add(settings::item(
+                    "Size custom (8..128, overrides preset)",
                     text_input("24", self.cursor_size.clone())
                         .on_input(Message::NiriCursorSizeChanged),
                 ))

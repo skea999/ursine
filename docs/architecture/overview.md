@@ -138,3 +138,9 @@ GitHub CI (`.github/workflows/ci.yml`, to be created at v0.1) — **all jobs in 
 4. GUI: store + snapshots
 5. users, niri modules
 6. web (static) once API is stable
+
+## Future architecture
+
+- [Go daemon migration — future design](go-daemon-future.md): static Go daemon,
+  embedded Rust PAM helpers for musl/glibc, runtime selection, packaging and
+  security constraints. Proposed only; 0.7.0 remains Rust.

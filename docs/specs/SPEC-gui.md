@@ -2,7 +2,7 @@
 
 ## Objective
 
-The native frontend `ursine`: **libcosmic** app, thin client of `ursined`. Login, one navigation shell, capability-gated panels (nix store, snapshots, users, niri forms), and a Settings screen for capabilities and module modes. UX principles (toolkit-independent): one navigation structure, terminology from `CONTEXT.md`, no jargon, no broken panels, confirmation before destructive actions, keyboard-first, empty/error states designed.
+The native frontend `ursine`: **libcosmic** app, thin client of `ursined`. GNOME Settings-style left sidebar; login, one navigation shell, capability-gated panels (nix store, snapshots, users, niri forms), and a Settings screen for capabilities and module modes. UX principles (toolkit-independent): one navigation structure, terminology from `CONTEXT.md`, no jargon, no broken panels, confirmation before destructive actions, keyboard-first, empty/error states designed.
 
 ## Tech Stack
 
@@ -19,6 +19,8 @@ The native frontend `ursine`: **libcosmic** app, thin client of `ursined`. Login
 | Login | PAM prompt (user pre-filled from session, password field); on success token kept in process memory only |
 | Home/Overview | module cards: enabled (green, opens panel) / disabled (grey + reason + fix command + "Run fix" if trivial) — from `capabilities.list` |
 | Store (nix) | search field (results list w/ description), installed list, install/remove/upgrade buttons with progress, per-user selector (asUser dropdown) |
+| APK | installed/search rows, install/remove/upgrade, repository refresh |
+| Flatpak | installed/search rows, system/user dropdown, install/remove/update |
 | Snapshots | btrbk list (source, timestamp), "Create snapshot", restore flow (preview diff/stats → confirm dialog typing the snapshot name), btrbk config summary, retention info |
 | Users | list (avatar placeholder, name, admin badge), create dialog (name, full name, admin toggle), set password, delete (confirm), groups editor |
 | Niri | dynamic form pages rendered from `niri.schema` (sections sidebar: Input, Outputs, Layout, Animations, Keybinds, Gestures, Autostart, Env); Apply bar with validate state; keybind capture widget |

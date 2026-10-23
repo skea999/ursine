@@ -73,6 +73,8 @@ impl<'de> Deserialize<'de> for TriState {
 #[serde(default)]
 pub struct ModulesConfig {
     pub packages_nix: TriState,
+    pub packages_apk: TriState,
+    pub packages_flatpak: TriState,
     pub snapshots: TriState,
     pub users: TriState,
     pub niri: TriState,
@@ -82,6 +84,8 @@ impl Default for ModulesConfig {
     fn default() -> Self {
         Self {
             packages_nix: TriState::Auto,
+            packages_apk: TriState::Auto,
+            packages_flatpak: TriState::Auto,
             snapshots: TriState::Auto,
             users: TriState::Auto,
             niri: TriState::Auto,

@@ -42,6 +42,14 @@
 - [x] Niri GUI: managed-section forms, validation result, save | P0
 - [x] Gate: 161 tests (GUI 35, API 26, integration 6, core 94), clippy/fmt, static all, docs | P0
 
+### Done — sidebar + APK/Flatpak (2026-10-23)
+
+- [x] GNOME Settings-style sidebar shell for logged-in screens; Settings module modes are dropdowns; Niri gap/cursor presets and store keep/age presets added | P0
+- [x] APK backend: list/search/refresh/install/remove/upgrade with trusted `apk`, validation, capability gate | P0
+- [x] Flatpak backend: list/search/install/remove/update for system/user scope, trusted `flatpak`, capability gate | P0
+- [x] GUI APK/Flatpak panels with source and scope dropdowns, confirmations, search/install/remove | P0
+- [x] Tests: APK parsing/validation, Flatpak parsing/scope, action tags/capability inventory; 172 total | P0
+
 ### Todo
 
 - [ ] Niri v1 form groups: outputs, keybinds, gestures, keyboard/pointer, environment/spawn lists, screenshot path, hotkey overlay | P1 | agent

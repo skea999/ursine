@@ -6,6 +6,8 @@ use serde_json::json;
 use ursine_api::{Action, ApiError, Capability, ModuleId, Response, UrsineConfig};
 
 pub mod niri;
+pub mod packages_apk;
+pub mod packages_flatpak;
 pub mod packages_nix;
 pub mod snapshots;
 pub mod users;
@@ -26,6 +28,8 @@ pub struct ModuleCtx<'a> {
 fn required_caps(module: ModuleId) -> &'static [Capability] {
     match module {
         ModuleId::PackagesNix => &[Capability::Nix],
+        ModuleId::PackagesApk => &[Capability::Apk],
+        ModuleId::PackagesFlatpak => &[Capability::Flatpak],
         ModuleId::Snapshots => &[Capability::Btrbk, Capability::Btrfs],
         ModuleId::Users => &[Capability::Accountsservice],
         ModuleId::Niri => &[Capability::Niri],
@@ -58,6 +62,10 @@ pub async fn handle(
         }
         (ModuleId::PackagesNix, action) => packages_nix::handle(action, ctx).await,
 
+        (ModuleId::PackagesApk, action) => packages_apk::handle(action, ctx).await,
+
+        (ModuleId::PackagesFlatpak, action) => packages_flatpak::handle(action, ctx).await,
+
         (ModuleId::Snapshots, action) => snapshots::handle(action, ctx).await,
 
         (ModuleId::Users, action) => users::handle(action, ctx).await,
@@ -82,6 +90,17 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::List => "list",
         Action::Refresh => "refresh",
         Action::ListInstalled => "list_installed",
+        Action::ListApk => "list_apk",
+        Action::SearchApk { .. } => "search_apk",
+        Action::RefreshApk => "refresh_apk",
+        Action::InstallApk { .. } => "install_apk",
+        Action::RemoveApk { .. } => "remove_apk",
+        Action::UpgradeApk => "upgrade_apk",
+        Action::ListFlatpak { .. } => "list_flatpak",
+        Action::SearchFlatpak { .. } => "search_flatpak",
+        Action::InstallFlatpak { .. } => "install_flatpak",
+        Action::RemoveFlatpak { .. } => "remove_flatpak",
+        Action::UpdateFlatpak { .. } => "update_flatpak",
         Action::Search { .. } => "search",
         Action::Install { .. } => "install",
         Action::Remove { .. } => "remove",
@@ -168,7 +187,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn capabilities_list_returns_all_six() {
+    async fn capabilities_list_returns_all_eight() {
         let (caps, cfg, _path) = ctx_with(AllMissing);
         let ctx = ModuleCtx {
             caps: &caps,
@@ -178,7 +197,7 @@ mod tests {
         let v = handle(ModuleId::Capabilities, &Action::List, &ctx)
             .await
             .unwrap();
-        assert_eq!(v.as_array().unwrap().len(), 6);
+        assert_eq!(v.as_array().unwrap().len(), 8);
     }
 
     #[tokio::test]

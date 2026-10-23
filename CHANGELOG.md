@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- GNOME Settings-style sidebar shell; Settings module modes are dropdowns;
+  Niri gap/cursor presets and store prune/wipe presets.
+- APK packages: list, search, refresh indexes, install, remove, upgrade.
+- Flatpak applications: list, search, install, remove, update for system and
+  user installations, with a scope dropdown.
+- Capabilities for `apk` and `flatpak`; module switches `packages_apk` and
+  `packages_flatpak`.
+
 ## [0.7.0] — 2026-10-23
 
 ### Added

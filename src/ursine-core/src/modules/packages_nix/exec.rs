@@ -408,7 +408,7 @@ pub(super) async fn run_as_user_script(
 
 /// Run an explicit argv as `user`. Every element is single-quoted, so flags and
 /// names are literal; the program itself must be a safe atom.
-pub(super) async fn run_as_user_argv(
+pub async fn run_as_user_argv(
     user: &str,
     program: &str,
     argv: &[&str],

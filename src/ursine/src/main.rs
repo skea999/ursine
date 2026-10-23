@@ -10,6 +10,7 @@ mod client;
 mod home;
 mod login;
 mod niri;
+mod packages;
 mod settings;
 mod snapshots;
 mod store;

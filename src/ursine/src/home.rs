@@ -1,7 +1,7 @@
 //! Home screen: the modules this principal may use, and what the machine offers.
 
 use cosmic::iced::Length;
-use cosmic::widget::{button, column, icon, row, settings, text};
+use cosmic::widget::{button, column, row, settings, text};
 use cosmic::Element;
 use ursine_api::{Capability, CapabilityReport, ModuleId, ModulesConfig, TriState};
 
@@ -32,26 +32,28 @@ enum Panel {
     Snapshots,
     Users,
     Niri,
+    Apk,
+    Flatpak,
 }
 
 const MODULES: &[ModuleEntry] = &[
-    ModuleEntry {
-        title: "System",
-        module: None,
-        requires: &[],
-        panel: None,
-    },
-    ModuleEntry {
-        title: "Configuration",
-        module: None,
-        requires: &[],
-        panel: None,
-    },
     ModuleEntry {
         title: "Packages (Nix)",
         module: Some(ModuleId::PackagesNix),
         requires: &[Capability::Nix],
         panel: Some(Panel::Store),
+    },
+    ModuleEntry {
+        title: "APK packages",
+        module: Some(ModuleId::PackagesApk),
+        requires: &[Capability::Apk],
+        panel: Some(Panel::Apk),
+    },
+    ModuleEntry {
+        title: "Flatpak applications",
+        module: Some(ModuleId::PackagesFlatpak),
+        requires: &[Capability::Flatpak],
+        panel: Some(Panel::Flatpak),
     },
     ModuleEntry {
         title: "Snapshots (btrbk)",
@@ -79,14 +81,9 @@ impl HomeState {
         expires_in_secs: u64,
         module_config: Option<&ModulesConfig>,
     ) -> Element<'_, Message> {
-        let settings_button = button::icon(icon::from_name("preferences-system-symbolic"))
-            .on_press(Message::OpenSettings);
         let header = row(vec![
-            text::title2("Ursine").into(),
-            text(format!("signed in as {}", self.user)).into(),
+            text::title2("Overview").into(),
             text("").width(Length::Fill).into(),
-            settings_button.into(),
-            button::text("Sign out").on_press(Message::SignOut).into(),
         ])
         .spacing(12)
         .width(Length::Fill);
@@ -150,7 +147,14 @@ impl HomeState {
 
         let status: Element<'_, Message> = column(lines).spacing(2).into();
         match entry.panel {
-            Some(Panel::Store | Panel::Snapshots | Panel::Users | Panel::Niri) => {
+            Some(
+                Panel::Store
+                | Panel::Snapshots
+                | Panel::Users
+                | Panel::Niri
+                | Panel::Apk
+                | Panel::Flatpak,
+            ) => {
                 let available = !Self::is_manually_off(entry, modules)
                     && entry.requires.iter().all(|required| {
                         self.report(*required)
@@ -161,6 +165,10 @@ impl HomeState {
                     Some(Panel::Snapshots) => Message::OpenSnapshots,
                     Some(Panel::Users) => Message::OpenUsers,
                     Some(Panel::Niri) => Message::OpenNiri,
+                    Some(Panel::Apk) => Message::OpenPackages(crate::packages::PackageKind::Apk),
+                    Some(Panel::Flatpak) => {
+                        Message::OpenPackages(crate::packages::PackageKind::Flatpak)
+                    }
                     None => unreachable!(),
                 };
                 let open = button::text("Open").on_press_maybe(available.then_some(open_message));
@@ -187,6 +195,8 @@ impl HomeState {
 fn module_mode(modules: &ModulesConfig, module: ModuleId) -> TriState {
     match module {
         ModuleId::PackagesNix => modules.packages_nix,
+        ModuleId::PackagesApk => modules.packages_apk,
+        ModuleId::PackagesFlatpak => modules.packages_flatpak,
         ModuleId::Snapshots => modules.snapshots,
         ModuleId::Users => modules.users,
         ModuleId::Niri => modules.niri,

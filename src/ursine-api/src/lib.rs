@@ -12,6 +12,7 @@ pub mod error;
 pub mod module;
 pub mod niri;
 pub mod nix;
+pub mod packages;
 pub mod principal;
 pub mod snapshot;
 pub mod timeouts;
@@ -29,6 +30,7 @@ pub use nix::{
     installable_from_attr, is_safe_installable_atom, normalize_installable, validate_installable,
     CommandOutcome, InstalledPackage, SearchResult,
 };
+pub use packages::{ApkPackage, FlatpakPackage};
 pub use principal::{AsUser, Principal, PrincipalOrigin};
 pub use snapshot::{BtrbkConfigView, BtrbkSettings, Snapshot, SnapshotStats};
 pub use token::SessionToken;

@@ -96,6 +96,51 @@ pub enum Action {
         expected_delete: Option<Vec<u32>>,
     },
 
+    // -- packages.apk --
+    /// Installed APK packages.
+    ListApk,
+    /// Search configured APK repositories.
+    SearchApk {
+        query: String,
+    },
+    /// Refresh APK repository indexes.
+    RefreshApk,
+    /// Install an APK package.
+    InstallApk {
+        package: String,
+    },
+    /// Remove an APK package.
+    RemoveApk {
+        package: String,
+    },
+    /// Upgrade every installed APK package.
+    UpgradeApk,
+
+    // -- packages.flatpak --
+    /// Installed Flatpak applications for system or user installation.
+    ListFlatpak {
+        system: bool,
+    },
+    /// Search the configured Flatpak remotes.
+    SearchFlatpak {
+        query: String,
+        system: bool,
+    },
+    /// Install a Flatpak application from `flathub`.
+    InstallFlatpak {
+        app_id: String,
+        system: bool,
+    },
+    /// Remove a Flatpak application.
+    RemoveFlatpak {
+        app_id: String,
+        system: bool,
+    },
+    /// Update every Flatpak application in the selected installation.
+    UpdateFlatpak {
+        system: bool,
+    },
+
     // -- snapshots (btrbk) --
     /// List btrbk-managed snapshots.
     ListSnapshots,
@@ -177,6 +222,17 @@ mod tests {
     fn action_tag_is_present_and_snake_case() {
         let json = serde_json::to_value(&Action::ListInstalled).unwrap();
         assert_eq!(json["action"], "list_installed");
+    }
+
+    #[test]
+    fn apk_and_flatpak_actions_are_tagged() {
+        let apk = serde_json::to_value(Action::InstallApk {
+            package: "niri".into(),
+        })
+        .unwrap();
+        assert_eq!(apk["action"], "install_apk");
+        let flatpak = serde_json::to_value(Action::ListFlatpak { system: true }).unwrap();
+        assert_eq!(flatpak["action"], "list_flatpak");
     }
 
     #[test]

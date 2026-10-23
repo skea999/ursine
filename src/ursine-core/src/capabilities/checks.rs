@@ -46,6 +46,16 @@ pub fn check_capability(sys: &dyn Sysinfo, cap: Capability) -> bool {
         Capability::Btrbk => sys.cmd_in_path("btrbk"),
         Capability::Btrfs => sys.path_exists(Path::new("/sys/fs/btrfs")),
         Capability::Nix => sys.path_exists(Path::new("/nix/store")) && sys.cmd_in_path("nix"),
+        Capability::Apk => {
+            sys.cmd_in_path("apk")
+                || sys.path_exists(Path::new("/sbin/apk"))
+                || sys.path_exists(Path::new("/usr/sbin/apk"))
+        }
+        Capability::Flatpak => {
+            sys.cmd_in_path("flatpak")
+                || sys.path_exists(Path::new("/usr/bin/flatpak"))
+                || sys.path_exists(Path::new("/usr/local/bin/flatpak"))
+        }
         // Proxy for "D-Bus system bus is up"; the real name probe arrives with
         // the users module (zbus).
         Capability::Accountsservice => sys.path_exists(Path::new("/run/dbus/system_bus_socket")),
@@ -68,6 +78,8 @@ pub fn hints(cap: Capability) -> (&'static str, &'static str) {
             "nix is not available",
             "enable nix in the FeralOS installer / run: apk add nix",
         ),
+        Capability::Apk => ("apk is not available", "boot a FeralOS/Alpine system"),
+        Capability::Flatpak => ("flatpak is not installed", "apk add flatpak"),
         Capability::Accountsservice => ("system D-Bus is not available", "start dbus"),
         Capability::Niri => ("niri not installed", "apk add niri"),
         Capability::Dinit => ("PID 1 is not dinit", "boot with dinit (OpenRC fallback)"),

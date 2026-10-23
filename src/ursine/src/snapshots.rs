@@ -194,7 +194,6 @@ impl SnapshotsState {
 
     pub fn view(&self) -> Element<'_, Message> {
         let mut items: Vec<Element<'_, Message>> = vec![row(vec![
-            button::text("Home").on_press(Message::BackHome).into(),
             text::title2("Snapshots (btrbk)").into(),
             text("").width(Length::Fill).into(),
             button::text("Refresh")

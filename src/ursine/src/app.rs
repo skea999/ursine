@@ -1,15 +1,17 @@
 //! Application state, message loop and screen routing.
 
+use cosmic::iced::Length;
 use cosmic::{Element, Task};
 use ursine_api::{
-    validate_installable, Action, ApiError, CapabilityReport, ErrorCode, ModuleId, SessionToken,
-    TriState,
+    validate_installable, Action, ApiError, ApkPackage, Capability, CapabilityReport, ErrorCode,
+    FlatpakPackage, ModuleId, SessionToken, TriState,
 };
 
 use crate::client::{self, AuthSession, ConfigSnapshot, SearchPage};
 use crate::home::HomeState;
 use crate::login::LoginState;
 use crate::niri::NiriState;
+use crate::packages::{PackageKind, PackagesState};
 use crate::settings::SettingsState;
 use crate::snapshots::{SnapAction, SnapSetting, SnapshotsState};
 use crate::store::{PendingStoreAction, StoreAction, StoreScope, StoreState};
@@ -30,6 +32,8 @@ enum Screen {
     Snapshots,
     Users,
     Niri,
+    Apk,
+    Flatpak,
 }
 
 pub struct App {
@@ -41,6 +45,7 @@ pub struct App {
     snapshots: SnapshotsState,
     users: UsersState,
     niri: NiriState,
+    packages: PackagesState,
     screen: Screen,
     session: Option<Session>,
     /// Bumped on sign-in/sign-out so late async results cannot repopulate a
@@ -67,6 +72,26 @@ pub enum Message {
     OpenSnapshots,
     OpenUsers,
     OpenNiri,
+    OpenPackages(PackageKind),
+    PackageQueryChanged(String),
+    PackageInstallChanged(String),
+    PackageScopeChanged(usize),
+    PackageSearchRequested,
+    PackageInstallRequested,
+    PackageInstallDirect(String),
+    PackageRefresh,
+    PackageRefreshIndexes,
+    PackageUpdateRequested,
+    PackageUpdateConfirmed,
+    PackageUpdateCancelled,
+    PackageRemoveRequested(PackageKind, String, String),
+    PackageRemoveConfirmed,
+    PackageRemoveCancelled,
+    PackageApkLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
+    PackageFlatpakLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
+    PackageApkSearchLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
+    PackageFlatpakSearchLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
+    PackageActionFinished(u64, String, Result<serde_json::Value, ApiError>),
     BackHome,
     SnapshotsLoaded(u64, Result<Box<client::SnapshotPage>, ApiError>),
     RefreshSnapshots,
@@ -107,6 +132,8 @@ pub enum Message {
     NiriLoaded(u64, Result<ursine_api::NiriConfigView, ApiError>),
     RefreshNiri,
     NiriGapsChanged(String),
+    NiriGapsPreset(usize),
+    NiriCursorSizePreset(usize),
     NiriAnimationsToggled(bool),
     NiriTapToggled(bool),
     NiriNaturalScrollToggled(bool),
@@ -127,6 +154,8 @@ pub enum Message {
     StoreRegexChanged(String),
     StoreGenerationChanged(String),
     StoreKeepChanged(String),
+    StoreKeepPreset(usize),
+    StoreHistoryAgePreset(usize),
     StoreHistoryAgeChanged(String),
     StoreActionRequested(StoreAction),
     StoreActionConfirmed,
@@ -176,6 +205,7 @@ impl cosmic::Application for App {
             snapshots: SnapshotsState::default(),
             users: UsersState::default(),
             niri: NiriState::default(),
+            packages: PackagesState::default(),
             screen: Screen::Home,
             session: None,
             epoch: 0,
@@ -216,6 +246,45 @@ impl cosmic::Application for App {
             Message::OpenNiri => {
                 self.screen = Screen::Niri;
                 return self.load_niri();
+            }
+            Message::OpenPackages(kind) => return self.open_packages(kind),
+            Message::PackageQueryChanged(value) => self.packages.query = value,
+            Message::PackageInstallChanged(value) => self.packages.install = value,
+            Message::PackageScopeChanged(index) => {
+                self.packages.system = index == 0;
+                return self.load_packages(self.packages.kind.unwrap_or(PackageKind::Apk));
+            }
+            Message::PackageSearchRequested => return self.search_packages(),
+            Message::PackageInstallRequested => return self.install_package_input(),
+            Message::PackageInstallDirect(id) => {
+                return self.install_package(id);
+            }
+            Message::PackageRefresh => {
+                return self.load_packages(self.packages.kind.unwrap_or(PackageKind::Apk))
+            }
+            Message::PackageRefreshIndexes => return self.refresh_apk_indexes(),
+            Message::PackageUpdateRequested => {
+                self.packages.pending_update = self.packages.kind;
+            }
+            Message::PackageUpdateConfirmed => return self.confirm_package_update(),
+            Message::PackageUpdateCancelled => self.packages.pending_update = None,
+            Message::PackageRemoveRequested(kind, name, id) => {
+                self.packages.pending_remove = Some((kind, name, id));
+            }
+            Message::PackageRemoveConfirmed => return self.confirm_package_remove(),
+            Message::PackageRemoveCancelled => self.packages.pending_remove = None,
+            Message::PackageApkLoaded(epoch, result) => return self.finish_apk(epoch, result),
+            Message::PackageFlatpakLoaded(epoch, result) => {
+                return self.finish_flatpak(epoch, result)
+            }
+            Message::PackageApkSearchLoaded(epoch, result) => {
+                return self.finish_apk_search(epoch, result)
+            }
+            Message::PackageFlatpakSearchLoaded(epoch, result) => {
+                return self.finish_flatpak_search(epoch, result)
+            }
+            Message::PackageActionFinished(epoch, label, result) => {
+                return self.finish_package_action(epoch, &label, result)
             }
             Message::SnapshotsLoaded(epoch, result) => return self.finish_snapshots(epoch, result),
             Message::RefreshSnapshots => return self.load_snapshots(),
@@ -273,6 +342,20 @@ impl cosmic::Application for App {
             Message::NiriLoaded(epoch, result) => return self.finish_niri(epoch, result),
             Message::RefreshNiri => return self.load_niri(),
             Message::NiriGapsChanged(value) => self.niri.gaps = value,
+            Message::NiriGapsPreset(index) => {
+                self.niri.gaps = ["", "0", "4", "8", "12", "16", "24", "32"]
+                    .get(index)
+                    .copied()
+                    .unwrap_or_default()
+                    .to_string();
+            }
+            Message::NiriCursorSizePreset(index) => {
+                self.niri.cursor_size = ["", "16", "24", "32", "48", "64"]
+                    .get(index)
+                    .copied()
+                    .unwrap_or_default()
+                    .to_string();
+            }
             Message::NiriAnimationsToggled(value) => self.niri.animations_off = value,
             Message::NiriTapToggled(value) => self.niri.tap = value,
             Message::NiriNaturalScrollToggled(value) => self.niri.natural_scroll = value,
@@ -307,6 +390,21 @@ impl cosmic::Application for App {
                 self.store.prune_preview = None;
             }
             Message::StoreHistoryAgeChanged(value) => self.store.history_age = value,
+            Message::StoreKeepPreset(index) => {
+                self.store.keep_input = ["1", "3", "5", "10", "20"]
+                    .get(index)
+                    .copied()
+                    .unwrap_or("5")
+                    .to_string();
+                self.store.prune_preview = None;
+            }
+            Message::StoreHistoryAgePreset(index) => {
+                self.store.history_age = ["7d", "30d", "90d", "1y"]
+                    .get(index)
+                    .copied()
+                    .unwrap_or("30d")
+                    .to_string();
+            }
             Message::StoreActionRequested(action) => return self.request_store_action(action),
             Message::StoreActionConfirmed => {
                 if let Some(PendingStoreAction { action, scope }) = self.store.pending.clone() {
@@ -354,19 +452,27 @@ impl cosmic::Application for App {
     fn view(&self) -> Element<'_, Self::Message> {
         self.session.as_ref().map_or_else(
             || self.login.view(),
-            |session| match self.screen {
-                Screen::Home => self.home.view(
-                    session.expires_in_secs,
-                    self.settings.config.as_ref().map(|config| &config.modules),
-                ),
-                Screen::Settings => {
-                    self.settings
-                        .view(&self.home.caps, self.home.busy, self.home.error.as_deref())
-                }
-                Screen::Store => self.store.view(),
-                Screen::Snapshots => self.snapshots.view(),
-                Screen::Users => self.users.view(),
-                Screen::Niri => self.niri.view(),
+            |session| {
+                let content = match self.screen {
+                    Screen::Home => self.home.view(
+                        session.expires_in_secs,
+                        self.settings.config.as_ref().map(|config| &config.modules),
+                    ),
+                    Screen::Settings => self.settings.view(
+                        &self.home.caps,
+                        self.home.busy,
+                        self.home.error.as_deref(),
+                    ),
+                    Screen::Store => self.store.view(),
+                    Screen::Snapshots => self.snapshots.view(),
+                    Screen::Users => self.users.view(),
+                    Screen::Niri => self.niri.view(),
+                    Screen::Apk | Screen::Flatpak => self.packages.view(),
+                };
+                cosmic::iced::widget::row(vec![self.sidebar(), content])
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into()
             },
         )
     }
@@ -995,6 +1101,381 @@ impl App {
         Task::none()
     }
 
+    fn open_packages(&mut self, kind: PackageKind) -> Task<cosmic::Action<Message>> {
+        self.screen = match kind {
+            PackageKind::Apk => Screen::Apk,
+            PackageKind::Flatpak => Screen::Flatpak,
+        };
+        self.packages.open(kind);
+        self.load_packages(kind)
+    }
+
+    fn load_packages(&mut self, kind: PackageKind) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.packages.busy || self.packages.action_busy {
+            return Task::none();
+        }
+        self.packages.busy = true;
+        self.packages.searching = false;
+        self.packages.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        let system = self.packages.system;
+        Task::future(async move {
+            match kind {
+                PackageKind::Apk => Message::PackageApkLoaded(epoch, client::apk_list(token).await),
+                PackageKind::Flatpak => {
+                    Message::PackageFlatpakLoaded(epoch, client::flatpak_list(token, system).await)
+                }
+            }
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_apk(
+        &mut self,
+        epoch: u64,
+        result: Result<Vec<ApkPackage>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.packages.busy = false;
+        match result {
+            Ok(packages) => {
+                self.packages.apply_apk(packages);
+                self.packages.searching = false;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.packages.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn finish_flatpak(
+        &mut self,
+        epoch: u64,
+        result: Result<Vec<FlatpakPackage>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.packages.busy = false;
+        match result {
+            Ok(packages) => {
+                self.packages.apply_flatpak(packages);
+                self.packages.searching = false;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.packages.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn finish_apk_search(
+        &mut self,
+        epoch: u64,
+        result: Result<Vec<ApkPackage>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.packages.busy = false;
+        match result {
+            Ok(packages) => {
+                self.packages.apply_apk(packages);
+                self.packages.searching = true;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.packages.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn finish_flatpak_search(
+        &mut self,
+        epoch: u64,
+        result: Result<Vec<FlatpakPackage>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.packages.busy = false;
+        match result {
+            Ok(packages) => {
+                self.packages.apply_flatpak(packages);
+                self.packages.searching = true;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.packages.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn search_packages(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.packages.busy || self.packages.action_busy {
+            return Task::none();
+        }
+        let query = self.packages.query.trim().to_string();
+        if query.is_empty() {
+            self.packages.error = Some("Enter a search term.".into());
+            return Task::none();
+        }
+        let kind = self.packages.kind.unwrap_or(PackageKind::Apk);
+        let system = self.packages.system;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.packages.busy = true;
+        self.packages.error = None;
+        Task::future(async move {
+            match kind {
+                PackageKind::Apk => {
+                    Message::PackageApkSearchLoaded(epoch, client::apk_search(token, query).await)
+                }
+                PackageKind::Flatpak => Message::PackageFlatpakSearchLoaded(
+                    epoch,
+                    client::flatpak_search(token, query, system).await,
+                ),
+            }
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn install_package_input(&mut self) -> Task<cosmic::Action<Message>> {
+        let input = self.packages.install.trim().to_string();
+        if input.is_empty() {
+            self.packages.error = Some("Enter a package name.".into());
+            return Task::none();
+        }
+        self.install_package(input)
+    }
+
+    fn install_package(&mut self, package: String) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.packages.action_busy {
+            return Task::none();
+        }
+        let kind = self.packages.kind.unwrap_or(PackageKind::Apk);
+        let system = self.packages.system;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.error = None;
+        self.packages.pending_remove = None;
+        Task::future(async move {
+            let result = match kind {
+                PackageKind::Apk => client::apk_install(token, package).await,
+                PackageKind::Flatpak => client::flatpak_install(token, package, system).await,
+            };
+            Message::PackageActionFinished(epoch, "install".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn refresh_apk_indexes(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.packages.action_busy {
+            return Task::none();
+        }
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.error = None;
+        Task::future(async move {
+            Message::PackageActionFinished(
+                epoch,
+                "refresh_indexes".into(),
+                client::apk_refresh(token).await,
+            )
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn confirm_package_update(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some(kind) = self.packages.pending_update.take() else {
+            return Task::none();
+        };
+        if self.packages.action_busy {
+            return Task::none();
+        }
+        let system = self.packages.system;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.error = None;
+        Task::future(async move {
+            let result = match kind {
+                PackageKind::Apk => client::apk_upgrade(token).await,
+                PackageKind::Flatpak => client::flatpak_update(token, system).await,
+            };
+            Message::PackageActionFinished(epoch, "update".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn confirm_package_remove(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some((kind, _name, id)) = self.packages.pending_remove.take() else {
+            return Task::none();
+        };
+        if self.packages.action_busy {
+            return Task::none();
+        }
+        let system = self.packages.system;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.error = None;
+        Task::future(async move {
+            let result = match kind {
+                PackageKind::Apk => client::apk_remove(token, id).await,
+                PackageKind::Flatpak => client::flatpak_remove(token, id, system).await,
+            };
+            Message::PackageActionFinished(epoch, "remove".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_package_action(
+        &mut self,
+        epoch: u64,
+        label: &str,
+        result: Result<serde_json::Value, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.packages.action_busy = false;
+        match result {
+            Ok(value) => {
+                self.packages.error = None;
+                let detail = value
+                    .get("output")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or(label);
+                self.packages.message = Some(detail.lines().next().unwrap_or(label).to_string());
+                self.packages.searching = false;
+                return self.load_packages(self.packages.kind.unwrap_or(PackageKind::Apk));
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.packages.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn sidebar(&self) -> Element<'_, Message> {
+        use cosmic::widget::{button, column, container, scrollable, text};
+
+        let entries: [(Screen, &str); 8] = [
+            (Screen::Home, "Overview"),
+            (Screen::Store, "Nix packages"),
+            (Screen::Apk, "APK packages"),
+            (Screen::Flatpak, "Flatpak applications"),
+            (Screen::Snapshots, "Snapshots"),
+            (Screen::Users, "Users"),
+            (Screen::Niri, "Niri desktop"),
+            (Screen::Settings, "Settings"),
+        ];
+        let mut items: Vec<Element<'_, Message>> = vec![
+            text::title3("Ursine").into(),
+            text(format!("signed in as {}", self.home.user)).into(),
+            text("").height(Length::Fixed(12.0)).into(),
+        ];
+        for (screen, title) in entries {
+            let selected = self.screen == screen;
+            let available = self.screen_available(screen);
+            let mut entry = if selected {
+                button::suggested(title)
+            } else {
+                button::text(title)
+            }
+            .width(Length::Fill);
+            if !selected && available {
+                entry = entry.on_press(Self::navigate(screen));
+            }
+            items.push(entry.into());
+        }
+        items.push(text("").height(Length::Fill).into());
+        items.push(button::text("Sign out").on_press(Message::SignOut).into());
+        let panel = column(items)
+            .spacing(4)
+            .padding(16)
+            .width(Length::Fixed(240.0));
+        container(scrollable(panel))
+            .class(cosmic::theme::Container::Background)
+            .height(Length::Fill)
+            .into()
+    }
+
+    fn navigate(screen: Screen) -> Message {
+        match screen {
+            Screen::Home => Message::BackHome,
+            Screen::Settings => Message::OpenSettings,
+            Screen::Store => Message::OpenStore,
+            Screen::Snapshots => Message::OpenSnapshots,
+            Screen::Users => Message::OpenUsers,
+            Screen::Niri => Message::OpenNiri,
+            Screen::Apk => Message::OpenPackages(PackageKind::Apk),
+            Screen::Flatpak => Message::OpenPackages(PackageKind::Flatpak),
+        }
+    }
+
+    fn cap_available(&self, capability: Capability) -> bool {
+        self.home
+            .caps
+            .iter()
+            .find(|report| report.capability == capability)
+            .is_some_and(|report| report.available)
+    }
+
+    fn screen_available(&self, screen: Screen) -> bool {
+        match screen {
+            Screen::Home | Screen::Settings => true,
+            Screen::Store => self.cap_available(Capability::Nix),
+            Screen::Snapshots => {
+                self.cap_available(Capability::Btrbk) && self.cap_available(Capability::Btrfs)
+            }
+            Screen::Users => self.cap_available(Capability::Accountsservice),
+            Screen::Niri => self.cap_available(Capability::Niri),
+            Screen::Apk => self.cap_available(Capability::Apk),
+            Screen::Flatpak => self.cap_available(Capability::Flatpak),
+        }
+    }
+
     fn sign_in(&mut self) -> Task<cosmic::Action<Message>> {
         if self.login.busy {
             return Task::none();
@@ -1030,6 +1511,7 @@ impl App {
                 self.store = StoreState::default();
                 self.users = UsersState::default();
                 self.niri = NiriState::default();
+                self.packages = PackagesState::default();
                 self.home.user.clone_from(&user);
                 self.home.busy = true;
                 self.home.error = None;
@@ -1575,6 +2057,7 @@ impl App {
         self.store = StoreState::default();
         self.users = UsersState::default();
         self.niri = NiriState::default();
+        self.packages = PackagesState::default();
         self.screen = Screen::Home;
         self.login.password.clear();
         self.login.error = None;

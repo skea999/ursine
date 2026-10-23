@@ -25,7 +25,7 @@ See `AGENTS.md` for project context and milestone history.
 ## Session 2026-10-23 — CI optimization
 
 - Lint is now one `cargo clippy --workspace --all-targets --all-features`; GUI job runs only `cargo test -p ursine --all-targets` (no separate build, no duplicate clippy).
-- `package` starts in parallel with test/lint/gui/static/docs; `publish` waits for all quality gates.
+- `package` starts in parallel with test/lint/gui/analyzer/docs; `publish` waits for all quality gates.
 - Nix flake moved off the tag/main critical path: PR-only and only when Nix inputs change; tag `verify-pin` runs `nix flake check` + `nix build` after publish.
 - Cargo target/registry caches: restore-only on PR/tag, saved only on `main`; release package path uncached. Zizmor cache-poisoning clean.
 - Optimized main CI 39988854754 green in ~11m with package skipped (v0.7.0 already tagged).
@@ -47,7 +47,7 @@ See `AGENTS.md` for project context and milestone history.
 
 ## Session 2026-10-22 — static analysis gate + v0.4.0 (uncommitted, gate-green)
 
-**Status**: strict static/security/dependency gate implemented, version 0.4.0 pushed. GitHub CI run 39833951848 green: image, flake, docs, zizmor, static, gui, test, lint, package, publish. App is not containerized; only tooling images are used.
+**Status**: strict static/security/dependency gate implemented, version 0.4.0 pushed. GitHub CI run 39833951848 green: image, flake, docs, zizmor, analyzer, gui, test, lint, package, publish. App is not containerized; only tooling images are used.
 
 - Rust lints: pinned `rust-toolchain.toml` (1.99.1), `rustfmt.toml`, `clippy.toml`, workspace `[lints]` with clippy all/pedantic/nursery/cargo + restriction set (`unwrap_used`, `expect_used`, `panic`, `indexing_slicing`, `string_slice`, ...), `unsafe_code = forbid`. Fixed all production findings.
 - Repo lint: `typos`, `editorconfig-checker`, `shellcheck`, `shfmt`, `taplo`, `actionlint`, `zizmor`, `statix`/`deadnix`/`alejandra`; Markdown via `ursine-docs:1` + `scripts/docs-check.sh`.
@@ -55,7 +55,7 @@ See `AGENTS.md` for project context and milestone history.
 - Dependencies: `cargo-deny` (advisories, licenses, bans, sources; wildcard deny; pinned git allowlist), `cargo-audit` with warn <10 / block >=10 threshold (`scripts/audit-threshold.sh`), `cargo-machete`, per-crate CycloneDX SBOM. Duplicates: `cargo tree -d`, report-only.
 - Tooling: three Alpine 3.24 images (`ursine-ci:1` build/test, `ursine-static:1` analyzers, `ursine-docs:1` Markdown); `scripts/dev.sh` is the single local entry point; CI builds `ursine-ci` once and pushes it to GHCR for all build/test jobs. Canonical commands: `docs/guides/build-and-test.md`; policy: `docs/STATIC-ANALYSIS.md`; exceptions: `docs/static-analysis-exceptions.md`.
 - Layout: shipped activation/deactivation tools moved to `src/tools/`; web placeholder at `src/web/`; dev/CI tooling stays in `scripts/`.
-- CI: GUI tests run; build/test/lint/gui/package use the GHCR `ursine-ci:main` image; `static` and `docs` jobs build their own images and run the same scripts; zizmor job; Nix linters; actions/images pinned; release cache removed.
+- CI: GUI tests run; build/test/lint/gui/package use the GHCR `ursine-ci:main` image; `analyzer` and `docs` jobs build their own images and run the same scripts; zizmor job; Nix linters; actions/images pinned; release cache removed.
 - Gate: `scripts/dev.sh check` PASS; `scripts/dev.sh static all` PASS; `scripts/dev.sh docs` PASS; cargo test 143 (GUI 31, API 26, integration 6, core 80) all features; PAM/default matrix; clippy `-D warnings`; fmt; rustdoc; nix linters; zizmor clean.
 - Version: workspace 0.4.0 (minor bump). `nix/binary.nix` stays pinned to 0.3.1 until the next tag release.
 

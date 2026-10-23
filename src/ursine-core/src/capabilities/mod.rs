@@ -91,6 +91,8 @@ pub fn module_switch(modules: &ModulesConfig, cap: Capability) -> TriState {
     match cap {
         Capability::Btrbk | Capability::Btrfs => modules.snapshots,
         Capability::Nix => modules.packages_nix,
+        Capability::Apk => modules.packages_apk,
+        Capability::Flatpak => modules.packages_flatpak,
         Capability::Accountsservice => modules.users,
         Capability::Niri => modules.niri,
         Capability::Dinit => TriState::Auto,

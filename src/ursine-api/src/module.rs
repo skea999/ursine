@@ -14,6 +14,10 @@ pub enum ModuleId {
     Capabilities,
     /// Nix user profiles (the flagship).
     PackagesNix,
+    /// Alpine system packages.
+    PackagesApk,
+    /// Flatpak applications.
+    PackagesFlatpak,
     /// btrbk snapshot management.
     Snapshots,
     /// Users and groups via accountsservice.
@@ -30,6 +34,8 @@ impl ModuleId {
             Self::Config => "config",
             Self::Capabilities => "capabilities",
             Self::PackagesNix => "packages_nix",
+            Self::PackagesApk => "packages_apk",
+            Self::PackagesFlatpak => "packages_flatpak",
             Self::Snapshots => "snapshots",
             Self::Users => "users",
             Self::Niri => "niri",
@@ -57,6 +63,8 @@ mod tests {
             ModuleId::Config,
             ModuleId::Capabilities,
             ModuleId::PackagesNix,
+            ModuleId::PackagesApk,
+            ModuleId::PackagesFlatpak,
             ModuleId::Snapshots,
             ModuleId::Users,
             ModuleId::Niri,

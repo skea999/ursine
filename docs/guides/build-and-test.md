@@ -118,16 +118,16 @@ podman run --rm --network=host -v "$PWD:/work" -w /work nixos/nix \
 4. **gui** runs `cargo test -p ursine --all-targets --locked`. This compiles
    and runs the GUI tests; there is no separate `cargo build`, and clippy is
    not repeated.
-5. **static**, **docs**, and **zizmor** run in parallel. `static` runs the
+5. **analyzer**, **docs**, and **zizmor** run in parallel. `analyzer` runs the
    repo/sast/deps/duplicates/sbom groups; `docs` runs markdownlint; `zizmor`
    audits workflow security.
 6. **version** resolves the workspace version and whether a package is due.
    **changes** supplies the PR package/nix path filters.
 7. **package** starts after `image`/`version`/`changes`, in parallel with the
-   test/lint/gui/static/docs jobs. It builds release PAM `ursined` and the GUI,
+   test/lint/gui/analyzer/docs jobs. It builds release PAM `ursined` and the GUI,
    runs the installer smoke tests, creates the tarball/checksum, and uploads
    `ursine-release`. This path has no dependency cache on purpose.
-8. **publish** waits for `package` plus `test`, `lint`, `gui`, `static`,
+8. **publish** waits for `package` plus `test`, `lint`, `gui`, `analyzer`,
    `docs`, and `zizmor`. It publishes tag assets or the rolling `latest`, and
    updates `nix/binary.nix` on tags.
 9. **flake** runs on PR/main only when `flake.nix`, `flake.lock`, or `nix/**`
@@ -136,7 +136,7 @@ podman run --rm --network=host -v "$PWD:/work" -w /work nixos/nix \
 10. **verify-pin** runs after a tag publish and executes `nix flake check` and
     `nix build` against the new pin on `main`.
 
-Cargo cache policy: test/lint/gui/static use `actions/cache/restore`; only
+Cargo cache policy: test/lint/gui/analyzer use `actions/cache/restore`; only
 pushes to `main` save (`actions/cache/save`). Tag/PR refs are restore-only, and the
 release package path is never cached. This keeps zizmor's cache-poisoning
 audit clean while avoiding repeated dependency compilation on main.

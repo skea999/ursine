@@ -68,6 +68,8 @@ fn validate_config_read(path: &Path) -> Result<(), CoreError> {
 pub const fn configurable_module(module: ModuleId) -> Option<&'static str> {
     match module {
         ModuleId::PackagesNix => Some("packages_nix"),
+        ModuleId::PackagesApk => Some("packages_apk"),
+        ModuleId::PackagesFlatpak => Some("packages_flatpak"),
         ModuleId::Snapshots => Some("snapshots"),
         ModuleId::Users => Some("users"),
         ModuleId::Niri => Some("niri"),
