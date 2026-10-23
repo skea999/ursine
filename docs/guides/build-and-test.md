@@ -130,9 +130,9 @@ podman run --rm --network=host -v "$PWD:/work" -w /work nixos/nix \
 8. **publish** waits for `package` plus `test`, `lint`, `gui`, `static`,
    `docs`, and `zizmor`. It publishes tag assets or the rolling `latest`, and
    updates `nix/binary.nix` on tags.
-9. **flake** is PR-only and runs only when `flake.nix`, `flake.lock`, or
-   `nix/**` changed. It is not a dependency of `package`, so a tag does not
-   try to fetch a not-yet-published artifact.
+9. **flake** runs on PR/main only when `flake.nix`, `flake.lock`, or `nix/**`
+   changed. It is not a dependency of `package`, so a tag does not try to
+   fetch a not-yet-published artifact.
 10. **verify-pin** runs after a tag publish and executes `nix flake check` and
     `nix build` against the new pin on `main`.
 
