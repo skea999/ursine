@@ -8,20 +8,28 @@ See `AGENTS.md` for project context and milestone history.
 
 ## Session 2026-10-23 — users + niri baseline, 0.7.0
 
-**Status**: implementation + gate green; 0.7.0 release pending (commit/push/tag).
+**Status**: 0.7.0 released. Main CI 39981968110 green; tag CI 39986691808 green; Nix pin 86d90e2; local profile `ursined 0.7.0 (auth: pam)`.
 
 - Users: accountsservice list/create/delete/set-password, `/etc/group` memberships, runtime-selected `usermod`/`addgroup`/`gpasswd` group replacement, SHA-512 crypt off the async worker; uid 1000..60000 and self-wheel removal guards. GUI: create (admin), password confirmation, groups, delete confirmation with home cleanup.
 - Niri: KDL round-trip for layout gaps, animations, touchpad, cursor; unknown nodes/comments preserved; `niri validate` before write; atomic user-scoped temp+rename with backup (`.ursine-backup`); all niri I/O and validation run as the target user through fixed `su` scripts (root never opens the path); passwd lookup fails closed. GUI form + validate/save.
 - Spec scope note: these are the first niri managed-section groups; outputs, keybinds, gestures, keyboard/pointer, environment/spawn lists, screenshot path and hotkey overlay remain (docs/TASKS.md).
 - Security review: first pass found root-side niri TOCTOU/write issues; refactored all niri read/write/validate to run as the target user through fixed `su` scripts. Second pass: no security findings.
 - Gate: 161 tests (GUI 35, API 26, integration 6, core 94); clippy `-D warnings`; fmt; static all PASS; docs PASS; version 0.7.0.
-- No commit/push yet. `nix/binary.nix` stays at 0.6.0 until the tag pipeline auto-pins 0.7.0.
+- Released v0.7.0; `nix/binary.nix` auto-pinned in 86d90e2.
 
 **Next**:
-1. Commit + push `main`; wait CI green.
-2. Tag `v0.7.0`; wait tag CI; pull auto-pin; `nix profile upgrade ursine`; verify `ursined 0.7.0`.
-3. Root activation/restart remains manual: `sudo "$HOME/.nix-profile/bin/ursine-activate"` then restart `ursined`.
-4. Real accountsservice/niri smoke needs a running daemon as root.
+1. Root activation/restart remains manual: `sudo "$HOME/.nix-profile/bin/ursine-activate"` then restart `ursined`.
+2. Real accountsservice/niri smoke needs a running daemon as root.
+3. CI optimization pushed in 88f3bdc: package starts in parallel, single workspace clippy, GUI build removed, Nix PR-only, caches restore-only off main, verify-pin after publish.
+
+## Session 2026-10-23 — CI optimization
+
+- Lint is now one `cargo clippy --workspace --all-targets --all-features`; GUI job runs only `cargo test -p ursine --all-targets` (no separate build, no duplicate clippy).
+- `package` starts in parallel with test/lint/gui/static/docs; `publish` waits for all quality gates.
+- Nix flake moved off the tag/main critical path: PR-only and only when Nix inputs change; tag `verify-pin` runs `nix flake check` + `nix build` after publish.
+- Cargo target/registry caches: restore-only on PR/tag, saved only on `main`; release package path uncached. Zizmor cache-poisoning clean.
+- Optimized main CI 39988854754 green in ~11m with package skipped (v0.7.0 already tagged).
+- Details: `docs/guides/build-and-test.md` §8.
 
 ## Session 2026-10-22 — snapshots (btrbk), uncommitted
 
