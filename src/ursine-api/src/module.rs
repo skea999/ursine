@@ -20,6 +20,8 @@ pub enum ModuleId {
     PackagesFlatpak,
     /// CUPS printers and jobs.
     Printers,
+    /// SANE scanners.
+    Scanners,
     /// btrbk snapshot management.
     Snapshots,
     /// Users and groups via accountsservice.
@@ -39,6 +41,7 @@ impl ModuleId {
             Self::PackagesApk => "packages_apk",
             Self::PackagesFlatpak => "packages_flatpak",
             Self::Printers => "printers",
+            Self::Scanners => "scanners",
             Self::Snapshots => "snapshots",
             Self::Users => "users",
             Self::Niri => "niri",
@@ -69,6 +72,7 @@ mod tests {
             ModuleId::PackagesApk,
             ModuleId::PackagesFlatpak,
             ModuleId::Printers,
+            ModuleId::Scanners,
             ModuleId::Snapshots,
             ModuleId::Users,
             ModuleId::Niri,

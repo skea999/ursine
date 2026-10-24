@@ -15,6 +15,7 @@ pub mod nix;
 pub mod packages;
 pub mod principal;
 pub mod printer;
+pub mod scanner;
 pub mod snapshot;
 pub mod timeouts;
 pub mod token;
@@ -37,6 +38,7 @@ pub use nix::{
 pub use packages::{ApkPackage, FlatpakPackage};
 pub use principal::{AsUser, Principal, PrincipalOrigin};
 pub use printer::{PrintJob, Printer};
+pub use scanner::{ScanResult, Scanner};
 pub use snapshot::{BtrbkConfigView, BtrbkSettings, Snapshot, SnapshotStats};
 pub use token::SessionToken;
 pub use users::UserSummary;

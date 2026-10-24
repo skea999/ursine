@@ -10,6 +10,7 @@ pub mod packages_apk;
 pub mod packages_flatpak;
 pub mod packages_nix;
 pub mod printers;
+pub mod scanners;
 pub mod snapshots;
 pub mod users;
 
@@ -32,6 +33,7 @@ fn required_caps(module: ModuleId) -> &'static [Capability] {
         ModuleId::PackagesApk => &[Capability::Apk],
         ModuleId::PackagesFlatpak => &[Capability::Flatpak],
         ModuleId::Printers => &[Capability::Cups],
+        ModuleId::Scanners => &[Capability::Sane],
         ModuleId::Snapshots => &[Capability::Btrbk, Capability::Btrfs],
         ModuleId::Users => &[Capability::Accountsservice],
         ModuleId::Niri => &[Capability::Niri],
@@ -70,6 +72,8 @@ pub async fn handle(
 
         (ModuleId::Printers, action) => printers::handle(action, ctx).await,
 
+        (ModuleId::Scanners, action) => scanners::handle(action, ctx).await,
+
         (ModuleId::Snapshots, action) => snapshots::handle(action, ctx).await,
 
         (ModuleId::Users, action) => users::handle(action, ctx).await,
@@ -102,6 +106,8 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::UpgradeApk => "upgrade_apk",
         Action::ListFlatpak { .. } => "list_flatpak",
         Action::ListPrinters => "list_printers",
+        Action::ListScanners => "list_scanners",
+        Action::ScanDocument { .. } => "scan_document",
         Action::PrinterJobs { .. } => "printer_jobs",
         Action::AddPrinter { .. } => "add_printer",
         Action::RemovePrinter { .. } => "remove_printer",
@@ -198,7 +204,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn capabilities_list_returns_all_nine() {
+    async fn capabilities_list_returns_all_ten() {
         let (caps, cfg, _path) = ctx_with(AllMissing);
         let ctx = ModuleCtx {
             caps: &caps,
@@ -208,7 +214,7 @@ mod tests {
         let v = handle(ModuleId::Capabilities, &Action::List, &ctx)
             .await
             .unwrap();
-        assert_eq!(v.as_array().unwrap().len(), 9);
+        assert_eq!(v.as_array().unwrap().len(), 10);
     }
 
     #[tokio::test]

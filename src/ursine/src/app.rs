@@ -13,6 +13,7 @@ use crate::login::LoginState;
 use crate::niri::NiriState;
 use crate::packages::{PackageKind, PackagesState};
 use crate::printers::PrintersState;
+use crate::scanners::ScannersState;
 use crate::settings::SettingsState;
 use crate::snapshots::{SnapAction, SnapSetting, SnapshotsState};
 use crate::store::{PendingStoreAction, StoreAction, StoreScope, StoreState};
@@ -58,6 +59,7 @@ enum Screen {
     Apk,
     Flatpak,
     Printers,
+    Scanners,
 }
 
 pub struct App {
@@ -71,6 +73,7 @@ pub struct App {
     niri: NiriState,
     packages: PackagesState,
     printers: PrintersState,
+    scanners: ScannersState,
     screen: Screen,
     session: Option<Session>,
     /// Bumped on sign-in/sign-out so late async results cannot repopulate a
@@ -99,6 +102,15 @@ pub enum Message {
     OpenNiri,
     OpenPackages(PackageKind),
     OpenPrinters,
+    OpenScanners,
+    RefreshScanners,
+    ScannersLoaded(u64, Result<Vec<ursine_api::Scanner>, ApiError>),
+    ScannerSelected(usize),
+    ScannerResolutionChanged(usize),
+    ScannerModeChanged(usize),
+    ScannerSourceChanged(String),
+    ScannerScanRequested,
+    ScanFinished(u64, Result<ursine_api::ScanResult, ApiError>),
     RefreshPrinters,
     PrintersLoaded(
         u64,
@@ -296,6 +308,7 @@ impl cosmic::Application for App {
             niri: NiriState::default(),
             packages: PackagesState::default(),
             printers: PrintersState::default(),
+            scanners: ScannersState::default(),
             screen: Screen::Home,
             session: None,
             epoch: 0,
@@ -342,6 +355,18 @@ impl cosmic::Application for App {
                 self.screen = Screen::Printers;
                 return self.load_printers();
             }
+            Message::OpenScanners => {
+                self.screen = Screen::Scanners;
+                return self.load_scanners();
+            }
+            Message::RefreshScanners => return self.load_scanners(),
+            Message::ScannersLoaded(epoch, result) => return self.finish_scanners(epoch, result),
+            Message::ScannerSelected(index) => self.scanners.selected = Some(index),
+            Message::ScannerResolutionChanged(index) => self.scanners.resolution = index,
+            Message::ScannerModeChanged(index) => self.scanners.mode = index,
+            Message::ScannerSourceChanged(value) => self.scanners.source = value,
+            Message::ScannerScanRequested => return self.scan_document(),
+            Message::ScanFinished(epoch, result) => return self.finish_scan(epoch, result),
             Message::RefreshPrinters => return self.load_printers(),
             Message::PrintersLoaded(epoch, result) => return self.finish_printers(epoch, result),
             Message::PrinterNameChanged(value) => self.printers.name = value,
@@ -832,6 +857,7 @@ impl cosmic::Application for App {
                     Screen::Niri => self.niri.view(),
                     Screen::Apk | Screen::Flatpak => self.packages.view(),
                     Screen::Printers => self.printers.view(),
+                    Screen::Scanners => self.scanners.view(),
                 };
                 cosmic::iced::widget::row(vec![self.sidebar(), content])
                     .width(Length::Fill)
@@ -1764,12 +1790,13 @@ impl App {
     fn sidebar(&self) -> Element<'_, Message> {
         use cosmic::widget::{button, column, container, scrollable, text};
 
-        let entries: [(Screen, &str); 9] = [
+        let entries: [(Screen, &str); 10] = [
             (Screen::Home, "Overview"),
             (Screen::Store, "Nix packages"),
             (Screen::Apk, "APK packages"),
             (Screen::Flatpak, "Flatpak applications"),
             (Screen::Printers, "Printers"),
+            (Screen::Scanners, "Scanners"),
             (Screen::Snapshots, "Snapshots"),
             (Screen::Users, "Users"),
             (Screen::Niri, "Niri desktop"),
@@ -1817,6 +1844,7 @@ impl App {
             Screen::Apk => Message::OpenPackages(PackageKind::Apk),
             Screen::Flatpak => Message::OpenPackages(PackageKind::Flatpak),
             Screen::Printers => Message::OpenPrinters,
+            Screen::Scanners => Message::OpenScanners,
         }
     }
 
@@ -1840,6 +1868,7 @@ impl App {
             Screen::Apk => self.cap_available(Capability::Apk),
             Screen::Flatpak => self.cap_available(Capability::Flatpak),
             Screen::Printers => self.cap_available(Capability::Cups),
+            Screen::Scanners => self.cap_available(Capability::Sane),
         }
     }
 
@@ -1958,6 +1987,113 @@ impl App {
         Task::none()
     }
 
+    fn load_scanners(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.scanners.busy || self.scanners.action_busy {
+            return Task::none();
+        }
+        self.scanners.busy = true;
+        self.scanners.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(
+            async move { Message::ScannersLoaded(epoch, client::scanner_list(token).await) },
+        )
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_scanners(
+        &mut self,
+        epoch: u64,
+        result: Result<Vec<ursine_api::Scanner>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.scanners.busy = false;
+        match result {
+            Ok(scanners) => {
+                self.scanners.apply(scanners);
+                self.scanners.error = None;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.scanners.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn scan_document(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.scanners.action_busy {
+            return Task::none();
+        }
+        let Some(device) = self
+            .scanners
+            .selected_device()
+            .map(|scanner| scanner.id.clone())
+        else {
+            self.scanners.error = Some("Select a scanner.".into());
+            return Task::none();
+        };
+        let resolution = [75_u32, 100, 150, 200, 300, 600]
+            .get(self.scanners.resolution)
+            .copied()
+            .unwrap_or(300);
+        let mode = ["Color", "Gray", "Lineart"]
+            .get(self.scanners.mode)
+            .copied()
+            .unwrap_or("Color")
+            .to_string();
+        let source = if self.scanners.source.trim().is_empty() {
+            "Flatbed".to_string()
+        } else {
+            self.scanners.source.trim().to_string()
+        };
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.scanners.action_busy = true;
+        self.scanners.error = None;
+        Task::future(async move {
+            Message::ScanFinished(
+                epoch,
+                client::scan_document(token, device, resolution, mode, source).await,
+            )
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_scan(
+        &mut self,
+        epoch: u64,
+        result: Result<ursine_api::ScanResult, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.scanners.action_busy = false;
+        match result {
+            Ok(result) => {
+                self.scanners.message = Some(format!("Saved {}", result.path));
+                self.scanners.error = None;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.scanners.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
     fn sign_in(&mut self) -> Task<cosmic::Action<Message>> {
         if self.login.busy {
             return Task::none();
@@ -1995,6 +2131,7 @@ impl App {
                 self.niri = NiriState::default();
                 self.packages = PackagesState::default();
                 self.printers = PrintersState::default();
+                self.scanners = ScannersState::default();
                 self.home.user.clone_from(&user);
                 self.home.busy = true;
                 self.home.error = None;
@@ -2542,6 +2679,7 @@ impl App {
         self.niri = NiriState::default();
         self.packages = PackagesState::default();
         self.printers = PrintersState::default();
+        self.scanners = ScannersState::default();
         self.screen = Screen::Home;
         self.login.password.clear();
         self.login.error = None;

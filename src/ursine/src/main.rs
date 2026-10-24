@@ -12,6 +12,7 @@ mod login;
 mod niri;
 mod packages;
 mod printers;
+mod scanners;
 mod settings;
 mod snapshots;
 mod store;

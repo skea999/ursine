@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use ursine_api::{
     installable_from_attr, timeouts, Action, ApiError, ApkPackage, BtrbkConfigView, BtrbkSettings,
     FlatpakPackage, InstalledPackage, ModuleId, ModulesConfig, NiriConfigView, PrintJob, Printer,
-    Request, RequestBody, Response, ResponseBody, SearchResult, SessionToken, Snapshot,
-    SnapshotStats, TriState, UserSummary, PROTOCOL_VERSION,
+    Request, RequestBody, Response, ResponseBody, ScanResult, Scanner, SearchResult, SessionToken,
+    Snapshot, SnapshotStats, TriState, UserSummary, PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
@@ -1178,4 +1178,45 @@ pub async fn cancel_printer_jobs(
         MUTATE_TIMEOUT,
     )
     .await
+}
+
+pub async fn scanner_list(token: SessionToken) -> Result<Vec<Scanner>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Scanners,
+        Action::ListScanners,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let scanners = value
+        .get("scanners")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon scanner response has no scanners"))?;
+    serde_json::from_value(scanners)
+        .map_err(|e| ApiError::internal(format!("cannot read scanners: {e}")))
+}
+
+pub async fn scan_document(
+    token: SessionToken,
+    device: String,
+    resolution: u32,
+    mode: String,
+    source: String,
+) -> Result<ScanResult, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Scanners,
+        Action::ScanDocument {
+            device,
+            resolution,
+            mode,
+            source,
+        },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read scan result: {e}")))
 }

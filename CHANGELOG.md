@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0] — 2026-10-24
+
+### Added
+
+- SANE scanners panel: device discovery and one-page PNG scans to the target
+  user's Pictures directory.
+
 ## [0.12.0] — 2026-10-24
 
 ### Added
@@ -162,6 +169,13 @@
 - PAM via `pam-client 0.2` (replaces `pam 0.7`): fixes RUSTSEC-2025-0040 (`users 0.8` vulnerable/unmaintained) and avoids bindgen.
 
 All notable changes to Ursine. Format: Keep a Changelog, semver.
+
+## [0.13.0] — 2026-10-24
+
+### Added
+
+- SANE scanners panel: device discovery and one-page PNG scans to the target
+  user's Pictures directory.
 
 ## [0.12.0] — 2026-10-24
 

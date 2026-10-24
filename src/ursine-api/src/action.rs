@@ -173,6 +173,17 @@ pub enum Action {
         printer: Option<String>,
     },
 
+    // -- scanners (SANE) --
+    /// List SANE scanner devices.
+    ListScanners,
+    /// Scan one page to a PNG in the user's Pictures directory.
+    ScanDocument {
+        device: String,
+        resolution: u32,
+        mode: String,
+        source: String,
+    },
+
     // -- snapshots (btrbk) --
     /// List btrbk-managed snapshots.
     ListSnapshots,
