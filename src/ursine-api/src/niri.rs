@@ -55,6 +55,52 @@ pub struct NiriValues {
     pub environment: Vec<NiriEnvVar>,
     #[serde(default)]
     pub spawn_at_startup: Vec<NiriSpawn>,
+    #[serde(default)]
+    pub keybinds: Vec<NiriKeybind>,
+    #[serde(default)]
+    pub gestures: NiriGestures,
+}
+
+/// One niri key binding.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NiriKeybind {
+    pub key: String,
+    #[serde(default)]
+    pub actions: Vec<NiriBindAction>,
+}
+
+/// One action inside a key binding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NiriBindAction {
+    pub name: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
+/// Managed niri gesture settings.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NiriGestures {
+    #[serde(default)]
+    pub hot_corners: Vec<String>,
+    #[serde(default)]
+    pub hot_corners_off: bool,
+    #[serde(default)]
+    pub dnd_edge_view_scroll: NiriEdgeGesture,
+    #[serde(default)]
+    pub dnd_edge_workspace_switch: NiriEdgeGesture,
+}
+
+/// Edge-scroll gesture tuning.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NiriEdgeGesture {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delay_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_speed: Option<u32>,
 }
 
 /// One managed `spawn-at-startup` command.

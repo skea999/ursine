@@ -6,7 +6,26 @@ use cosmic::widget::{
 };
 use cosmic::Element;
 use serde_json::json;
-use ursine_api::{NiriConfigView, NiriEnvVar, NiriOutput};
+use ursine_api::{NiriConfigView, NiriEnvVar, NiriKeybind, NiriOutput};
+
+pub const BIND_ACTIONS: [&str; 16] = [
+    "spawn",
+    "close-window",
+    "fullscreen-window",
+    "toggle-windowed-fullscreen",
+    "focus-column-left",
+    "focus-column-right",
+    "move-column-left",
+    "move-column-right",
+    "focus-workspace-down",
+    "focus-workspace-up",
+    "move-window-to-workspace-down",
+    "move-window-to-workspace-up",
+    "toggle-overview",
+    "screenshot",
+    "quit",
+    "reload-config",
+];
 
 use crate::app::{Message, StrutEdge};
 
@@ -50,6 +69,17 @@ pub struct NiriState {
     pub spawn_text: Vec<String>,
     pub new_spawn: String,
     pub spawn_dirty: bool,
+    pub keybinds: Vec<NiriKeybind>,
+    pub keybind_actions: Vec<usize>,
+    pub keybind_custom: Vec<String>,
+    pub keybind_args: Vec<String>,
+    pub keybind_dirty: bool,
+    pub new_bind_key: String,
+    pub new_bind_action: usize,
+    pub new_bind_args: String,
+    pub hot_corners: [bool; 4],
+    pub hot_corners_off: bool,
+    pub gesture_dirty: bool,
 }
 
 impl NiriState {
@@ -128,6 +158,68 @@ impl NiriState {
             .map(|spawn| shell_join(&spawn.command))
             .collect();
         self.spawn_dirty = false;
+        self.keybinds.clone_from(&values.keybinds);
+        self.keybind_actions = self
+            .keybinds
+            .iter()
+            .map(|bind| {
+                bind.actions
+                    .first()
+                    .and_then(|action| BIND_ACTIONS.iter().position(|known| *known == action.name))
+                    .unwrap_or(BIND_ACTIONS.len())
+            })
+            .collect();
+        self.keybind_custom = self
+            .keybinds
+            .iter()
+            .map(|bind| {
+                bind.actions
+                    .first()
+                    .map(|action| {
+                        if BIND_ACTIONS.contains(&action.name.as_str()) {
+                            String::new()
+                        } else {
+                            action.name.clone()
+                        }
+                    })
+                    .unwrap_or_default()
+            })
+            .collect();
+        self.keybind_args = self
+            .keybinds
+            .iter()
+            .map(|bind| {
+                bind.actions
+                    .first()
+                    .map(|action| shell_join(&action.args))
+                    .unwrap_or_default()
+            })
+            .collect();
+        self.keybind_dirty = false;
+        self.hot_corners = [
+            values
+                .gestures
+                .hot_corners
+                .iter()
+                .any(|corner| corner == "top-left"),
+            values
+                .gestures
+                .hot_corners
+                .iter()
+                .any(|corner| corner == "top-right"),
+            values
+                .gestures
+                .hot_corners
+                .iter()
+                .any(|corner| corner == "bottom-left"),
+            values
+                .gestures
+                .hot_corners
+                .iter()
+                .any(|corner| corner == "bottom-right"),
+        ];
+        self.hot_corners_off = values.gestures.hot_corners_off;
+        self.gesture_dirty = false;
         self.view = Some(view);
         self.error = None;
     }
@@ -201,6 +293,46 @@ impl NiriState {
                 }
             }
             sections.push(("spawn".to_string(), json!({"commands": commands})));
+        }
+        if self.keybind_dirty {
+            let mut binds = Vec::with_capacity(self.keybinds.len());
+            for (index, bind) in self.keybinds.iter().enumerate() {
+                let action = self
+                    .keybind_actions
+                    .get(index)
+                    .and_then(|choice| BIND_ACTIONS.get(*choice))
+                    .map(|name| (*name).to_string())
+                    .or_else(|| self.keybind_custom.get(index).cloned())
+                    .filter(|name| !name.is_empty())
+                    .ok_or_else(|| "Choose an action for every keybind.".to_string())?;
+                let args = self
+                    .keybind_args
+                    .get(index)
+                    .filter(|text| !text.trim().is_empty())
+                    .map(|text| shell_split(text))
+                    .transpose()?
+                    .unwrap_or_default();
+                binds.push(json!({
+                    "key": bind.key,
+                    "actions": [{"name": action, "args": args}],
+                }));
+            }
+            sections.push(("keybinds".to_string(), json!({"binds": binds})));
+        }
+        if self.gesture_dirty {
+            let names = ["top-left", "top-right", "bottom-left", "bottom-right"];
+            let hot_corners: Vec<&str> = names
+                .iter()
+                .zip(self.hot_corners)
+                .filter_map(|(name, enabled)| enabled.then_some(*name))
+                .collect();
+            sections.push((
+                "gestures".to_string(),
+                json!({
+                    "hot_corners": hot_corners,
+                    "hot_corners_off": self.hot_corners_off,
+                }),
+            ));
         }
         sections.push((
             "animations".to_string(),
@@ -645,6 +777,126 @@ impl NiriState {
                 .add(settings::item(
                     "Hide hotkey overlay at startup",
                     toggler(self.hotkey_overlay_skip).on_toggle(Message::NiriHotkeyOverlayToggled),
+                ))
+                .into(),
+        );
+
+        let mut binds = settings::section().title("Keybinds");
+        if self.keybinds.is_empty() {
+            binds = binds.add(settings::item(
+                "Result",
+                text("No keybinds in the top-level binds block."),
+            ));
+        }
+        for (index, bind) in self.keybinds.iter().enumerate() {
+            binds = binds.add(settings::item(
+                format!("Keybind {}", index + 1),
+                column(vec![
+                    row(vec![
+                        text_input("Mod+Return", bind.key.clone())
+                            .on_input(move |value| Message::NiriBindKeyChanged(index, value))
+                            .into(),
+                        dropdown(
+                            {
+                                let mut options = BIND_ACTIONS.to_vec();
+                                options.push("custom");
+                                options
+                            },
+                            Some(
+                                self.keybind_actions
+                                    .get(index)
+                                    .copied()
+                                    .unwrap_or(BIND_ACTIONS.len())
+                                    .min(BIND_ACTIONS.len()),
+                            ),
+                            move |value| Message::NiriBindActionChanged(index, value),
+                        )
+                        .into(),
+                        button::text("Remove")
+                            .on_press(Message::NiriBindRemove(index))
+                            .into(),
+                    ])
+                    .spacing(8)
+                    .into(),
+                    text_input(
+                        "arguments (shell syntax)",
+                        self.keybind_args.get(index).cloned().unwrap_or_default(),
+                    )
+                    .on_input(move |value| Message::NiriBindArgsChanged(index, value))
+                    .into(),
+                ])
+                .spacing(4),
+            ));
+            if self
+                .keybind_actions
+                .get(index)
+                .is_some_and(|choice| *choice >= BIND_ACTIONS.len())
+            {
+                binds = binds.add(settings::item(
+                    "Custom action",
+                    text_input(
+                        "action-name",
+                        self.keybind_custom.get(index).cloned().unwrap_or_default(),
+                    )
+                    .on_input(move |value| Message::NiriBindCustomChanged(index, value)),
+                ));
+            }
+        }
+        binds = binds.add(settings::item(
+            "Add keybind",
+            column(vec![
+                row(vec![
+                    text_input("Mod+T", self.new_bind_key.clone())
+                        .on_input(Message::NiriNewBindKeyChanged)
+                        .into(),
+                    dropdown(
+                        {
+                            let mut options = BIND_ACTIONS.to_vec();
+                            options.push("custom");
+                            options
+                        },
+                        Some(self.new_bind_action.min(BIND_ACTIONS.len())),
+                        Message::NiriNewBindActionChanged,
+                    )
+                    .into(),
+                ])
+                .spacing(8)
+                .into(),
+                text_input("arguments", self.new_bind_args.clone())
+                    .on_input(Message::NiriNewBindArgsChanged)
+                    .into(),
+                button::text("Add").on_press(Message::NiriBindAdd).into(),
+            ])
+            .spacing(4),
+        ));
+        items.push(binds.into());
+
+        items.push(
+            settings::section()
+                .title("Gestures")
+                .add(settings::item(
+                    "Hot corners off",
+                    toggler(self.hot_corners_off).on_toggle(Message::NiriHotCornersOffToggled),
+                ))
+                .add(settings::item(
+                    "Top left",
+                    toggler(self.hot_corners[0])
+                        .on_toggle(move |value| Message::NiriHotCornerToggled(0, value)),
+                ))
+                .add(settings::item(
+                    "Top right",
+                    toggler(self.hot_corners[1])
+                        .on_toggle(move |value| Message::NiriHotCornerToggled(1, value)),
+                ))
+                .add(settings::item(
+                    "Bottom left",
+                    toggler(self.hot_corners[2])
+                        .on_toggle(move |value| Message::NiriHotCornerToggled(2, value)),
+                ))
+                .add(settings::item(
+                    "Bottom right",
+                    toggler(self.hot_corners[3])
+                        .on_toggle(move |value| Message::NiriHotCornerToggled(3, value)),
                 ))
                 .into(),
         );

@@ -172,6 +172,17 @@ pub enum Message {
     NiriSpawnAdd,
     NiriSpawnRemove(usize),
     NiriSpawnInputChanged(String),
+    NiriBindKeyChanged(usize, String),
+    NiriBindActionChanged(usize, usize),
+    NiriBindCustomChanged(usize, String),
+    NiriBindArgsChanged(usize, String),
+    NiriBindRemove(usize),
+    NiriNewBindKeyChanged(String),
+    NiriNewBindActionChanged(usize),
+    NiriNewBindArgsChanged(String),
+    NiriBindAdd,
+    NiriHotCornerToggled(usize, bool),
+    NiriHotCornersOffToggled(bool),
     NiriAnimationsToggled(bool),
     NiriTapToggled(bool),
     NiriNaturalScrollToggled(bool),
@@ -524,6 +535,79 @@ impl cosmic::Application for App {
                 }
             }
             Message::NiriSpawnInputChanged(value) => self.niri.new_spawn = value,
+            Message::NiriBindKeyChanged(index, value) => {
+                if let Some(keybind) = self.niri.keybinds.get_mut(index) {
+                    keybind.key = value;
+                    self.niri.keybind_dirty = true;
+                }
+            }
+            Message::NiriBindActionChanged(index, action) => {
+                if let Some(choice) = self.niri.keybind_actions.get_mut(index) {
+                    *choice = action;
+                    if action < crate::niri::BIND_ACTIONS.len() {
+                        if let Some(custom) = self.niri.keybind_custom.get_mut(index) {
+                            custom.clear();
+                        }
+                    }
+                    self.niri.keybind_dirty = true;
+                }
+            }
+            Message::NiriBindCustomChanged(index, value) => {
+                if let Some(custom) = self.niri.keybind_custom.get_mut(index) {
+                    *custom = value;
+                    self.niri.keybind_dirty = true;
+                }
+            }
+            Message::NiriBindArgsChanged(index, value) => {
+                if let Some(text) = self.niri.keybind_args.get_mut(index) {
+                    *text = value;
+                    self.niri.keybind_dirty = true;
+                }
+            }
+            Message::NiriBindRemove(index) => {
+                if index < self.niri.keybinds.len() {
+                    self.niri.keybinds.remove(index);
+                    self.niri.keybind_actions.remove(index);
+                    self.niri.keybind_custom.remove(index);
+                    self.niri.keybind_args.remove(index);
+                    self.niri.keybind_dirty = true;
+                }
+            }
+            Message::NiriNewBindKeyChanged(value) => self.niri.new_bind_key = value,
+            Message::NiriNewBindActionChanged(value) => self.niri.new_bind_action = value,
+            Message::NiriNewBindArgsChanged(value) => self.niri.new_bind_args = value,
+            Message::NiriBindAdd => {
+                let key = self.niri.new_bind_key.trim();
+                if !key.is_empty() {
+                    self.niri.keybinds.push(ursine_api::NiriKeybind {
+                        key: key.to_string(),
+                        actions: vec![ursine_api::NiriBindAction {
+                            name: crate::niri::BIND_ACTIONS
+                                .get(self.niri.new_bind_action)
+                                .copied()
+                                .unwrap_or("spawn")
+                                .to_string(),
+                            args: Vec::new(),
+                        }],
+                    });
+                    self.niri.keybind_actions.push(self.niri.new_bind_action);
+                    self.niri.keybind_custom.push(String::new());
+                    self.niri.keybind_args.push(self.niri.new_bind_args.clone());
+                    self.niri.new_bind_key.clear();
+                    self.niri.new_bind_args.clear();
+                    self.niri.keybind_dirty = true;
+                }
+            }
+            Message::NiriHotCornerToggled(index, value) => {
+                if let Some(corner) = self.niri.hot_corners.get_mut(index) {
+                    *corner = value;
+                    self.niri.gesture_dirty = true;
+                }
+            }
+            Message::NiriHotCornersOffToggled(value) => {
+                self.niri.hot_corners_off = value;
+                self.niri.gesture_dirty = true;
+            }
             Message::NiriOutputAdd => {
                 let name = self.niri.new_output.trim();
                 if !name.is_empty() && !self.niri.outputs.iter().any(|output| output.name == name) {

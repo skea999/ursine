@@ -5,7 +5,10 @@
 
 use kdl::{KdlDocument, KdlNode, KdlValue};
 use serde_json::Value as JsonValue;
-use ursine_api::{ApiError, NiriEnvVar, NiriOutput, NiriSpawn, NiriStruts, NiriValues};
+use ursine_api::{
+    ApiError, NiriBindAction, NiriEdgeGesture, NiriEnvVar, NiriGestures, NiriKeybind, NiriOutput,
+    NiriSpawn, NiriStruts, NiriValues,
+};
 
 pub(super) fn parse_values(doc: &KdlDocument) -> NiriValues {
     NiriValues {
@@ -34,6 +37,8 @@ pub(super) fn parse_values(doc: &KdlDocument) -> NiriValues {
         outputs: outputs(doc),
         environment: environment(doc),
         spawn_at_startup: spawn_at_startup(doc),
+        keybinds: keybinds(doc),
+        gestures: gestures(doc),
     }
 }
 
@@ -255,6 +260,19 @@ pub(super) fn apply_section(
                 applied = true;
             }
         }
+        "keybinds" => {
+            reject_unknown(object, &["binds"])?;
+            let binds = object
+                .get("binds")
+                .and_then(JsonValue::as_array)
+                .ok_or_else(|| ApiError::invalid("keybinds must be an array"))?;
+            apply_keybinds(doc, binds)?;
+            applied = true;
+        }
+        "gestures" => {
+            apply_gestures(doc, object)?;
+            applied = true;
+        }
         "spawn" => {
             reject_unknown(object, &["commands"])?;
             let commands = object
@@ -403,6 +421,258 @@ fn flag(doc: &KdlDocument, path: &[&str]) -> Option<bool> {
 }
 
 #[allow(clippy::cast_possible_truncation)]
+fn keybinds(doc: &KdlDocument) -> Vec<NiriKeybind> {
+    doc.get("binds")
+        .and_then(|node| node.children())
+        .map(|children| {
+            children
+                .nodes()
+                .iter()
+                .map(|node| NiriKeybind {
+                    key: node.name().value().to_string(),
+                    actions: node
+                        .children()
+                        .map(|actions| {
+                            actions
+                                .nodes()
+                                .iter()
+                                .map(|action| NiriBindAction {
+                                    name: action.name().value().to_string(),
+                                    args: action
+                                        .entries()
+                                        .iter()
+                                        .filter_map(|entry| {
+                                            entry.value().as_string().map(str::to_string)
+                                        })
+                                        .collect(),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn apply_keybinds(doc: &mut KdlDocument, binds: &[JsonValue]) -> Result<(), ApiError> {
+    let mut desired = Vec::with_capacity(binds.len());
+    for value in binds {
+        let object = value
+            .as_object()
+            .ok_or_else(|| ApiError::invalid("keybind must be an object"))?;
+        reject_unknown(object, &["key", "actions"])?;
+        let key = object
+            .get("key")
+            .and_then(JsonValue::as_str)
+            .filter(|key| valid_key(key))
+            .ok_or_else(|| ApiError::invalid("invalid key combination"))?;
+        let actions = object
+            .get("actions")
+            .and_then(JsonValue::as_array)
+            .filter(|actions| !actions.is_empty())
+            .ok_or_else(|| ApiError::invalid("keybind needs at least one action"))?;
+        let mut parsed = Vec::with_capacity(actions.len());
+        for action in actions {
+            let action = action
+                .as_object()
+                .ok_or_else(|| ApiError::invalid("bind action must be an object"))?;
+            reject_unknown(action, &["name", "args"])?;
+            let name = action
+                .get("name")
+                .and_then(JsonValue::as_str)
+                .filter(|name| valid_action(name))
+                .ok_or_else(|| ApiError::invalid("invalid bind action"))?;
+            let args = action
+                .get("args")
+                .and_then(JsonValue::as_array)
+                .map_or_else(Vec::new, |args| args.iter().collect::<Vec<_>>());
+            if args.len() > 64 {
+                return Err(ApiError::invalid("too many bind action arguments"));
+            }
+            let mut parsed_args = Vec::with_capacity(args.len());
+            for arg in args {
+                let arg = arg
+                    .as_str()
+                    .filter(|arg| arg.len() <= 4096)
+                    .ok_or_else(|| ApiError::invalid("invalid bind action argument"))?;
+                parsed_args.push(arg.to_string());
+            }
+            parsed.push(NiriBindAction {
+                name: name.to_string(),
+                args: parsed_args,
+            });
+        }
+        desired.push(NiriKeybind {
+            key: key.to_string(),
+            actions: parsed,
+        });
+    }
+    let binds_node = ensure_node(doc, "binds").ensure_children();
+    binds_node.nodes_mut().clear();
+    for bind in desired {
+        let mut node = KdlNode::new(bind.key);
+        let mut actions = KdlDocument::new();
+        for action in bind.actions {
+            let mut action_node = KdlNode::new(action.name);
+            for arg in action.args {
+                action_node.push(KdlValue::String(arg));
+            }
+            action_node.autoformat();
+            actions.nodes_mut().push(action_node);
+        }
+        node.set_children(actions);
+        node.autoformat();
+        binds_node.nodes_mut().push(node);
+    }
+    Ok(())
+}
+
+fn valid_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= 128
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '_' | ':' | ' '))
+}
+
+fn valid_action(action: &str) -> bool {
+    !action.is_empty()
+        && action.len() <= 128
+        && action
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
+fn gestures(doc: &KdlDocument) -> NiriGestures {
+    let Some(gestures) = doc.get("gestures").and_then(|node| node.children()) else {
+        return NiriGestures::default();
+    };
+    let hot = gestures.get("hot-corners").and_then(|node| node.children());
+    let hot_corners = hot
+        .map(|children| {
+            children
+                .nodes()
+                .iter()
+                .map(|node| node.name().value().to_string())
+                .filter(|name| name != "off")
+                .collect()
+        })
+        .unwrap_or_default();
+    let hot_corners_off = hot.is_some_and(|children| children.get("off").is_some());
+    NiriGestures {
+        hot_corners,
+        hot_corners_off,
+        dnd_edge_view_scroll: edge_gesture(gestures, "dnd-edge-view-scroll"),
+        dnd_edge_workspace_switch: edge_gesture(gestures, "dnd-edge-workspace-switch"),
+    }
+}
+
+fn edge_gesture(doc: &KdlDocument, name: &str) -> NiriEdgeGesture {
+    let Some(children) = doc.get(name).and_then(|node| node.children()) else {
+        return NiriEdgeGesture::default();
+    };
+    NiriEdgeGesture {
+        trigger_width: integer_child(children, "trigger-width"),
+        trigger_height: integer_child(children, "trigger-height"),
+        delay_ms: integer_child(children, "delay-ms"),
+        max_speed: integer_child(children, "max-speed"),
+    }
+}
+
+fn apply_gestures(
+    doc: &mut KdlDocument,
+    object: &serde_json::Map<String, JsonValue>,
+) -> Result<(), ApiError> {
+    reject_unknown(
+        object,
+        &[
+            "hot_corners",
+            "hot_corners_off",
+            "dnd_edge_view_scroll",
+            "dnd_edge_workspace_switch",
+        ],
+    )?;
+    let gestures = ensure_node(doc, "gestures").ensure_children();
+    if let Some(corners) = object.get("hot_corners") {
+        let corners = corners
+            .as_array()
+            .ok_or_else(|| ApiError::invalid("hot_corners must be an array"))?;
+        let mut names = Vec::with_capacity(corners.len());
+        for corner in corners {
+            let corner = corner
+                .as_str()
+                .filter(|corner| {
+                    matches!(
+                        *corner,
+                        "top-left" | "top-right" | "bottom-left" | "bottom-right"
+                    )
+                })
+                .ok_or_else(|| ApiError::invalid("invalid hot corner"))?;
+            names.push(corner.to_string());
+        }
+        if gestures.get("hot-corners").is_none() {
+            gestures.nodes_mut().push(KdlNode::new("hot-corners"));
+        }
+        if let Some(hot) = gestures
+            .get_mut("hot-corners")
+            .and_then(|node| node.children_mut().as_mut())
+        {
+            hot.nodes_mut().clear();
+            if object
+                .get("hot_corners_off")
+                .and_then(JsonValue::as_bool)
+                .unwrap_or(false)
+            {
+                hot.nodes_mut().push(KdlNode::new("off"));
+            } else {
+                for name in names {
+                    hot.nodes_mut().push(KdlNode::new(name));
+                }
+            }
+        }
+    }
+    for (key, name) in [
+        ("dnd_edge_view_scroll", "dnd-edge-view-scroll"),
+        ("dnd_edge_workspace_switch", "dnd-edge-workspace-switch"),
+    ] {
+        if let Some(value) = object.get(key) {
+            let value = value
+                .as_object()
+                .ok_or_else(|| ApiError::invalid("edge gesture must be an object"))?;
+            reject_unknown(
+                value,
+                &["trigger_width", "trigger_height", "delay_ms", "max_speed"],
+            )?;
+            if gestures.get(name).is_none() {
+                gestures.nodes_mut().push(KdlNode::new(name));
+            }
+            if let Some(children) = gestures
+                .get_mut(name)
+                .and_then(|node| node.children_mut().as_mut())
+            {
+                for (field, node_name) in [
+                    ("trigger_width", "trigger-width"),
+                    ("trigger_height", "trigger-height"),
+                    ("delay_ms", "delay-ms"),
+                    ("max_speed", "max-speed"),
+                ] {
+                    if let Some(value) = value.get(field) {
+                        let value = number(value, field, 100_000)?;
+                        if children.get(node_name).is_none() {
+                            children.nodes_mut().push(KdlNode::new(node_name));
+                        }
+                        if let Some(node) = children.get_mut(node_name) {
+                            set_arg(node, KdlValue::Integer(i128::from(value)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn spawn_at_startup(doc: &KdlDocument) -> Vec<NiriSpawn> {
     doc.nodes()
         .iter()
@@ -1082,6 +1352,44 @@ hotkey-overlay { skip-at-startup; }
         .unwrap();
         let output = doc.to_string();
         assert!(output.contains("accel-speed 0.1"));
+    }
+
+    #[test]
+    fn parses_and_updates_keybinds_and_gestures() {
+        let mut doc: KdlDocument = r#"binds {
+    Mod+Return { spawn "foot"; }
+    Mod+Q repeat=false { close-window; }
+}
+gestures {
+    hot-corners { top-right; bottom-right; }
+    dnd-edge-view-scroll { trigger-width 30; delay-ms 100; max-speed 1500; }
+}
+"#
+        .parse()
+        .unwrap();
+        let values = parse_values(&doc);
+        assert_eq!(values.keybinds.len(), 2);
+        assert_eq!(values.keybinds[0].key, "Mod+Return");
+        assert_eq!(values.keybinds[0].actions[0].name, "spawn");
+        assert_eq!(values.keybinds[0].actions[0].args, vec!["foot"]);
+        assert_eq!(values.gestures.hot_corners.len(), 2);
+        assert_eq!(values.gestures.dnd_edge_view_scroll.trigger_width, Some(30));
+        apply_section(
+            &mut doc,
+            "keybinds",
+            &serde_json::json!({"binds": [{"key": "Mod+T", "actions": [{"name": "spawn", "args": ["foot"]}]}]}),
+        )
+        .unwrap();
+        apply_section(
+            &mut doc,
+            "gestures",
+            &serde_json::json!({"hot_corners": ["top-left"], "hot_corners_off": false}),
+        )
+        .unwrap();
+        let output = doc.to_string();
+        assert!(output.contains("Mod+T"));
+        assert!(output.contains("top-left"));
+        assert!(!output.contains("bottom-right"));
     }
 
     #[test]
