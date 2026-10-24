@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.0] — 2026-10-24
+
+### Changed
+
+- Unified **Package manager** screen with Nix/APK/Flatpak tabs.
+- APK/Flatpak/Nix now share the same section order: Scope, Maintenance,
+  Upgrade all, Pattern actions (Nix only), Search, Installed.
+- Nix package descriptions use a consistent column layout and `attr:`/`url:`
+  labels.
+- btrbk retention accepts custom day/week/month/year expressions.
+
 ## [0.17.0] — 2026-10-24
 
 ### Changed
@@ -211,6 +222,17 @@
 - PAM via `pam-client 0.2` (replaces `pam 0.7`): fixes RUSTSEC-2025-0040 (`users 0.8` vulnerable/unmaintained) and avoids bindgen.
 
 All notable changes to Ursine. Format: Keep a Changelog, semver.
+
+## [0.18.0] — 2026-10-24
+
+### Changed
+
+- Unified **Package manager** screen with Nix/APK/Flatpak tabs.
+- APK/Flatpak/Nix now share the same section order: Scope, Maintenance,
+  Upgrade all, Pattern actions (Nix only), Search, Installed.
+- Nix package descriptions use a consistent column layout and `attr:`/`url:`
+  labels.
+- btrbk retention accepts custom day/week/month/year expressions.
 
 ## [0.17.0] — 2026-10-24
 

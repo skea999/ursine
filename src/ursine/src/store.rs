@@ -545,11 +545,12 @@ impl StoreState {
             ));
         }
         items.push(scope_section.into());
+        items.push(self.maintenance_view());
+        items.push(self.upgrade_all_view());
+        items.push(self.advanced_view());
         items.push(self.search_view());
         items.push(self.installed_view());
-        items.push(self.advanced_view());
         items.push(self.generations_view());
-        items.push(self.maintenance_view());
 
         scrollable(column(items).spacing(16).padding(24)).into()
     }
@@ -627,25 +628,24 @@ impl StoreState {
                     .installable
                     .clone()
                     .unwrap_or_else(|| result.attr.clone());
-                let details = row(vec![
-                    text(result.attr.clone()).into(),
+                let install =
                     button::text("Install")
                         .on_press_maybe(can_act.then(|| {
                             Message::StoreActionRequested(StoreAction::Install(installable))
                         }))
-                        .into(),
-                ])
-                .spacing(8);
-                section = section.add(settings::item(
+                        .into();
+                section = section.add(package_row(
                     title,
                     column(vec![
+                        text(format!("attr: {}", result.attr)).into(),
                         result.description.clone().map_or_else(
                             || text("no description").into(),
                             |description| text(description).into(),
                         ),
-                        details.into(),
                     ])
-                    .spacing(4),
+                    .spacing(2)
+                    .into(),
+                    install,
                 ));
             }
         }
@@ -681,30 +681,34 @@ impl StoreState {
                     .into(),
             ])
             .spacing(8);
-            section = section.add(settings::item(
+            section = section.add(package_row(
                 package.name.clone(),
-                column(vec![package_detail(package), actions.into()]).spacing(4),
+                package_detail(package),
+                actions.into(),
             ));
         }
 
         section = section.add(settings::item(
             "Profile actions",
-            row(vec![
-                button::text("Upgrade all")
-                    .on_press_maybe(
-                        enabled.then(|| Message::StoreActionRequested(StoreAction::UpgradeAll)),
-                    )
-                    .into(),
-                button::text("Remove all")
-                    .on_press_maybe(
-                        enabled.then(|| Message::StoreActionRequested(StoreAction::RemoveAll)),
-                    )
-                    .into(),
-            ])
-            .spacing(8),
+            button::text("Remove all").on_press_maybe(
+                enabled.then(|| Message::StoreActionRequested(StoreAction::RemoveAll)),
+            ),
         ));
 
         section.into()
+    }
+
+    fn upgrade_all_view(&self) -> Element<'_, Message> {
+        let enabled = self.scope_ready();
+        settings::section()
+            .title("Upgrade")
+            .add(settings::item(
+                "Upgrade every installed package",
+                button::suggested("Upgrade all").on_press_maybe(
+                    enabled.then(|| Message::StoreActionRequested(StoreAction::UpgradeAll)),
+                ),
+            ))
+            .into()
     }
 
     fn advanced_view(&self) -> Element<'_, Message> {
@@ -968,19 +972,35 @@ fn truncate(text: &str) -> String {
     clipped
 }
 
+fn package_row<'a>(
+    title: String,
+    description: Element<'a, Message>,
+    action: Element<'a, Message>,
+) -> Element<'a, Message> {
+    row(vec![
+        column(vec![text(title).into(), description])
+            .spacing(2)
+            .width(cosmic::iced::Length::Fill)
+            .into(),
+        action,
+    ])
+    .spacing(12)
+    .into()
+}
+
 fn package_detail(package: &InstalledPackage) -> Element<'_, Message> {
     let mut lines: Vec<Element<'_, Message>> = Vec::new();
     if let Some(attr) = &package.attr_path {
-        lines.push(text(attr.clone()).into());
+        lines.push(text(format!("attr: {attr}")).into());
     }
     if let Some(url) = &package.url {
-        lines.push(text(url.clone()).into());
+        lines.push(text(format!("url: {url}")).into());
     }
     if !package.active {
-        lines.push(text("inactive").into());
+        lines.push(text("state: inactive").into());
     }
     if lines.is_empty() {
-        lines.push(text("installed").into());
+        lines.push(text("state: installed").into());
     }
     column(lines).spacing(2).into()
 }

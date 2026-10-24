@@ -30,6 +30,14 @@ struct Session {
     expires_in_secs: u64,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PackageTab {
+    #[default]
+    Nix,
+    Apk,
+    Flatpak,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GestureEdge {
     ViewScroll,
@@ -57,12 +65,10 @@ enum Screen {
     #[default]
     Home,
     Settings,
-    Store,
     Snapshots,
     Users,
     Niri,
-    Apk,
-    Flatpak,
+    Packages,
     Printers,
     Scanners,
     Firewall,
@@ -82,6 +88,7 @@ pub struct App {
     users: UsersState,
     niri: NiriState,
     packages: PackagesState,
+    package_tab: PackageTab,
     printers: PrintersState,
     scanners: ScannersState,
     firewall: FirewallState,
@@ -111,11 +118,11 @@ pub enum Message {
     ConfigInitialized(u64, Result<ConfigSnapshot, ApiError>),
     SetModuleSwitch(ModuleId, TriState),
     ModuleSwitchSaved(u64, Result<ConfigSnapshot, ApiError>),
-    OpenStore,
+    OpenPackageManager,
+    PackageTabChanged(PackageTab),
     OpenSnapshots,
     OpenUsers,
     OpenNiri,
-    OpenPackages(PackageKind),
     OpenPrinters,
     OpenScanners,
     OpenFirewall,
@@ -374,6 +381,7 @@ impl cosmic::Application for App {
             users: UsersState::default(),
             niri: NiriState::default(),
             packages: PackagesState::default(),
+            package_tab: PackageTab::Nix,
             printers: PrintersState::default(),
             scanners: ScannersState::default(),
             firewall: FirewallState::default(),
@@ -406,10 +414,11 @@ impl cosmic::Application for App {
                 return self.set_module_switch(module, value)
             }
             Message::ModuleSwitchSaved(epoch, result) => self.finish_config(epoch, result),
-            Message::OpenStore => {
-                self.screen = Screen::Store;
-                return self.load_store();
+            Message::OpenPackageManager => {
+                self.screen = Screen::Packages;
+                return self.load_package_tab();
             }
+            Message::PackageTabChanged(tab) => return self.open_package_tab(tab),
             Message::OpenSnapshots => {
                 self.screen = Screen::Snapshots;
                 return self.load_snapshots();
@@ -422,7 +431,6 @@ impl cosmic::Application for App {
                 self.screen = Screen::Niri;
                 return self.load_niri();
             }
-            Message::OpenPackages(kind) => return self.open_packages(kind),
             Message::OpenPrinters => {
                 self.screen = Screen::Printers;
                 return self.load_printers();
@@ -1075,11 +1083,10 @@ impl cosmic::Application for App {
                         self.home.busy,
                         self.home.error.as_deref(),
                     ),
-                    Screen::Store => self.store.view(),
+                    Screen::Packages => self.package_manager_view(),
                     Screen::Snapshots => self.snapshots.view(),
                     Screen::Users => self.users.view(),
                     Screen::Niri => self.niri.view(),
-                    Screen::Apk | Screen::Flatpak => self.packages.view(),
                     Screen::Printers => self.printers.view(),
                     Screen::Scanners => self.scanners.view(),
                     Screen::Firewall => self.firewall.view(),
@@ -1720,13 +1727,60 @@ impl App {
         Task::none()
     }
 
-    fn open_packages(&mut self, kind: PackageKind) -> Task<cosmic::Action<Message>> {
-        self.screen = match kind {
-            PackageKind::Apk => Screen::Apk,
-            PackageKind::Flatpak => Screen::Flatpak,
+    fn open_package_tab(&mut self, tab: PackageTab) -> Task<cosmic::Action<Message>> {
+        self.screen = Screen::Packages;
+        self.package_tab = tab;
+        match tab {
+            PackageTab::Nix => self.load_store(),
+            PackageTab::Apk => {
+                self.packages.open(PackageKind::Apk);
+                self.load_packages(PackageKind::Apk)
+            }
+            PackageTab::Flatpak => {
+                self.packages.open(PackageKind::Flatpak);
+                self.load_packages(PackageKind::Flatpak)
+            }
+        }
+    }
+
+    fn load_package_tab(&mut self) -> Task<cosmic::Action<Message>> {
+        match self.package_tab {
+            PackageTab::Nix => self.load_store(),
+            PackageTab::Apk => self.load_packages(PackageKind::Apk),
+            PackageTab::Flatpak => self.load_packages(PackageKind::Flatpak),
+        }
+    }
+
+    fn package_manager_view(&self) -> Element<'_, Message> {
+        use cosmic::widget::{button, column, row};
+
+        let tab = |target: PackageTab, label: &'static str, available: bool| {
+            let selected = self.package_tab == target;
+            let mut widget = if selected {
+                button::suggested(label)
+            } else {
+                button::text(label)
+            };
+            if !selected && available {
+                widget = widget.on_press(Message::PackageTabChanged(target));
+            }
+            widget.into()
         };
-        self.packages.open(kind);
-        self.load_packages(kind)
+        let tabs = row(vec![
+            tab(PackageTab::Nix, "Nix", self.cap_available(Capability::Nix)),
+            tab(PackageTab::Apk, "APK", self.cap_available(Capability::Apk)),
+            tab(
+                PackageTab::Flatpak,
+                "Flatpak",
+                self.cap_available(Capability::Flatpak),
+            ),
+        ])
+        .spacing(8);
+        let content = match self.package_tab {
+            PackageTab::Nix => self.store.view(),
+            PackageTab::Apk | PackageTab::Flatpak => self.packages.view(),
+        };
+        column(vec![tabs.into(), content]).spacing(12).into()
     }
 
     fn load_packages(&mut self, kind: PackageKind) -> Task<cosmic::Action<Message>> {
@@ -2038,11 +2092,9 @@ impl App {
     fn sidebar(&self) -> Element<'_, Message> {
         use cosmic::widget::{button, column, container, scrollable, text};
 
-        let entries: [(Screen, &str); 15] = [
+        let entries: [(Screen, &str); 13] = [
             (Screen::Home, "Overview"),
-            (Screen::Store, "Nix packages"),
-            (Screen::Apk, "APK packages"),
-            (Screen::Flatpak, "Flatpak applications"),
+            (Screen::Packages, "Package manager"),
             (Screen::Printers, "Printers"),
             (Screen::Scanners, "Scanners"),
             (Screen::Firewall, "Firewall"),
@@ -2090,12 +2142,10 @@ impl App {
         match screen {
             Screen::Home => Message::BackHome,
             Screen::Settings => Message::OpenSettings,
-            Screen::Store => Message::OpenStore,
+            Screen::Packages => Message::OpenPackageManager,
             Screen::Snapshots => Message::OpenSnapshots,
             Screen::Users => Message::OpenUsers,
             Screen::Niri => Message::OpenNiri,
-            Screen::Apk => Message::OpenPackages(PackageKind::Apk),
-            Screen::Flatpak => Message::OpenPackages(PackageKind::Flatpak),
             Screen::Printers => Message::OpenPrinters,
             Screen::Scanners => Message::OpenScanners,
             Screen::Firewall => Message::OpenFirewall,
@@ -2117,14 +2167,16 @@ impl App {
     fn screen_available(&self, screen: Screen) -> bool {
         match screen {
             Screen::Home | Screen::Settings => true,
-            Screen::Store => self.cap_available(Capability::Nix),
+            Screen::Packages => {
+                self.cap_available(Capability::Nix)
+                    || self.cap_available(Capability::Apk)
+                    || self.cap_available(Capability::Flatpak)
+            }
             Screen::Snapshots => {
                 self.cap_available(Capability::Btrbk) && self.cap_available(Capability::Btrfs)
             }
             Screen::Users => self.cap_available(Capability::Accountsservice),
             Screen::Niri => self.cap_available(Capability::Niri),
-            Screen::Apk => self.cap_available(Capability::Apk),
-            Screen::Flatpak => self.cap_available(Capability::Flatpak),
             Screen::Printers => self.cap_available(Capability::Cups),
             Screen::Scanners => self.cap_available(Capability::Sane),
             Screen::Firewall => self.cap_available(Capability::Firewalld),

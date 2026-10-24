@@ -28,12 +28,10 @@ struct ModuleEntry {
 
 #[derive(Clone, Copy)]
 enum Panel {
-    Store,
+    Packages,
     Snapshots,
     Users,
     Niri,
-    Apk,
-    Flatpak,
     Printers,
     Scanners,
     Firewall,
@@ -45,22 +43,10 @@ enum Panel {
 
 const MODULES: &[ModuleEntry] = &[
     ModuleEntry {
-        title: "Packages (Nix)",
-        module: Some(ModuleId::PackagesNix),
-        requires: &[Capability::Nix],
-        panel: Some(Panel::Store),
-    },
-    ModuleEntry {
-        title: "APK packages",
-        module: Some(ModuleId::PackagesApk),
-        requires: &[Capability::Apk],
-        panel: Some(Panel::Apk),
-    },
-    ModuleEntry {
-        title: "Flatpak applications",
-        module: Some(ModuleId::PackagesFlatpak),
-        requires: &[Capability::Flatpak],
-        panel: Some(Panel::Flatpak),
+        title: "Package manager",
+        module: None,
+        requires: &[],
+        panel: Some(Panel::Packages),
     },
     ModuleEntry {
         title: "Printers",
@@ -197,12 +183,10 @@ impl HomeState {
         let status: Element<'_, Message> = column(lines).spacing(2).into();
         match entry.panel {
             Some(
-                Panel::Store
+                Panel::Packages
                 | Panel::Snapshots
                 | Panel::Users
                 | Panel::Niri
-                | Panel::Apk
-                | Panel::Flatpak
                 | Panel::Printers
                 | Panel::Scanners
                 | Panel::Firewall
@@ -217,14 +201,10 @@ impl HomeState {
                             .is_some_and(|report| report.available)
                     });
                 let open_message = match entry.panel {
-                    Some(Panel::Store) => Message::OpenStore,
+                    Some(Panel::Packages) => Message::OpenPackageManager,
                     Some(Panel::Snapshots) => Message::OpenSnapshots,
                     Some(Panel::Users) => Message::OpenUsers,
                     Some(Panel::Niri) => Message::OpenNiri,
-                    Some(Panel::Apk) => Message::OpenPackages(crate::packages::PackageKind::Apk),
-                    Some(Panel::Flatpak) => {
-                        Message::OpenPackages(crate::packages::PackageKind::Flatpak)
-                    }
                     Some(Panel::Printers) => Message::OpenPrinters,
                     Some(Panel::Scanners) => Message::OpenScanners,
                     Some(Panel::Firewall) => Message::OpenFirewall,

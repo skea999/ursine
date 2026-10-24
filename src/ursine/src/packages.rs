@@ -105,20 +105,7 @@ impl PackagesState {
             return text("Select a package source.").into();
         };
         let mut items: Vec<Element<'_, Message>> = vec![row(vec![
-            (if kind == PackageKind::Apk {
-                button::suggested("APK")
-            } else {
-                button::text("APK")
-            })
-            .on_press(Message::OpenPackages(PackageKind::Apk))
-            .into(),
-            (if kind == PackageKind::Flatpak {
-                button::suggested("Flatpak")
-            } else {
-                button::text("Flatpak")
-            })
-            .on_press(Message::OpenPackages(PackageKind::Flatpak))
-            .into(),
+            text::title2(kind.title()).into(),
             text("").width(Length::Fill).into(),
             button::text("Refresh")
                 .on_press_maybe(
@@ -144,7 +131,7 @@ impl PackagesState {
 
         items.push(
             settings::section()
-                .title("Store")
+                .title("Scope")
                 .add(settings::item(
                     "Installation",
                     if kind == PackageKind::Flatpak {
@@ -157,8 +144,48 @@ impl PackagesState {
                         Element::from(text("system-wide"))
                     },
                 ))
+                .into(),
+        );
+
+        items.push(
+            settings::section()
+                .title("Maintenance")
                 .add(settings::item(
-                    "Search",
+                    match kind {
+                        PackageKind::Apk => "Refresh repository indexes",
+                        PackageKind::Flatpak => "Remove unused runtimes",
+                    },
+                    button::text(match kind {
+                        PackageKind::Apk => "Refresh indexes",
+                        PackageKind::Flatpak => "Remove orphans…",
+                    })
+                    .on_press_maybe((!self.action_busy).then_some(
+                        match kind {
+                            PackageKind::Apk => Message::PackageRefreshIndexes,
+                            PackageKind::Flatpak => Message::PackageOrphansRequested,
+                        },
+                    )),
+                ))
+                .into(),
+        );
+
+        items.push(
+            settings::section()
+                .title("Upgrade")
+                .add(settings::item(
+                    "Upgrade every installed item",
+                    button::suggested("Upgrade all").on_press_maybe(
+                        (!self.action_busy).then_some(Message::PackageUpdateRequested),
+                    ),
+                ))
+                .into(),
+        );
+
+        items.push(
+            settings::section()
+                .title("Search")
+                .add(settings::item(
+                    "Query",
                     row(vec![
                         text_input(kind.search_placeholder(), self.query.clone())
                             .on_input(Message::PackageQueryChanged)
@@ -172,17 +199,8 @@ impl PackagesState {
                     ])
                     .spacing(8),
                 ))
-                .into(),
-        );
-
-        items.push(
-            settings::section()
-                .title("Install")
                 .add(settings::item(
-                    match kind {
-                        PackageKind::Apk => "APK package name",
-                        PackageKind::Flatpak => "Flatpak application id",
-                    },
+                    "Direct install",
                     row(vec![
                         text_input(
                             match kind {
@@ -200,36 +218,6 @@ impl PackagesState {
                             .into(),
                     ])
                     .spacing(8),
-                ))
-                .into(),
-        );
-
-        items.push(
-            settings::section()
-                .title("Maintenance")
-                .add(settings::item(
-                    match kind {
-                        PackageKind::Apk => "Refresh repository indexes",
-                        PackageKind::Flatpak => "Update installed applications",
-                    },
-                    button::text(match kind {
-                        PackageKind::Apk => "Refresh indexes",
-                        PackageKind::Flatpak => "Update all",
-                    })
-                    .on_press_maybe((!self.action_busy).then_some(
-                        if kind == PackageKind::Apk {
-                            Message::PackageRefreshIndexes
-                        } else {
-                            Message::PackageUpdateRequested
-                        },
-                    )),
-                ))
-                .add(settings::item(
-                    "Remove unused Flatpak runtimes",
-                    button::destructive("Remove orphans…").on_press_maybe(
-                        (kind == PackageKind::Flatpak && !self.action_busy)
-                            .then_some(Message::PackageOrphansRequested),
-                    ),
                 ))
                 .into(),
         );
