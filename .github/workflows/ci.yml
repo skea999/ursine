@@ -374,7 +374,7 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    needs: [image, version, changes]
+    needs: [image, test, lint, gui, analyzer, docs, zizmor, version, changes]
     if: needs.version.outputs.release == 'true' || (github.event_name == 'pull_request' && needs.changes.outputs.package == 'true')
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

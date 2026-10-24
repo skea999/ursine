@@ -3,7 +3,7 @@ resolver = "2"
 members = ["src/ursine-api", "src/ursine-core", "src/ursined", "src/ursine"]
 
 [workspace.package]
-version = "0.10.0"
+version = "0.10.1"
 edition = "2021"
 license = "ISC"
 authors = ["skea999 <sket999@disroot.org>"]
@@ -14,8 +14,8 @@ keywords = ["linux", "system-administration", "nix", "cosmic", "daemon"]
 categories = ["system-tools", "command-line-utilities"]
 
 [workspace.dependencies]
-ursine-api = { path = "src/ursine-api", version = "0.10.0" }
-ursine-core = { path = "src/ursine-core", version = "0.10.0" }
+ursine-api = { path = "src/ursine-api", version = "0.10.1" }
+ursine-core = { path = "src/ursine-core", version = "0.10.1" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

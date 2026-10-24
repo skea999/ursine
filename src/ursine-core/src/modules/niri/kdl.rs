@@ -1358,7 +1358,7 @@ hotkey-overlay { skip-at-startup; }
     fn parses_and_updates_keybinds_and_gestures() {
         let mut doc: KdlDocument = r#"binds {
     Mod+Return { spawn "foot"; }
-    Mod+Q repeat=false { close-window; }
+    Mod+Q { close-window; }
 }
 gestures {
     hot-corners { top-right; bottom-right; }
