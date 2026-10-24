@@ -25,7 +25,7 @@ pub use config::{ModulesConfig, TriState, UrsineConfig};
 pub use envelope::{Request, RequestBody, Response, ResponseBody, PROTOCOL_VERSION};
 pub use error::{ApiError, ErrorCode};
 pub use module::ModuleId;
-pub use niri::{NiriConfigView, NiriValues};
+pub use niri::{NiriConfigView, NiriEnvVar, NiriOutput, NiriSpawn, NiriStruts, NiriValues};
 pub use nix::{
     installable_from_attr, is_safe_installable_atom, normalize_installable, validate_installable,
     CommandOutcome, InstalledPackage, SearchResult,

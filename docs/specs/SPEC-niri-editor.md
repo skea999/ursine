@@ -14,8 +14,10 @@ A schema-driven settings GUI for the niri Wayland compositor — the user SELECT
 
 ## Implementation status (0.7.0 baseline)
 
-The daemon and GUI currently manage: layout gaps, animations off,
-touchpad tap/natural-scroll/dwt, and cursor size/theme. The KDL round-trip,
+The daemon and GUI currently manage: layout gaps, border/focus-ring widths,
+struts, animations off, touchpad tap/natural-scroll/dwt, keyboard layout and
+repeat, cursor size/theme, outputs (scale/transform/VRR), environment variables, startup commands,
+screenshot path, and hotkey overlay. The KDL round-trip,
 `niri validate` gate, atomic write, timestamped backup, ownership preservation,
 and user-scoped I/O (no root file access) are implemented. Additional v1 form groups below
 (outputs, keybinds, gestures, environment/spawn lists, keyboard/pointer,

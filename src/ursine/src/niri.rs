@@ -6,9 +6,9 @@ use cosmic::widget::{
 };
 use cosmic::Element;
 use serde_json::json;
-use ursine_api::NiriConfigView;
+use ursine_api::{NiriConfigView, NiriEnvVar, NiriOutput};
 
-use crate::app::Message;
+use crate::app::{Message, StrutEdge};
 
 #[derive(Default)]
 pub struct NiriState {
@@ -24,6 +24,25 @@ pub struct NiriState {
     pub dwt: bool,
     pub cursor_size: String,
     pub cursor_theme: String,
+    pub keyboard_layout: String,
+    pub repeat_delay: String,
+    pub repeat_rate: String,
+    pub border_width: String,
+    pub focus_ring_width: String,
+    pub strut_left: String,
+    pub strut_right: String,
+    pub strut_top: String,
+    pub strut_bottom: String,
+    pub screenshot_path: String,
+    pub hotkey_overlay_skip: bool,
+    pub outputs: Vec<NiriOutput>,
+    pub new_output: String,
+    pub environment: Vec<NiriEnvVar>,
+    pub new_env_name: String,
+    pub new_env_value: String,
+    pub spawn_text: Vec<String>,
+    pub new_spawn: String,
+    pub spawn_dirty: bool,
 }
 
 impl NiriState {
@@ -42,6 +61,53 @@ impl NiriState {
             .map(|value| value.to_string())
             .unwrap_or_default();
         self.cursor_theme = values.cursor_theme.clone().unwrap_or_default();
+        self.keyboard_layout = values.keyboard_layout.clone().unwrap_or_default();
+        self.repeat_delay = values
+            .keyboard_repeat_delay
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        self.repeat_rate = values
+            .keyboard_repeat_rate
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        self.border_width = values
+            .layout_border_width
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        self.focus_ring_width = values
+            .layout_focus_ring_width
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        self.strut_left = values
+            .layout_struts
+            .left
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        self.strut_right = values
+            .layout_struts
+            .right
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        self.strut_top = values
+            .layout_struts
+            .top
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        self.strut_bottom = values
+            .layout_struts
+            .bottom
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        self.screenshot_path = values.screenshot_path.clone().unwrap_or_default();
+        self.hotkey_overlay_skip = values.hotkey_overlay_skip_at_startup.unwrap_or(false);
+        self.outputs.clone_from(&values.outputs);
+        self.environment.clone_from(&values.environment);
+        self.spawn_text = values
+            .spawn_at_startup
+            .iter()
+            .map(|spawn| shell_join(&spawn.command))
+            .collect();
+        self.spawn_dirty = false;
         self.view = Some(view);
         self.error = None;
     }
@@ -57,7 +123,60 @@ impl NiriState {
             if gaps > 256 {
                 return Err("Layout gaps must be a number 0..256.".into());
             }
-            sections.push(("layout".to_string(), json!({"gaps": gaps})));
+            sections.push(("layout".to_string(), layout_value(self, gaps)?));
+        } else if has_layout_extras(self) {
+            sections.push(("layout".to_string(), layout_value(self, 0)?));
+        }
+        if !self.keyboard_layout.trim().is_empty()
+            || !self.repeat_delay.trim().is_empty()
+            || !self.repeat_rate.trim().is_empty()
+        {
+            let mut value = serde_json::Map::new();
+            if !self.keyboard_layout.trim().is_empty() {
+                value.insert("layout".into(), json!(self.keyboard_layout.trim()));
+            }
+            if !self.repeat_delay.trim().is_empty() {
+                value.insert(
+                    "repeat_delay".into(),
+                    json!(parse_number(&self.repeat_delay, "repeat delay", 5000)?),
+                );
+            }
+            if !self.repeat_rate.trim().is_empty() {
+                value.insert(
+                    "repeat_rate".into(),
+                    json!(parse_number(&self.repeat_rate, "repeat rate", 5000)?),
+                );
+            }
+            sections.push((
+                "input.keyboard".to_string(),
+                serde_json::Value::Object(value),
+            ));
+        }
+        if !self.screenshot_path.trim().is_empty() {
+            sections.push((
+                "screenshot".to_string(),
+                json!({"path": self.screenshot_path.trim()}),
+            ));
+        }
+        sections.push((
+            "hotkey-overlay".to_string(),
+            json!({"skip_at_startup": self.hotkey_overlay_skip}),
+        ));
+        if !self.outputs.is_empty() {
+            sections.push(("outputs".to_string(), json!({"outputs": self.outputs})));
+        }
+        if !self.environment.is_empty() {
+            sections.push(("environment".to_string(), json!({"vars": self.environment})));
+        }
+        if self.spawn_dirty {
+            let mut commands = Vec::with_capacity(self.spawn_text.len());
+            for text in &self.spawn_text {
+                let command = shell_split(text)?;
+                if !command.is_empty() {
+                    commands.push(command);
+                }
+            }
+            sections.push(("spawn".to_string(), json!({"commands": commands})));
         }
         sections.push((
             "animations".to_string(),
@@ -156,6 +275,61 @@ impl NiriState {
                     "Gaps custom (overrides preset)",
                     text_input("16", self.gaps.clone()).on_input(Message::NiriGapsChanged),
                 ))
+                .add(settings::item(
+                    "Border width (0..64, empty = unchanged)",
+                    text_input("4", self.border_width.clone())
+                        .on_input(Message::NiriBorderWidthChanged),
+                ))
+                .add(settings::item(
+                    "Focus-ring width (0..64, empty = unchanged)",
+                    text_input("4", self.focus_ring_width.clone())
+                        .on_input(Message::NiriFocusRingWidthChanged),
+                ))
+                .add(settings::item(
+                    "Struts left/right",
+                    row(vec![
+                        text_input("0", self.strut_left.clone())
+                            .on_input(|value| Message::NiriStrutChanged(StrutEdge::Left, value))
+                            .into(),
+                        text_input("0", self.strut_right.clone())
+                            .on_input(|value| Message::NiriStrutChanged(StrutEdge::Right, value))
+                            .into(),
+                    ])
+                    .spacing(8),
+                ))
+                .add(settings::item(
+                    "Struts top/bottom",
+                    row(vec![
+                        text_input("0", self.strut_top.clone())
+                            .on_input(|value| Message::NiriStrutChanged(StrutEdge::Top, value))
+                            .into(),
+                        text_input("0", self.strut_bottom.clone())
+                            .on_input(|value| Message::NiriStrutChanged(StrutEdge::Bottom, value))
+                            .into(),
+                    ])
+                    .spacing(8),
+                ))
+                .into(),
+        );
+
+        items.push(
+            settings::section()
+                .title("Keyboard")
+                .add(settings::item(
+                    "Layout (e.g. it, us, it,us)",
+                    text_input("us", self.keyboard_layout.clone())
+                        .on_input(Message::NiriKeyboardLayoutChanged),
+                ))
+                .add(settings::item(
+                    "Repeat delay (ms, empty = unchanged)",
+                    text_input("600", self.repeat_delay.clone())
+                        .on_input(Message::NiriRepeatDelayChanged),
+                ))
+                .add(settings::item(
+                    "Repeat rate (chars/s, empty = unchanged)",
+                    text_input("25", self.repeat_rate.clone())
+                        .on_input(Message::NiriRepeatRateChanged),
+                ))
                 .into(),
         );
 
@@ -213,6 +387,158 @@ impl NiriState {
                 .into(),
         );
 
+        let mut spawn = settings::section().title("Startup commands");
+        if self.spawn_text.is_empty() {
+            spawn = spawn.add(settings::item("Result", text("No startup commands.")));
+        }
+        for (index, command) in self.spawn_text.iter().enumerate() {
+            spawn = spawn.add(settings::item(
+                format!("Command {}", index + 1),
+                row(vec![
+                    text_input("sh -c '...'", command.clone())
+                        .on_input(move |value| Message::NiriSpawnChanged(index, value))
+                        .into(),
+                    button::text("Remove")
+                        .on_press(Message::NiriSpawnRemove(index))
+                        .into(),
+                ])
+                .spacing(8),
+            ));
+        }
+        spawn = spawn.add(settings::item(
+            "Add command",
+            row(vec![
+                text_input("sh -c '...'", self.new_spawn.clone())
+                    .on_input(Message::NiriSpawnInputChanged)
+                    .into(),
+                button::text("Add").on_press(Message::NiriSpawnAdd).into(),
+            ])
+            .spacing(8),
+        ));
+        items.push(spawn.into());
+
+        let mut environment = settings::section().title("Environment");
+        if self.environment.is_empty() {
+            environment =
+                environment.add(settings::item("Result", text("No environment entries.")));
+        }
+        for (index, var) in self.environment.iter().enumerate() {
+            environment = environment.add(settings::item(
+                format!("Variable {}", index + 1),
+                row(vec![
+                    text_input("NAME", var.name.clone())
+                        .on_input(move |value| Message::NiriEnvNameChanged(index, value))
+                        .into(),
+                    text_input("value", var.value.clone())
+                        .on_input(move |value| Message::NiriEnvValueChanged(index, value))
+                        .into(),
+                    button::text("Remove")
+                        .on_press(Message::NiriEnvRemove(index))
+                        .into(),
+                ])
+                .spacing(8),
+            ));
+        }
+        environment = environment.add(settings::item(
+            "Add variable",
+            row(vec![
+                text_input("NAME", self.new_env_name.clone())
+                    .on_input(Message::NiriEnvNameInputChanged)
+                    .into(),
+                text_input("value", self.new_env_value.clone())
+                    .on_input(Message::NiriEnvValueInputChanged)
+                    .into(),
+                button::text("Add").on_press(Message::NiriEnvAdd).into(),
+            ])
+            .spacing(8),
+        ));
+        items.push(environment.into());
+
+        let mut outputs = settings::section().title("Outputs");
+        if self.outputs.is_empty() {
+            outputs = outputs.add(settings::item(
+                "Result",
+                text("No output section detected."),
+            ));
+        }
+        for (index, output) in self.outputs.iter().enumerate() {
+            outputs = outputs
+                .add(settings::item(
+                    format!("{} scale", output.name),
+                    dropdown(
+                        vec!["unchanged", "100%", "125%", "150%", "200%"],
+                        ["", "100", "125", "150", "200"].iter().position(|value| {
+                            output.scale.map(|scale| scale.to_string()).as_deref() == Some(*value)
+                        }),
+                        move |value| Message::NiriOutputScale(index, value),
+                    ),
+                ))
+                .add(settings::item(
+                    format!("{} transform", output.name),
+                    dropdown(
+                        vec![
+                            "unchanged",
+                            "normal",
+                            "90",
+                            "180",
+                            "270",
+                            "flipped",
+                            "flipped-90",
+                            "flipped-180",
+                            "flipped-270",
+                        ],
+                        [
+                            "",
+                            "normal",
+                            "90",
+                            "180",
+                            "270",
+                            "flipped",
+                            "flipped-90",
+                            "flipped-180",
+                            "flipped-270",
+                        ]
+                        .iter()
+                        .position(|value| output.transform.as_deref() == Some(*value)),
+                        move |value| Message::NiriOutputTransform(index, value),
+                    ),
+                ))
+                .add(settings::item(
+                    format!("{} variable refresh rate", output.name),
+                    toggler(output.variable_refresh_rate.unwrap_or(false))
+                        .on_toggle(move |value| Message::NiriOutputVrr(index, value)),
+                ));
+        }
+        outputs = outputs.add(settings::item(
+            "Add output section",
+            row(vec![
+                text_input("eDP-1", self.new_output.clone())
+                    .on_input(Message::NiriOutputNameChanged)
+                    .into(),
+                button::text("Add").on_press(Message::NiriOutputAdd).into(),
+            ])
+            .spacing(8),
+        ));
+        items.push(outputs.into());
+
+        items.push(
+            settings::section()
+                .title("Screenshot and overlay")
+                .add(settings::item(
+                    "Screenshot path (empty = unchanged)",
+                    text_input(
+                        "~/Pictures/Screenshots/%Y-%m-%d_%H-%M-%S.png",
+                        self.screenshot_path.clone(),
+                    )
+                    .on_input(Message::NiriScreenshotPathChanged),
+                ))
+                .add(settings::item(
+                    "Hide hotkey overlay at startup",
+                    toggler(self.hotkey_overlay_skip).on_toggle(Message::NiriHotkeyOverlayToggled),
+                ))
+                .into(),
+        );
+
         items.push(
             settings::section()
                 .title("Apply")
@@ -226,6 +552,115 @@ impl NiriState {
 
         scrollable(column(items).spacing(16).padding(24)).into()
     }
+}
+
+fn shell_join(command: &[String]) -> String {
+    command
+        .iter()
+        .map(|arg| {
+            if !arg.is_empty()
+                && arg.chars().all(|c| {
+                    c.is_ascii_alphanumeric()
+                        || matches!(c, '_' | '-' | '.' | '/' | ':' | '@' | '%' | '+' | '=')
+                })
+            {
+                arg.clone()
+            } else {
+                let escaped = arg.replace('\\', "\\\\").replace('"', "\\\"");
+                format!("\"{escaped}\"")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn shell_split(text: &str) -> Result<Vec<String>, String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut started = false;
+    for character in text.chars() {
+        if escaped {
+            current.push(character);
+            escaped = false;
+            started = true;
+            continue;
+        }
+        match (quote, character) {
+            (Some('"'), '\\') | (None, '\\') => escaped = true,
+            (Some(q), c) if c == q => quote = None,
+            (None, '\'' | '"') => {
+                quote = Some(character);
+                started = true;
+            }
+            (None, c) if c.is_whitespace() => {
+                if started {
+                    args.push(std::mem::take(&mut current));
+                    started = false;
+                }
+            }
+            (_, c) => {
+                current.push(c);
+                started = true;
+            }
+        }
+    }
+    if escaped || quote.is_some() {
+        return Err("Unclosed quote or escape in startup command.".into());
+    }
+    if started {
+        args.push(current);
+    }
+    if args.is_empty() {
+        return Err("Startup command is empty.".into());
+    }
+    Ok(args)
+}
+
+fn has_layout_extras(state: &NiriState) -> bool {
+    !state.border_width.trim().is_empty()
+        || !state.focus_ring_width.trim().is_empty()
+        || !state.strut_left.trim().is_empty()
+        || !state.strut_right.trim().is_empty()
+        || !state.strut_top.trim().is_empty()
+        || !state.strut_bottom.trim().is_empty()
+}
+
+fn layout_value(state: &NiriState, gaps: u32) -> Result<serde_json::Value, String> {
+    let mut value = serde_json::Map::new();
+    if gaps > 0 {
+        value.insert("gaps".into(), json!(gaps));
+    }
+    for (key, raw, label, max) in [
+        ("border_width", &state.border_width, "border width", 64),
+        (
+            "focus_ring_width",
+            &state.focus_ring_width,
+            "focus ring width",
+            64,
+        ),
+        ("strut_left", &state.strut_left, "left strut", 1024),
+        ("strut_right", &state.strut_right, "right strut", 1024),
+        ("strut_top", &state.strut_top, "top strut", 1024),
+        ("strut_bottom", &state.strut_bottom, "bottom strut", 1024),
+    ] {
+        if !raw.trim().is_empty() {
+            value.insert(key.into(), json!(parse_number(raw, label, max)?));
+        }
+    }
+    Ok(serde_json::Value::Object(value))
+}
+
+fn parse_number(raw: &str, label: &str, max: u32) -> Result<u32, String> {
+    let value: u32 = raw
+        .trim()
+        .parse()
+        .map_err(|_| format!("{label} must be a number 0..{max}."))?;
+    if value > max {
+        return Err(format!("{label} must be a number 0..{max}."));
+    }
+    Ok(value)
 }
 
 #[cfg(test)]
@@ -244,11 +679,19 @@ mod tests {
             ..NiriState::default()
         };
         let sections = state.sections().unwrap();
-        assert_eq!(sections.len(), 4);
+        assert!(sections.iter().any(|(name, _)| name == "layout"));
+        assert!(sections.iter().any(|(name, _)| name == "hotkey-overlay"));
         state.gaps = "999".into();
         assert!(state.sections().is_err());
         state.cursor_size = "4".into();
         assert!(state.sections().is_err());
+    }
+
+    #[test]
+    fn shell_commands_roundtrip() {
+        let args = vec!["sh".to_string(), "-c".to_string(), "echo hi".to_string()];
+        let text = shell_join(&args);
+        assert_eq!(shell_split(&text).unwrap(), args);
     }
 
     #[test]

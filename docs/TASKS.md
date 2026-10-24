@@ -52,7 +52,9 @@
 
 ### Todo
 
-- [ ] Niri v1 form groups: outputs, keybinds, gestures, keyboard/pointer, environment/spawn lists, screenshot path, hotkey overlay | P1 | agent
+- [x] Niri keyboard layout/repeat, border/focus-ring widths, struts, screenshot path, hotkey overlay | P0
+- [x] Niri outputs (scale/transform/VRR), environment variables, startup commands | P0
+- [ ] Niri keybinds, gestures, pointer | P1 | agent
 - [ ] v3 (deferred): choose web GUI stack — **must be memory-safe** (Rust→WASM preferred: Leptos/Yew/Dioxus; TypeScript acceptable fallback). See `docs/specs/SPEC-web.md` | P2 | skea999
 
 ### In Progress
@@ -116,7 +118,6 @@
 - packages.nix (v0.2) → apk + flatpak (v2)
 - snapshots: btrbk read-write config (subvolumes + scheduler), restore flow
 - web + OIDC (v3), Incus UI (v4), ZFS+Pirateus (v5), multi-distro (v6)
-- APKBUILDs in feralos-aports (v1.0)
 
 ## Known Issues
 

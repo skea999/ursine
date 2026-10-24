@@ -2,7 +2,8 @@
 
 **Status**: Intent confirmed — see `docs/intent/ursine.md` (source of truth for versions)
 **Distribution**: FeralOS (Alpine/musl/dinit/apk)
-**Updated**: 2026-10-16
+**Updated**: 2026-10-24
+**Detailed inventory**: `docs/planning/features-v1-v2.md`
 
 ## Milestones
 

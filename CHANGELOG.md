@@ -1,9 +1,12 @@
 # Changelog
 
-## [Unreleased]
+## [0.8.0] — 2026-10-24
 
 ### Added
 
+- Niri keyboard layout/repeat, layout border/focus-ring/struts, outputs
+  (scale/transform/VRR), environment variables, startup commands, screenshot
+  path, and hotkey overlay forms.
 - GNOME Settings-style sidebar shell; Settings module modes are dropdowns;
   Niri gap/cursor presets and store prune/wipe presets.
 - APK packages: list, search, refresh indexes, install, remove, upgrade.
@@ -113,7 +116,7 @@
 
 All notable changes to Ursine. Format: Keep a Changelog, semver.
 
-## [Unreleased] — 2026-10-16
+## [0.8.0] — 2026-10-24 — 2026-10-16
 
 ### Added
 

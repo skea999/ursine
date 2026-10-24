@@ -30,7 +30,7 @@
     "PACKAGING PRIMITIVES GREEN 2026-10-20: installer auth gate (`--allow-stub`; cross-arch staging requires `--allow-unverified-auth`), mktemp temps, strict path + traversal rejection, PAM 0644 via temp+rename, systemd [Install], CI build/publish split + all-init staging smoke, audit dir 0750 and symlink rejection. Real PAM auth + expired account green; packaged installer all-init smoke + release tarball green. NEXT: FeralOS target login, runtime activation (`systemd-analyze`/OpenRC/dinit), first GitHub CI package/publish run.",
     "PACKAGING/CI 2026-10-20: v0.3.0 tag pushed; tag CI green; release assets + flake archive published; nix/binary.nix auto-pinned on main in bdbf6ce; verify-pin green. For future releases bump Cargo.toml then tag vX.Y.Z.",
     "NIX ACTIVATION 2026-10-20: versioned tools implemented, profile upgraded; local path is `~/.nix-profile/bin/ursine-activate`. NEXT: run it with sudo to install PAM/unit and start ursined; update flow is `nix profile upgrade ursine` + rerun local activation; deactivate with `~/.nix-profile/bin/ursine-deactivate`.",
-    "v0.4: users + niri. Then v1.0 packaging in feralos-aports.",
+    "v0.4: users + niri. Then v1.0 backend + GUI complete; packaging lives in feralos-aports.",
     "Optional: promote agent fixes (hidden/no-model/quote) to skea-store template (15 files differ)."
   ],
   "key_decisions": [

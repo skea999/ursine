@@ -23,6 +23,14 @@ struct Session {
     expires_in_secs: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StrutEdge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Screen {
     #[default]
@@ -134,6 +142,29 @@ pub enum Message {
     NiriGapsChanged(String),
     NiriGapsPreset(usize),
     NiriCursorSizePreset(usize),
+    NiriKeyboardLayoutChanged(String),
+    NiriRepeatDelayChanged(String),
+    NiriRepeatRateChanged(String),
+    NiriBorderWidthChanged(String),
+    NiriFocusRingWidthChanged(String),
+    NiriStrutChanged(StrutEdge, String),
+    NiriScreenshotPathChanged(String),
+    NiriHotkeyOverlayToggled(bool),
+    NiriOutputScale(usize, usize),
+    NiriOutputTransform(usize, usize),
+    NiriOutputVrr(usize, bool),
+    NiriOutputNameChanged(String),
+    NiriOutputAdd,
+    NiriEnvNameChanged(usize, String),
+    NiriEnvValueChanged(usize, String),
+    NiriEnvAdd,
+    NiriEnvRemove(usize),
+    NiriEnvNameInputChanged(String),
+    NiriEnvValueInputChanged(String),
+    NiriSpawnChanged(usize, String),
+    NiriSpawnAdd,
+    NiriSpawnRemove(usize),
+    NiriSpawnInputChanged(String),
     NiriAnimationsToggled(bool),
     NiriTapToggled(bool),
     NiriNaturalScrollToggled(bool),
@@ -355,6 +386,111 @@ impl cosmic::Application for App {
                     .copied()
                     .unwrap_or_default()
                     .to_string();
+            }
+            Message::NiriKeyboardLayoutChanged(value) => self.niri.keyboard_layout = value,
+            Message::NiriRepeatDelayChanged(value) => self.niri.repeat_delay = value,
+            Message::NiriRepeatRateChanged(value) => self.niri.repeat_rate = value,
+            Message::NiriBorderWidthChanged(value) => self.niri.border_width = value,
+            Message::NiriFocusRingWidthChanged(value) => self.niri.focus_ring_width = value,
+            Message::NiriStrutChanged(edge, value) => match edge {
+                StrutEdge::Left => self.niri.strut_left = value,
+                StrutEdge::Right => self.niri.strut_right = value,
+                StrutEdge::Top => self.niri.strut_top = value,
+                StrutEdge::Bottom => self.niri.strut_bottom = value,
+            },
+            Message::NiriScreenshotPathChanged(value) => self.niri.screenshot_path = value,
+            Message::NiriHotkeyOverlayToggled(value) => self.niri.hotkey_overlay_skip = value,
+            Message::NiriOutputScale(index, value) => {
+                if let Some(output) = self.niri.outputs.get_mut(index) {
+                    output.scale = ["", "100", "125", "150", "200"]
+                        .get(value)
+                        .and_then(|value| value.parse().ok());
+                }
+            }
+            Message::NiriOutputTransform(index, value) => {
+                if let Some(output) = self.niri.outputs.get_mut(index) {
+                    output.transform = [
+                        "",
+                        "normal",
+                        "90",
+                        "180",
+                        "270",
+                        "flipped",
+                        "flipped-90",
+                        "flipped-180",
+                        "flipped-270",
+                    ]
+                    .get(value)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| (*value).to_string());
+                }
+            }
+            Message::NiriOutputVrr(index, value) => {
+                if let Some(output) = self.niri.outputs.get_mut(index) {
+                    output.variable_refresh_rate = Some(value);
+                }
+            }
+            Message::NiriOutputNameChanged(value) => self.niri.new_output = value,
+            Message::NiriEnvNameChanged(index, value) => {
+                if let Some(var) = self.niri.environment.get_mut(index) {
+                    var.name = value;
+                }
+            }
+            Message::NiriEnvValueChanged(index, value) => {
+                if let Some(var) = self.niri.environment.get_mut(index) {
+                    var.value = value;
+                }
+            }
+            Message::NiriEnvAdd => {
+                let name = self.niri.new_env_name.trim();
+                if !name.is_empty() && !self.niri.environment.iter().any(|var| var.name == name) {
+                    self.niri.environment.push(ursine_api::NiriEnvVar {
+                        name: name.to_string(),
+                        value: self.niri.new_env_value.trim().to_string(),
+                    });
+                    self.niri.new_env_name.clear();
+                    self.niri.new_env_value.clear();
+                }
+            }
+            Message::NiriEnvRemove(index) => {
+                if index < self.niri.environment.len() {
+                    self.niri.environment.remove(index);
+                }
+            }
+            Message::NiriEnvNameInputChanged(value) => self.niri.new_env_name = value,
+            Message::NiriEnvValueInputChanged(value) => self.niri.new_env_value = value,
+            Message::NiriSpawnChanged(index, value) => {
+                if let Some(spawn) = self.niri.spawn_text.get_mut(index) {
+                    *spawn = value;
+                    self.niri.spawn_dirty = true;
+                }
+            }
+            Message::NiriSpawnAdd => {
+                let value = self.niri.new_spawn.trim();
+                if !value.is_empty() {
+                    self.niri.spawn_text.push(value.to_string());
+                    self.niri.new_spawn.clear();
+                    self.niri.spawn_dirty = true;
+                }
+            }
+            Message::NiriSpawnRemove(index) => {
+                if index < self.niri.spawn_text.len() {
+                    self.niri.spawn_text.remove(index);
+                    self.niri.spawn_dirty = true;
+                }
+            }
+            Message::NiriSpawnInputChanged(value) => self.niri.new_spawn = value,
+            Message::NiriOutputAdd => {
+                let name = self.niri.new_output.trim();
+                if !name.is_empty() && !self.niri.outputs.iter().any(|output| output.name == name) {
+                    self.niri.outputs.push(ursine_api::NiriOutput {
+                        name: name.to_string(),
+                        scale: None,
+                        transform: None,
+                        variable_refresh_rate: None,
+                    });
+                    self.niri.new_output.clear();
+                }
             }
             Message::NiriAnimationsToggled(value) => self.niri.animations_off = value,
             Message::NiriTapToggled(value) => self.niri.tap = value,

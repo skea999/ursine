@@ -5,7 +5,7 @@
 
 use kdl::{KdlDocument, KdlNode, KdlValue};
 use serde_json::Value as JsonValue;
-use ursine_api::{ApiError, NiriValues};
+use ursine_api::{ApiError, NiriEnvVar, NiriOutput, NiriSpawn, NiriStruts, NiriValues};
 
 pub(super) fn parse_values(doc: &KdlDocument) -> NiriValues {
     NiriValues {
@@ -16,6 +16,17 @@ pub(super) fn parse_values(doc: &KdlDocument) -> NiriValues {
         touchpad_dwt: flag(doc, &["input", "touchpad", "dwt"]),
         cursor_size: integer(doc, &["cursor", "size"]),
         cursor_theme: string(doc, &["cursor", "theme"]),
+        keyboard_layout: string(doc, &["input", "keyboard", "xkb", "layout"]),
+        keyboard_repeat_delay: integer(doc, &["input", "keyboard", "repeat-delay"]),
+        keyboard_repeat_rate: integer(doc, &["input", "keyboard", "repeat-rate"]),
+        layout_border_width: integer(doc, &["layout", "border", "width"]),
+        layout_focus_ring_width: integer(doc, &["layout", "focus-ring", "width"]),
+        layout_struts: struts(doc),
+        screenshot_path: string(doc, &["screenshot-path"]),
+        hotkey_overlay_skip_at_startup: flag(doc, &["hotkey-overlay", "skip-at-startup"]),
+        outputs: outputs(doc),
+        environment: environment(doc),
+        spawn_at_startup: spawn_at_startup(doc),
     }
 }
 
@@ -30,14 +41,98 @@ pub(super) fn apply_section(
     let mut applied = false;
     match section {
         "layout" => {
-            reject_unknown(object, &["gaps"])?;
+            reject_unknown(
+                object,
+                &[
+                    "gaps",
+                    "border_width",
+                    "focus_ring_width",
+                    "strut_left",
+                    "strut_right",
+                    "strut_top",
+                    "strut_bottom",
+                ],
+            )?;
             if let Some(gaps) = object.get("gaps") {
-                let gaps = gaps
-                    .as_u64()
-                    .and_then(|v| u32::try_from(v).ok())
-                    .filter(|v| *v <= 256)
-                    .ok_or_else(|| ApiError::invalid("layout gaps must be 0..256"))?;
+                let gaps = number(gaps, "layout gaps", 256)?;
                 set_integer(doc, "layout", "gaps", gaps);
+                applied = true;
+            }
+            for (key, parent, node_name, label) in [
+                ("border_width", "border", "width", "border width"),
+                (
+                    "focus_ring_width",
+                    "focus-ring",
+                    "width",
+                    "focus ring width",
+                ),
+            ] {
+                if let Some(value) = object.get(key) {
+                    let value = number(value, label, 64)?;
+                    set_nested_integer(doc, "layout", parent, node_name, value);
+                    applied = true;
+                }
+            }
+            for (key, node_name, label) in [
+                ("strut_left", "left", "left strut"),
+                ("strut_right", "right", "right strut"),
+                ("strut_top", "top", "top strut"),
+                ("strut_bottom", "bottom", "bottom strut"),
+            ] {
+                if let Some(value) = object.get(key) {
+                    let value = number(value, label, 1024)?;
+                    set_strut(doc, node_name, value);
+                    applied = true;
+                }
+            }
+        }
+        "input.keyboard" => {
+            reject_unknown(object, &["layout", "repeat_delay", "repeat_rate"])?;
+            if let Some(layout) = object.get("layout") {
+                let layout = layout
+                    .as_str()
+                    .filter(|value| value.len() <= 128)
+                    .ok_or_else(|| ApiError::invalid("invalid keyboard layout"))?;
+                if layout.is_empty() {
+                    remove_keyboard_layout(doc);
+                } else {
+                    set_keyboard_layout(doc, layout);
+                }
+                applied = true;
+            }
+            for (key, node_name, label) in [
+                ("repeat_delay", "repeat-delay", "repeat delay"),
+                ("repeat_rate", "repeat-rate", "repeat rate"),
+            ] {
+                if let Some(value) = object.get(key) {
+                    let value = number(value, label, 5000)?;
+                    set_nested_integer(doc, "input", "keyboard", node_name, value);
+                    applied = true;
+                }
+            }
+        }
+        "screenshot" => {
+            reject_unknown(object, &["path"])?;
+            if let Some(path) = object.get("path") {
+                let path = path
+                    .as_str()
+                    .filter(|value| value.len() <= 4096)
+                    .ok_or_else(|| ApiError::invalid("invalid screenshot path"))?;
+                if path.is_empty() {
+                    remove_top(doc, "screenshot-path");
+                } else {
+                    set_top_string(doc, "screenshot-path", path);
+                }
+                applied = true;
+            }
+        }
+        "hotkey-overlay" => {
+            reject_unknown(object, &["skip_at_startup"])?;
+            if let Some(on) = object.get("skip_at_startup") {
+                let on = on
+                    .as_bool()
+                    .ok_or_else(|| ApiError::invalid("hotkey overlay flag must be boolean"))?;
+                set_top_nested_flag(doc, "hotkey-overlay", "skip-at-startup", on);
                 applied = true;
             }
         }
@@ -90,6 +185,35 @@ pub(super) fn apply_section(
                 applied = true;
             }
         }
+        "spawn" => {
+            reject_unknown(object, &["commands"])?;
+            let commands = object
+                .get("commands")
+                .and_then(JsonValue::as_array)
+                .ok_or_else(|| ApiError::invalid("spawn commands must be an array"))?;
+            apply_spawn(doc, commands)?;
+            applied = true;
+        }
+        "environment" => {
+            reject_unknown(object, &["vars"])?;
+            let vars = object
+                .get("vars")
+                .and_then(JsonValue::as_array)
+                .ok_or_else(|| ApiError::invalid("environment vars must be an array"))?;
+            apply_environment(doc, vars)?;
+            applied = true;
+        }
+        "outputs" => {
+            reject_unknown(object, &["outputs"])?;
+            let outputs = object
+                .get("outputs")
+                .and_then(JsonValue::as_array)
+                .ok_or_else(|| ApiError::invalid("outputs must be an array"))?;
+            for output in outputs {
+                apply_output(doc, output)?;
+            }
+            applied = true;
+        }
         _ => {
             return Err(ApiError::invalid(format!(
                 "unsupported niri section: {section}"
@@ -139,6 +263,14 @@ fn integer(doc: &KdlDocument, path: &[&str]) -> Option<u32> {
     let node = match path {
         ["layout", "gaps"] => child_node(doc, "layout", "gaps"),
         ["cursor", "size"] => child_node(doc, "cursor", "size"),
+        ["layout", "border", "width"] => nested_child(doc, "layout", "border", "width"),
+        ["layout", "focus-ring", "width"] => nested_child(doc, "layout", "focus-ring", "width"),
+        ["input", "keyboard", "repeat-delay"] => {
+            nested_child(doc, "input", "keyboard", "repeat-delay")
+        }
+        ["input", "keyboard", "repeat-rate"] => {
+            nested_child(doc, "input", "keyboard", "repeat-rate")
+        }
         _ => None,
     }?;
     node.entries()
@@ -151,6 +283,14 @@ fn integer(doc: &KdlDocument, path: &[&str]) -> Option<u32> {
 fn string(doc: &KdlDocument, path: &[&str]) -> Option<String> {
     let node = match path {
         ["cursor", "theme"] => child_node(doc, "cursor", "theme"),
+        ["screenshot-path"] => node(doc, "screenshot-path"),
+        ["input", "keyboard", "xkb", "layout"] => node(doc, "input")?
+            .children()?
+            .get("keyboard")?
+            .children()?
+            .get("xkb")?
+            .children()?
+            .get("layout"),
         _ => None,
     }?;
     node.entries()
@@ -168,6 +308,9 @@ fn flag(doc: &KdlDocument, path: &[&str]) -> Option<bool> {
             nested_child(doc, "input", "touchpad", "natural-scroll")
         }
         ["input", "touchpad", "dwt"] => nested_child(doc, "input", "touchpad", "dwt"),
+        ["hotkey-overlay", "skip-at-startup"] => {
+            child_node(doc, "hotkey-overlay", "skip-at-startup")
+        }
         _ => None,
     }?;
     Some(
@@ -176,6 +319,384 @@ fn flag(doc: &KdlDocument, path: &[&str]) -> Option<bool> {
             .and_then(|entry| entry.value().as_bool())
             .unwrap_or(true),
     )
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn spawn_at_startup(doc: &KdlDocument) -> Vec<NiriSpawn> {
+    doc.nodes()
+        .iter()
+        .filter(|node| node.name().value() == "spawn-at-startup")
+        .filter_map(|node| {
+            let command: Vec<String> = node
+                .entries()
+                .iter()
+                .filter_map(|entry| entry.value().as_string().map(str::to_string))
+                .collect();
+            (!command.is_empty()).then_some(NiriSpawn { command })
+        })
+        .collect()
+}
+
+fn apply_spawn(doc: &mut KdlDocument, commands: &[JsonValue]) -> Result<(), ApiError> {
+    let mut desired = Vec::with_capacity(commands.len());
+    for value in commands {
+        let command = value
+            .as_array()
+            .ok_or_else(|| ApiError::invalid("spawn command must be an array"))?;
+        if command.is_empty() || command.len() > 64 {
+            return Err(ApiError::invalid("spawn command must have 1..64 arguments"));
+        }
+        let mut args = Vec::with_capacity(command.len());
+        for arg in command {
+            let arg = arg
+                .as_str()
+                .filter(|arg| arg.len() <= 4096 && !arg.contains('\0'))
+                .ok_or_else(|| ApiError::invalid("invalid spawn argument"))?;
+            if args.is_empty() && arg.is_empty() {
+                return Err(ApiError::invalid("spawn program cannot be empty"));
+            }
+            args.push(arg.to_string());
+        }
+        desired.push(args);
+    }
+    doc.nodes_mut()
+        .retain(|node| node.name().value() != "spawn-at-startup");
+    for command in desired {
+        let mut node = KdlNode::new("spawn-at-startup");
+        for arg in command {
+            node.push(KdlValue::String(arg));
+        }
+        node.autoformat();
+        doc.nodes_mut().push(node);
+    }
+    Ok(())
+}
+
+fn environment(doc: &KdlDocument) -> Vec<NiriEnvVar> {
+    doc.get("environment")
+        .and_then(|node| node.children())
+        .map(|children| {
+            children
+                .nodes()
+                .iter()
+                .map(|node| NiriEnvVar {
+                    name: node.name().value().to_string(),
+                    value: node
+                        .entries()
+                        .first()
+                        .and_then(|entry| entry.value().as_string())
+                        .unwrap_or_default()
+                        .to_string(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn apply_environment(doc: &mut KdlDocument, vars: &[JsonValue]) -> Result<(), ApiError> {
+    let mut desired = Vec::with_capacity(vars.len());
+    for value in vars {
+        let object = value
+            .as_object()
+            .ok_or_else(|| ApiError::invalid("environment variable must be an object"))?;
+        reject_unknown(object, &["name", "value"])?;
+        let name = object
+            .get("name")
+            .and_then(JsonValue::as_str)
+            .filter(|name| {
+                !name.is_empty()
+                    && name.len() <= 128
+                    && name
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                    && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            })
+            .ok_or_else(|| ApiError::invalid("invalid environment variable name"))?;
+        let value = object
+            .get("value")
+            .and_then(JsonValue::as_str)
+            .filter(|value| value.len() <= 4096)
+            .ok_or_else(|| ApiError::invalid("invalid environment variable value"))?;
+        if desired
+            .iter()
+            .any(|(known, _): &(String, String)| known == name)
+        {
+            return Err(ApiError::invalid("duplicate environment variable"));
+        }
+        desired.push((name.to_string(), value.to_string()));
+    }
+
+    if desired.is_empty() {
+        remove_top(doc, "environment");
+        return Ok(());
+    }
+
+    let environment = ensure_node(doc, "environment").ensure_children();
+    environment
+        .nodes_mut()
+        .retain(|node| desired.iter().any(|(name, _)| name == node.name().value()));
+    for (name, value) in desired {
+        if environment.get(&name).is_none() {
+            environment.nodes_mut().push(KdlNode::new(name.clone()));
+        }
+        if let Some(node) = environment.get_mut(&name) {
+            set_arg(node, KdlValue::String(value));
+            node.autoformat();
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn outputs(doc: &KdlDocument) -> Vec<NiriOutput> {
+    doc.nodes()
+        .iter()
+        .filter(|node| node.name().value() == "output")
+        .filter_map(|node| {
+            let name = node.entries().first()?.value().as_string()?.to_string();
+            Some(NiriOutput {
+                name,
+                scale: node
+                    .children()
+                    .and_then(|children| children.get("scale"))
+                    .and_then(|node| node.entries().first())
+                    .and_then(|entry| match entry.value() {
+                        KdlValue::Float(value) => {
+                            u32::try_from((value * 100.0).round() as i64).ok()
+                        }
+                        KdlValue::Integer(value) => u32::try_from(*value).ok(),
+                        _ => None,
+                    }),
+                transform: node
+                    .children()
+                    .and_then(|children| children.get("transform"))
+                    .and_then(|node| node.entries().first()?.value().as_string())
+                    .map(str::to_string),
+                variable_refresh_rate: node
+                    .children()
+                    .and_then(|children| children.get("variable-refresh-rate"))
+                    .map(|_| true),
+            })
+        })
+        .collect()
+}
+
+fn apply_output(doc: &mut KdlDocument, value: &JsonValue) -> Result<(), ApiError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| ApiError::invalid("output must be an object"))?;
+    reject_unknown(
+        object,
+        &["name", "scale", "transform", "variable_refresh_rate"],
+    )?;
+    let name = object
+        .get("name")
+        .and_then(JsonValue::as_str)
+        .filter(|name| !name.is_empty() && name.len() <= 128)
+        .ok_or_else(|| ApiError::invalid("output name is required"))?;
+    let index = doc.nodes().iter().position(|node| {
+        node.name().value() == "output"
+            && node
+                .entries()
+                .first()
+                .and_then(|entry| entry.value().as_string())
+                == Some(name)
+    });
+    let index = index.unwrap_or_else(|| {
+        let mut node = KdlNode::new("output");
+        node.push(KdlValue::String(name.to_string()));
+        doc.nodes_mut().push(node);
+        doc.nodes().len() - 1
+    });
+    let Some(node) = doc.nodes_mut().get_mut(index) else {
+        return Err(ApiError::internal("output node index disappeared"));
+    };
+    node.autoformat();
+    let children = node.ensure_children();
+    if let Some(scale) = object.get("scale") {
+        let scale = scale
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|value| (25..=400).contains(value))
+            .ok_or_else(|| ApiError::invalid("output scale must be 25..400 percent"))?;
+        set_child(children, "scale", KdlValue::Float(f64::from(scale) / 100.0));
+    }
+    if let Some(transform) = object.get("transform") {
+        let transform = transform
+            .as_str()
+            .filter(|value| {
+                !value.is_empty()
+                    && value.len() <= 32
+                    && value
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+            })
+            .ok_or_else(|| ApiError::invalid("invalid output transform"))?;
+        set_child(
+            children,
+            "transform",
+            KdlValue::String(transform.to_string()),
+        );
+    }
+    if let Some(vrr) = object.get("variable_refresh_rate") {
+        let vrr = vrr
+            .as_bool()
+            .ok_or_else(|| ApiError::invalid("variable refresh rate must be boolean"))?;
+        if vrr {
+            if children.get("variable-refresh-rate").is_none() {
+                children
+                    .nodes_mut()
+                    .push(KdlNode::new("variable-refresh-rate"));
+            }
+        } else {
+            children
+                .nodes_mut()
+                .retain(|node| node.name().value() != "variable-refresh-rate");
+        }
+    }
+    Ok(())
+}
+
+fn set_child(doc: &mut KdlDocument, name: &str, value: KdlValue) {
+    if doc.get(name).is_none() {
+        doc.nodes_mut().push(KdlNode::new(name));
+    }
+    if let Some(node) = doc.get_mut(name) {
+        set_arg(node, value);
+    }
+}
+
+fn struts(doc: &KdlDocument) -> NiriStruts {
+    let Some(struts) = child_node(doc, "layout", "struts") else {
+        return NiriStruts::default();
+    };
+    NiriStruts {
+        left: struts
+            .children()
+            .and_then(|children| integer_child(children, "left")),
+        right: struts
+            .children()
+            .and_then(|children| integer_child(children, "right")),
+        top: struts
+            .children()
+            .and_then(|children| integer_child(children, "top")),
+        bottom: struts
+            .children()
+            .and_then(|children| integer_child(children, "bottom")),
+    }
+}
+
+fn integer_child(doc: &KdlDocument, name: &str) -> Option<u32> {
+    doc.get(name)?
+        .entries()
+        .first()?
+        .value()
+        .as_integer()
+        .and_then(|value| u32::try_from(value).ok())
+}
+
+fn number(value: &JsonValue, label: &str, max: u32) -> Result<u32, ApiError> {
+    value
+        .as_u64()
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value <= max)
+        .ok_or_else(|| ApiError::invalid(format!("{label} must be 0..{max}")))
+}
+
+fn ensure_keyboard_xkb(doc: &mut KdlDocument) -> &mut KdlDocument {
+    let input = ensure_node(doc, "input").ensure_children();
+    if input.get("keyboard").is_none() {
+        input.nodes_mut().push(KdlNode::new("keyboard"));
+    }
+    let Some(keyboard) = input.get_mut("keyboard") else {
+        unreachable!("keyboard was just inserted")
+    };
+    let keyboard = keyboard.ensure_children();
+    if keyboard.get("xkb").is_none() {
+        keyboard.nodes_mut().push(KdlNode::new("xkb"));
+    }
+    let Some(xkb) = keyboard.get_mut("xkb") else {
+        unreachable!("xkb was just inserted")
+    };
+    xkb.ensure_children()
+}
+
+fn set_keyboard_layout(doc: &mut KdlDocument, layout: &str) {
+    let xkb = ensure_keyboard_xkb(doc);
+    if xkb.get("layout").is_none() {
+        xkb.nodes_mut().push(KdlNode::new("layout"));
+    }
+    if let Some(node) = xkb.get_mut("layout") {
+        set_arg(node, KdlValue::String(layout.to_string()));
+    }
+}
+
+fn remove_keyboard_layout(doc: &mut KdlDocument) {
+    let Some(input) = doc
+        .get_mut("input")
+        .and_then(|node| node.children_mut().as_mut())
+    else {
+        return;
+    };
+    let Some(keyboard) = input
+        .get_mut("keyboard")
+        .and_then(|node| node.children_mut().as_mut())
+    else {
+        return;
+    };
+    if let Some(xkb) = keyboard
+        .get_mut("xkb")
+        .and_then(|node| node.children_mut().as_mut())
+    {
+        xkb.nodes_mut()
+            .retain(|node| node.name().value() != "layout");
+    }
+}
+
+fn set_nested_integer(doc: &mut KdlDocument, section: &str, parent: &str, key: &str, value: u32) {
+    set_arg(
+        ensure_nested_child(doc, section, parent, key),
+        KdlValue::Integer(i128::from(value)),
+    );
+}
+
+fn set_strut(doc: &mut KdlDocument, key: &str, value: u32) {
+    let layout = ensure_node(doc, "layout").ensure_children();
+    if layout.get("struts").is_none() {
+        layout.nodes_mut().push(KdlNode::new("struts"));
+    }
+    let Some(struts) = layout.get_mut("struts") else {
+        unreachable!("struts was just inserted")
+    };
+    let children = struts.ensure_children();
+    if children.get(key).is_none() {
+        children.nodes_mut().push(KdlNode::new(key));
+    }
+    if let Some(node) = children.get_mut(key) {
+        set_arg(node, KdlValue::Integer(i128::from(value)));
+    }
+}
+
+fn set_top_string(doc: &mut KdlDocument, name: &str, value: &str) {
+    set_arg(ensure_node(doc, name), KdlValue::String(value.to_string()));
+}
+
+fn set_top_nested_flag(doc: &mut KdlDocument, section: &str, key: &str, on: bool) {
+    let children = ensure_node(doc, section).ensure_children();
+    if on {
+        if children.get(key).is_none() {
+            children.nodes_mut().push(KdlNode::new(key));
+        }
+    } else {
+        children
+            .nodes_mut()
+            .retain(|node| node.name().value() != key);
+    }
+}
+
+fn remove_top(doc: &mut KdlDocument, name: &str) {
+    doc.nodes_mut().retain(|node| node.name().value() != name);
 }
 
 fn ensure_node<'a>(doc: &'a mut KdlDocument, name: &str) -> &'a mut KdlNode {
@@ -310,6 +831,104 @@ spawn-at-startup "foo"
         assert!(output.contains("gaps 24"));
         assert!(output.contains("spawn-at-startup"));
         assert!(output.contains("user comment"));
+    }
+
+    #[test]
+    fn parses_keyboard_layout_and_misc() {
+        let sample = r#"input {
+    keyboard {
+        xkb { layout "it" }
+        repeat-delay 600
+        repeat-rate 25
+    }
+}
+layout {
+    border { width 4 }
+    focus-ring { width 2 }
+    struts { left 8; right 8; top 4; bottom 4; }
+}
+screenshot-path "~/Pictures/%Y.png"
+hotkey-overlay { skip-at-startup; }
+"#;
+        let doc: KdlDocument = sample.parse().unwrap();
+        let values = parse_values(&doc);
+        assert_eq!(values.keyboard_layout.as_deref(), Some("it"));
+        assert_eq!(values.keyboard_repeat_delay, Some(600));
+        assert_eq!(values.keyboard_repeat_rate, Some(25));
+        assert_eq!(values.layout_border_width, Some(4));
+        assert_eq!(values.layout_focus_ring_width, Some(2));
+        assert_eq!(values.layout_struts.left, Some(8));
+        assert_eq!(values.layout_struts.bottom, Some(4));
+        assert_eq!(values.screenshot_path.as_deref(), Some("~/Pictures/%Y.png"));
+        assert_eq!(values.hotkey_overlay_skip_at_startup, Some(true));
+    }
+
+    #[test]
+    fn parses_and_updates_outputs() {
+        let mut doc: KdlDocument = r#"output "eDP-1" {
+    scale 1.5
+    transform "normal"
+    variable-refresh-rate
+}
+"#
+        .parse()
+        .unwrap();
+        let values = parse_values(&doc);
+        assert_eq!(values.outputs.len(), 1);
+        assert_eq!(values.outputs[0].name, "eDP-1");
+        assert_eq!(values.outputs[0].scale, Some(150));
+        assert_eq!(values.outputs[0].transform.as_deref(), Some("normal"));
+        apply_section(
+            &mut doc,
+            "outputs",
+            &serde_json::json!({"outputs": [{"name": "DP-2", "scale": 125, "transform": "90"}]}),
+        )
+        .unwrap();
+        let output = doc.to_string();
+        assert!(output.contains("output DP-2"));
+        assert!(output.contains("scale 1.25"));
+        assert!(output.contains("transform \"90\""));
+    }
+
+    #[test]
+    fn parses_and_updates_environment() {
+        let mut doc: KdlDocument = r#"environment {
+    FOO "bar"
+    KEEP "1"
+}
+"#
+        .parse()
+        .unwrap();
+        let values = parse_values(&doc);
+        assert_eq!(values.environment.len(), 2);
+        apply_section(
+            &mut doc,
+            "environment",
+            &serde_json::json!({"vars": [{"name": "KEEP", "value": "2"}, {"name": "NEW", "value": "x"}]}),
+        )
+        .unwrap();
+        let output = doc.to_string();
+        assert!(!output.contains("FOO"));
+        assert!(output.contains("KEEP \"2\""));
+        assert!(output.contains("NEW x"));
+    }
+
+    #[test]
+    fn parses_and_updates_spawn() {
+        let mut doc: KdlDocument = "spawn-at-startup \"foo\" \"bar\"\n".parse().unwrap();
+        let values = parse_values(&doc);
+        assert_eq!(values.spawn_at_startup.len(), 1);
+        assert_eq!(values.spawn_at_startup[0].command, vec!["foo", "bar"]);
+        apply_section(
+            &mut doc,
+            "spawn",
+            &serde_json::json!({"commands": [["sh", "-c", "echo hi"]]}),
+        )
+        .unwrap();
+        let output = doc.to_string();
+        assert!(output.contains("spawn-at-startup"));
+        assert!(output.contains("echo hi"));
+        assert!(!output.contains("\"foo\""));
     }
 
     #[test]

@@ -127,4 +127,4 @@ External skills:
 
 ## Deferred (stack decided — remaining)
 
-GUI web asset toolchain decision (when web/ starts), APKBUILDs in feralos-aports (v1.0).
+GUI web asset toolchain decision (when web/ starts).
