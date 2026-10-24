@@ -155,6 +155,16 @@ pub enum Action {
         description: String,
         location: String,
     },
+    /// Add a printer with an explicit driver or PPD and options.
+    AddPrinterManual {
+        name: String,
+        uri: String,
+        driver: String,
+        ppd: String,
+        description: String,
+        location: String,
+        options: Vec<String>,
+    },
     /// Remove a printer.
     RemovePrinter {
         name: String,
@@ -176,12 +186,21 @@ pub enum Action {
     // -- scanners (SANE) --
     /// List SANE scanner devices.
     ListScanners,
-    /// Scan one page to a PNG in the user's Pictures directory.
-    ScanDocument {
-        device: String,
-        resolution: u32,
-        mode: String,
-        source: String,
+    /// Read `/etc/sane.d/airscan.conf` plus detected devices.
+    GetScannerConfig,
+    /// Add or update a manual airscan device.
+    SetScannerDevice {
+        name: String,
+        address: String,
+        protocol: String,
+    },
+    /// Remove a manual airscan device.
+    RemoveScannerDevice {
+        name: String,
+    },
+    /// Enable or disable airscan discovery.
+    SetScannerDiscovery {
+        enabled: bool,
     },
 
     // -- snapshots (btrbk) --

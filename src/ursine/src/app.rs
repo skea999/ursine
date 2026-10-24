@@ -104,13 +104,16 @@ pub enum Message {
     OpenPrinters,
     OpenScanners,
     RefreshScanners,
-    ScannersLoaded(u64, Result<Vec<ursine_api::Scanner>, ApiError>),
-    ScannerSelected(usize),
-    ScannerResolutionChanged(usize),
-    ScannerModeChanged(usize),
-    ScannerSourceChanged(String),
-    ScannerScanRequested,
-    ScanFinished(u64, Result<ursine_api::ScanResult, ApiError>),
+    ScannersLoaded(u64, Result<ursine_api::ScannerConfigView, ApiError>),
+    ScannerNameChanged(String),
+    ScannerAddressChanged(String),
+    ScannerProtocolChanged(usize),
+    ScannerSaveRequested,
+    ScannerRemoveRequested(String),
+    ScannerRemoveConfirmed,
+    ScannerRemoveCancelled,
+    ScannerDiscoveryToggled(bool),
+    ScannerActionFinished(u64, String, Result<ursine_api::ScannerConfigView, ApiError>),
     RefreshPrinters,
     PrintersLoaded(
         u64,
@@ -121,6 +124,10 @@ pub enum Message {
     PrinterDescriptionChanged(String),
     PrinterLocationChanged(String),
     PrinterAddRequested,
+    PrinterAddManualRequested,
+    PrinterManualDriverChanged(String),
+    PrinterManualPpdChanged(String),
+    PrinterManualOptionsChanged(String),
     PrinterSetDefault(String),
     PrinterPause(String, bool),
     PrinterRemoveRequested(String),
@@ -361,12 +368,21 @@ impl cosmic::Application for App {
             }
             Message::RefreshScanners => return self.load_scanners(),
             Message::ScannersLoaded(epoch, result) => return self.finish_scanners(epoch, result),
-            Message::ScannerSelected(index) => self.scanners.selected = Some(index),
-            Message::ScannerResolutionChanged(index) => self.scanners.resolution = index,
-            Message::ScannerModeChanged(index) => self.scanners.mode = index,
-            Message::ScannerSourceChanged(value) => self.scanners.source = value,
-            Message::ScannerScanRequested => return self.scan_document(),
-            Message::ScanFinished(epoch, result) => return self.finish_scan(epoch, result),
+            Message::ScannerNameChanged(value) => self.scanners.name = value,
+            Message::ScannerAddressChanged(value) => self.scanners.address = value,
+            Message::ScannerProtocolChanged(index) => self.scanners.protocol = index,
+            Message::ScannerSaveRequested => return self.save_scanner(),
+            Message::ScannerRemoveRequested(name) => {
+                self.scanners.pending_remove = Some(name);
+            }
+            Message::ScannerRemoveConfirmed => return self.remove_scanner(),
+            Message::ScannerRemoveCancelled => self.scanners.pending_remove = None,
+            Message::ScannerDiscoveryToggled(enabled) => {
+                return self.set_scanner_discovery(enabled)
+            }
+            Message::ScannerActionFinished(epoch, label, result) => {
+                return self.finish_scanner_action(epoch, &label, result)
+            }
             Message::RefreshPrinters => return self.load_printers(),
             Message::PrintersLoaded(epoch, result) => return self.finish_printers(epoch, result),
             Message::PrinterNameChanged(value) => self.printers.name = value,
@@ -374,6 +390,10 @@ impl cosmic::Application for App {
             Message::PrinterDescriptionChanged(value) => self.printers.description = value,
             Message::PrinterLocationChanged(value) => self.printers.location = value,
             Message::PrinterAddRequested => return self.add_printer(),
+            Message::PrinterAddManualRequested => return self.add_printer_manual(),
+            Message::PrinterManualDriverChanged(value) => self.printers.manual_driver = value,
+            Message::PrinterManualPpdChanged(value) => self.printers.manual_ppd = value,
+            Message::PrinterManualOptionsChanged(value) => self.printers.manual_options = value,
             Message::PrinterSetDefault(name) => {
                 return self
                     .printer_action("default", client::set_default_printer(self.token(), name))
@@ -1942,6 +1962,52 @@ impl App {
         .map(cosmic::Action::App)
     }
 
+    fn add_printer_manual(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.printers.action_busy {
+            return Task::none();
+        }
+        let name = self.printers.name.trim().to_string();
+        let uri = self.printers.uri.trim().to_string();
+        if name.is_empty() || uri.is_empty() {
+            self.printers.error = Some("Name and URI are required.".into());
+            return Task::none();
+        }
+        let description = self.printers.description.trim().to_string();
+        let location = self.printers.location.trim().to_string();
+        let driver = self.printers.manual_driver.trim().to_string();
+        let ppd = self.printers.manual_ppd.trim().to_string();
+        let options = self
+            .printers
+            .manual_options
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect();
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.printers.action_busy = true;
+        self.printers.error = None;
+        Task::future(async move {
+            let result = client::add_printer_manual(
+                token,
+                name,
+                uri,
+                driver,
+                ppd,
+                description,
+                location,
+                options,
+            )
+            .await;
+            Message::PrinterActionFinished(epoch, "add_manual".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
     fn printer_action(
         &mut self,
         label: &str,
@@ -1999,7 +2065,7 @@ impl App {
         let token = session.token.clone();
         let epoch = self.epoch;
         Task::future(
-            async move { Message::ScannersLoaded(epoch, client::scanner_list(token).await) },
+            async move { Message::ScannersLoaded(epoch, client::scanner_config(token).await) },
         )
         .map(cosmic::Action::App)
     }
@@ -2007,17 +2073,14 @@ impl App {
     fn finish_scanners(
         &mut self,
         epoch: u64,
-        result: Result<Vec<ursine_api::Scanner>, ApiError>,
+        result: Result<ursine_api::ScannerConfigView, ApiError>,
     ) -> Task<cosmic::Action<Message>> {
         if epoch != self.epoch {
             return Task::none();
         }
         self.scanners.busy = false;
         match result {
-            Ok(scanners) => {
-                self.scanners.apply(scanners);
-                self.scanners.error = None;
-            }
+            Ok(view) => self.scanners.apply(view),
             Err(error) => {
                 if self.handle_session_error(&error) {
                     return Task::none();
@@ -2028,60 +2091,88 @@ impl App {
         Task::none()
     }
 
-    fn scan_document(&mut self) -> Task<cosmic::Action<Message>> {
+    fn save_scanner(&mut self) -> Task<cosmic::Action<Message>> {
         let Some(session) = &self.session else {
             return Task::none();
         };
         if self.scanners.action_busy {
             return Task::none();
         }
-        let Some(device) = self
-            .scanners
-            .selected_device()
-            .map(|scanner| scanner.id.clone())
-        else {
-            self.scanners.error = Some("Select a scanner.".into());
+        let name = self.scanners.name.trim().to_string();
+        let address = self.scanners.address.trim().to_string();
+        if name.is_empty() || address.is_empty() {
+            self.scanners.error = Some("Name and address are required.".into());
             return Task::none();
-        };
-        let resolution = [75_u32, 100, 150, 200, 300, 600]
-            .get(self.scanners.resolution)
+        }
+        let protocol = ["WSD", "eSCL"]
+            .get(self.scanners.protocol)
             .copied()
-            .unwrap_or(300);
-        let mode = ["Color", "Gray", "Lineart"]
-            .get(self.scanners.mode)
-            .copied()
-            .unwrap_or("Color")
+            .unwrap_or("WSD")
             .to_string();
-        let source = if self.scanners.source.trim().is_empty() {
-            "Flatbed".to_string()
-        } else {
-            self.scanners.source.trim().to_string()
-        };
         let token = session.token.clone();
         let epoch = self.epoch;
         self.scanners.action_busy = true;
         self.scanners.error = None;
         Task::future(async move {
-            Message::ScanFinished(
-                epoch,
-                client::scan_document(token, device, resolution, mode, source).await,
-            )
+            let result = client::set_scanner_device(token, name, address, protocol).await;
+            Message::ScannerActionFinished(epoch, "saved".into(), result)
         })
         .map(cosmic::Action::App)
     }
 
-    fn finish_scan(
+    fn remove_scanner(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some(name) = self.scanners.pending_remove.take() else {
+            return Task::none();
+        };
+        if self.scanners.action_busy {
+            return Task::none();
+        }
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.scanners.action_busy = true;
+        self.scanners.error = None;
+        Task::future(async move {
+            let result = client::remove_scanner_device(token, name).await;
+            Message::ScannerActionFinished(epoch, "removed".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn set_scanner_discovery(&mut self, enabled: bool) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.scanners.action_busy {
+            return Task::none();
+        }
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.scanners.action_busy = true;
+        self.scanners.error = None;
+        Task::future(async move {
+            let result = client::set_scanner_discovery(token, enabled).await;
+            Message::ScannerActionFinished(epoch, "discovery".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_scanner_action(
         &mut self,
         epoch: u64,
-        result: Result<ursine_api::ScanResult, ApiError>,
+        label: &str,
+        result: Result<ursine_api::ScannerConfigView, ApiError>,
     ) -> Task<cosmic::Action<Message>> {
         if epoch != self.epoch {
             return Task::none();
         }
         self.scanners.action_busy = false;
         match result {
-            Ok(result) => {
-                self.scanners.message = Some(format!("Saved {}", result.path));
+            Ok(view) => {
+                self.scanners.apply(view);
+                self.scanners.message = Some(label.to_string());
                 self.scanners.error = None;
             }
             Err(error) => {

@@ -48,6 +48,50 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             let output = run_quoted(&LPADMIN, &args).await?;
             Ok(json!({"output": output}))
         }
+        Action::AddPrinterManual {
+            name,
+            uri,
+            driver,
+            ppd,
+            description,
+            location,
+            options,
+        } => {
+            validate_name(name)?;
+            validate_uri(uri)?;
+            validate_text(description, "description")?;
+            validate_text(location, "location")?;
+            if !driver.is_empty() && !ppd.is_empty() {
+                return Err(ApiError::invalid("choose a driver or a PPD, not both"));
+            }
+            if !ppd.is_empty() {
+                validate_ppd(ppd)?;
+            }
+            let mut args = vec!["-p", name, "-E", "-v", uri];
+            if ppd.is_empty() {
+                let driver = if driver.is_empty() {
+                    "everywhere"
+                } else {
+                    driver
+                };
+                validate_driver(driver)?;
+                args.extend(["-m", driver]);
+            } else {
+                args.extend(["-P", ppd]);
+            }
+            if !description.trim().is_empty() {
+                args.extend(["-D", description.trim()]);
+            }
+            if !location.trim().is_empty() {
+                args.extend(["-L", location.trim()]);
+            }
+            for option in options {
+                validate_option(option)?;
+                args.extend(["-o", option]);
+            }
+            let output = run_quoted(&LPADMIN, &args).await?;
+            Ok(json!({"output": output}))
+        }
         Action::RemovePrinter { name } => {
             validate_name(name)?;
             Ok(json!({"output": run(&LPADMIN, &["-x", name]).await?}))
@@ -181,6 +225,48 @@ fn validate_uri(uri: &str) -> Result<(), ApiError> {
         return Err(ApiError::invalid(
             "URI must start with ipp://, ipps://, usb://, socket:// or lpd://",
         ));
+    }
+    Ok(())
+}
+
+fn validate_driver(driver: &str) -> Result<(), ApiError> {
+    if driver.len() > 512
+        || driver.starts_with('-')
+        || !driver
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '+'))
+    {
+        return Err(ApiError::invalid("invalid printer driver"));
+    }
+    Ok(())
+}
+
+fn validate_ppd(ppd: &str) -> Result<(), ApiError> {
+    let path = Path::new(ppd);
+    if !path.is_absolute()
+        || !path.is_file()
+        || !(ppd.starts_with("/usr/share/ppd/") || ppd.starts_with("/etc/cups/ppd/"))
+    {
+        return Err(ApiError::invalid(
+            "PPD must be a file under /usr/share/ppd or /etc/cups/ppd",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_option(option: &str) -> Result<(), ApiError> {
+    let Some((key, value)) = option.split_once('=') else {
+        return Err(ApiError::invalid("printer option must be key=value"));
+    };
+    if key.is_empty()
+        || key.len() > 128
+        || value.len() > 512
+        || !key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        || value.chars().any(|c| matches!(c, '\n' | '\r' | '\0'))
+    {
+        return Err(ApiError::invalid("invalid printer option"));
     }
     Ok(())
 }

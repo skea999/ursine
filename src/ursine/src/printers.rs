@@ -19,6 +19,9 @@ pub struct PrintersState {
     pub uri: String,
     pub description: String,
     pub location: String,
+    pub manual_driver: String,
+    pub manual_ppd: String,
+    pub manual_options: String,
     pub pending_remove: Option<String>,
     pub pending_cancel: bool,
 }
@@ -107,6 +110,33 @@ impl PrintersState {
             ));
         }
         items.push(printers.into());
+
+        items.push(
+            settings::section()
+                .title("Manual configuration")
+                .add(settings::item(
+                    "Driver or model",
+                    text_input("everywhere or drv:///...", self.manual_driver.clone())
+                        .on_input(Message::PrinterManualDriverChanged),
+                ))
+                .add(settings::item(
+                    "PPD path (overrides driver)",
+                    text_input("/usr/share/ppd/...", self.manual_ppd.clone())
+                        .on_input(Message::PrinterManualPpdChanged),
+                ))
+                .add(settings::item(
+                    "Options, one per line key=value",
+                    text_input("Option=Value", self.manual_options.clone())
+                        .on_input(Message::PrinterManualOptionsChanged),
+                ))
+                .add(settings::item(
+                    "Use the name/URI/description/location above",
+                    button::suggested("Add manual printer").on_press_maybe(
+                        (!self.action_busy).then_some(Message::PrinterAddManualRequested),
+                    ),
+                ))
+                .into(),
+        );
 
         items.push(
             settings::section()

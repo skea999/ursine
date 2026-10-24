@@ -38,7 +38,7 @@ pub use nix::{
 pub use packages::{ApkPackage, FlatpakPackage};
 pub use principal::{AsUser, Principal, PrincipalOrigin};
 pub use printer::{PrintJob, Printer};
-pub use scanner::{ScanResult, Scanner};
+pub use scanner::{AirscanDevice, Scanner, ScannerConfigView};
 pub use snapshot::{BtrbkConfigView, BtrbkSettings, Snapshot, SnapshotStats};
 pub use token::SessionToken;
 pub use users::UserSummary;

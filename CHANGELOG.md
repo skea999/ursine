@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.14.0] — 2026-10-24
+
+### Changed
+
+- Scanners is now a SANE setup page: discovery plus manual `airscan.conf`
+  devices. Image scanning and PNG output were removed.
+- CUPS manual printer setup: explicit URI, driver/model or PPD, and `-o`
+  options in addition to driverless add.
+
 ## [0.13.0] — 2026-10-24
 
 ### Added
@@ -169,6 +178,15 @@
 - PAM via `pam-client 0.2` (replaces `pam 0.7`): fixes RUSTSEC-2025-0040 (`users 0.8` vulnerable/unmaintained) and avoids bindgen.
 
 All notable changes to Ursine. Format: Keep a Changelog, semver.
+
+## [0.14.0] — 2026-10-24
+
+### Changed
+
+- Scanners is now a SANE setup page: discovery plus manual `airscan.conf`
+  devices. Image scanning and PNG output were removed.
+- CUPS manual printer setup: explicit URI, driver/model or PPD, and `-o`
+  options in addition to driverless add.
 
 ## [0.13.0] — 2026-10-24
 

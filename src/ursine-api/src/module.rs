@@ -20,7 +20,7 @@ pub enum ModuleId {
     PackagesFlatpak,
     /// CUPS printers and jobs.
     Printers,
-    /// SANE scanners.
+    /// SANE scanner setup.
     Scanners,
     /// btrbk snapshot management.
     Snapshots,

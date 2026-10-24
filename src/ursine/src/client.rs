@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use ursine_api::{
     installable_from_attr, timeouts, Action, ApiError, ApkPackage, BtrbkConfigView, BtrbkSettings,
     FlatpakPackage, InstalledPackage, ModuleId, ModulesConfig, NiriConfigView, PrintJob, Printer,
-    Request, RequestBody, Response, ResponseBody, ScanResult, Scanner, SearchResult, SessionToken,
+    Request, RequestBody, Response, ResponseBody, ScannerConfigView, SearchResult, SessionToken,
     Snapshot, SnapshotStats, TriState, UserSummary, PROTOCOL_VERSION,
 };
 
@@ -1123,6 +1123,35 @@ pub async fn add_printer(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
+pub async fn add_printer_manual(
+    token: SessionToken,
+    name: String,
+    uri: String,
+    driver: String,
+    ppd: String,
+    description: String,
+    location: String,
+    options: Vec<String>,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Printers,
+        Action::AddPrinterManual {
+            name,
+            uri,
+            driver,
+            ppd,
+            description,
+            location,
+            options,
+        },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
 pub async fn remove_printer(
     token: SessionToken,
     name: String,
@@ -1180,43 +1209,69 @@ pub async fn cancel_printer_jobs(
     .await
 }
 
-pub async fn scanner_list(token: SessionToken) -> Result<Vec<Scanner>, ApiError> {
+pub async fn scanner_config(token: SessionToken) -> Result<ScannerConfigView, ApiError> {
     let value = call_with_timeout(
         token,
         ModuleId::Scanners,
-        Action::ListScanners,
+        Action::GetScannerConfig,
         None,
         MUTATE_TIMEOUT,
     )
     .await?;
-    let scanners = value
-        .get("scanners")
-        .cloned()
-        .ok_or_else(|| ApiError::internal("daemon scanner response has no scanners"))?;
-    serde_json::from_value(scanners)
-        .map_err(|e| ApiError::internal(format!("cannot read scanners: {e}")))
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read scanner config: {e}")))
 }
 
-pub async fn scan_document(
+pub async fn set_scanner_device(
     token: SessionToken,
-    device: String,
-    resolution: u32,
-    mode: String,
-    source: String,
-) -> Result<ScanResult, ApiError> {
+    name: String,
+    address: String,
+    protocol: String,
+) -> Result<ScannerConfigView, ApiError> {
     let value = call_with_timeout(
         token,
         ModuleId::Scanners,
-        Action::ScanDocument {
-            device,
-            resolution,
-            mode,
-            source,
+        Action::SetScannerDevice {
+            name,
+            address,
+            protocol,
         },
         None,
         MUTATE_TIMEOUT,
     )
     .await?;
     serde_json::from_value(value)
-        .map_err(|e| ApiError::internal(format!("cannot read scan result: {e}")))
+        .map_err(|e| ApiError::internal(format!("cannot read scanner config: {e}")))
+}
+
+pub async fn remove_scanner_device(
+    token: SessionToken,
+    name: String,
+) -> Result<ScannerConfigView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Scanners,
+        Action::RemoveScannerDevice { name },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read scanner config: {e}")))
+}
+
+pub async fn set_scanner_discovery(
+    token: SessionToken,
+    enabled: bool,
+) -> Result<ScannerConfigView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Scanners,
+        Action::SetScannerDiscovery { enabled },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read scanner config: {e}")))
 }

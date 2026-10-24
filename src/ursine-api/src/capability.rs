@@ -21,7 +21,7 @@ pub enum Capability {
     Flatpak,
     /// CUPS is running and lpstat is available.
     Cups,
-    /// SANE scanimage is available.
+    /// SANE scanner setup is available.
     Sane,
     /// org.freedesktop.Accounts reachable on D-Bus.
     Accountsservice,
