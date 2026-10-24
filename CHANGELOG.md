@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.18.1] — 2026-10-24
+
+### Fixed
+
+- Home module-switch test after the unified Package manager entry.
+
 ## [0.18.0] — 2026-10-24
 
 ### Changed
@@ -222,6 +228,12 @@
 - PAM via `pam-client 0.2` (replaces `pam 0.7`): fixes RUSTSEC-2025-0040 (`users 0.8` vulnerable/unmaintained) and avoids bindgen.
 
 All notable changes to Ursine. Format: Keep a Changelog, semver.
+
+## [0.18.1] — 2026-10-24
+
+### Fixed
+
+- Home module-switch test after the unified Package manager entry.
 
 ## [0.18.0] — 2026-10-24
 

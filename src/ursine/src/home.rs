@@ -262,10 +262,10 @@ mod tests {
     fn manual_off_disables_the_module_row() {
         let entry = MODULES
             .iter()
-            .find(|entry| entry.module == Some(ModuleId::PackagesNix))
+            .find(|entry| entry.module == Some(ModuleId::Printers))
             .unwrap();
         let modules = ModulesConfig {
-            packages_nix: TriState::Off,
+            printers: TriState::Off,
             ..Default::default()
         };
         assert!(HomeState::is_manually_off(entry, Some(&modules)));
