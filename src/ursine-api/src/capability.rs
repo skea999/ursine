@@ -25,6 +25,14 @@ pub enum Capability {
     Sane,
     /// firewalld is available.
     Firewalld,
+    /// `OpenRC` is available.
+    OpenRc,
+    /// `UDisks2` is available.
+    Udisks2,
+    /// `BlueZ` is available.
+    Bluez,
+    /// `NetworkManager` is available.
+    NetworkManager,
     /// org.freedesktop.Accounts reachable on D-Bus.
     Accountsservice,
     /// niri binary + user config present.
@@ -35,7 +43,7 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability the daemon probes, in display order.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 15] = [
         Self::Btrbk,
         Self::Btrfs,
         Self::Nix,
@@ -44,6 +52,10 @@ impl Capability {
         Self::Cups,
         Self::Sane,
         Self::Firewalld,
+        Self::OpenRc,
+        Self::Udisks2,
+        Self::Bluez,
+        Self::NetworkManager,
         Self::Accountsservice,
         Self::Niri,
         Self::Dinit,
@@ -59,6 +71,10 @@ impl Capability {
             Self::Cups => "cups",
             Self::Sane => "sane",
             Self::Firewalld => "firewalld",
+            Self::OpenRc => "openrc",
+            Self::Udisks2 => "udisks2",
+            Self::Bluez => "bluez",
+            Self::NetworkManager => "network_manager",
             Self::Accountsservice => "accountsservice",
             Self::Niri => "niri",
             Self::Dinit => "dinit",
@@ -109,7 +125,7 @@ mod tests {
 
     #[test]
     fn all_capabilities_are_listed_once() {
-        assert_eq!(Capability::ALL.len(), 11);
+        assert_eq!(Capability::ALL.len(), 15);
         assert!(Capability::ALL.contains(&Capability::Apk));
         assert!(Capability::ALL.contains(&Capability::Flatpak));
     }

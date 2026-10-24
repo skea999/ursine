@@ -5,13 +5,17 @@
 use serde_json::json;
 use ursine_api::{Action, ApiError, Capability, ModuleId, Response, UrsineConfig};
 
+pub mod bluetooth;
+pub mod disks;
 pub mod firewall;
+pub mod network;
 pub mod niri;
 pub mod packages_apk;
 pub mod packages_flatpak;
 pub mod packages_nix;
 pub mod printers;
 pub mod scanners;
+pub mod services;
 pub mod snapshots;
 pub mod users;
 
@@ -36,6 +40,10 @@ fn required_caps(module: ModuleId) -> &'static [Capability] {
         ModuleId::Printers => &[Capability::Cups],
         ModuleId::Scanners => &[Capability::Sane],
         ModuleId::Firewall => &[Capability::Firewalld],
+        ModuleId::Services => &[Capability::OpenRc],
+        ModuleId::Disks => &[Capability::Udisks2],
+        ModuleId::Bluetooth => &[Capability::Bluez],
+        ModuleId::Network => &[Capability::NetworkManager],
         ModuleId::Snapshots => &[Capability::Btrbk, Capability::Btrfs],
         ModuleId::Users => &[Capability::Accountsservice],
         ModuleId::Niri => &[Capability::Niri],
@@ -77,6 +85,14 @@ pub async fn handle(
         (ModuleId::Scanners, action) => scanners::handle(action, ctx).await,
 
         (ModuleId::Firewall, action) => firewall::handle(action, ctx).await,
+
+        (ModuleId::Services, action) => services::handle(action, ctx).await,
+
+        (ModuleId::Disks, action) => disks::handle(action, ctx).await,
+
+        (ModuleId::Bluetooth, action) => bluetooth::handle(action, ctx).await,
+
+        (ModuleId::Network, action) => network::handle(action, ctx).await,
 
         (ModuleId::Snapshots, action) => snapshots::handle(action, ctx).await,
 
@@ -164,6 +180,19 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::AddFirewallPort { .. } => "add_firewall_port",
         Action::RemoveFirewallPort { .. } => "remove_firewall_port",
         Action::ReloadFirewall => "reload_firewall",
+        Action::ListServices => "list_services",
+        Action::ServiceAction { .. } => "service_action",
+        Action::ListDisks => "list_disks",
+        Action::MountDisk { .. } => "mount_disk",
+        Action::UnmountDisk { .. } => "unmount_disk",
+        Action::GetBluetooth => "get_bluetooth",
+        Action::SetBluetoothPower { .. } => "set_bluetooth_power",
+        Action::ScanBluetooth => "scan_bluetooth",
+        Action::BluetoothAction { .. } => "bluetooth_action",
+        Action::GetNetwork => "get_network",
+        Action::SetWifiEnabled { .. } => "set_wifi_enabled",
+        Action::ConnectWifi { .. } => "connect_wifi",
+        Action::DisconnectNetwork { .. } => "disconnect_network",
     }
 }
 
@@ -219,7 +248,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn capabilities_list_returns_all_eleven() {
+    async fn capabilities_list_returns_all_fifteen() {
         let (caps, cfg, _path) = ctx_with(AllMissing);
         let ctx = ModuleCtx {
             caps: &caps,
@@ -229,7 +258,7 @@ mod tests {
         let v = handle(ModuleId::Capabilities, &Action::List, &ctx)
             .await
             .unwrap();
-        assert_eq!(v.as_array().unwrap().len(), 11);
+        assert_eq!(v.as_array().unwrap().len(), 15);
     }
 
     #[tokio::test]

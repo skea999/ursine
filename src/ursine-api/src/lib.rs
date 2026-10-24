@@ -5,30 +5,37 @@
 //! compile error (see `docs/specs/SPEC-protocol.md`).
 
 pub mod action;
+pub mod bluetooth;
 pub mod capability;
 pub mod config;
+pub mod disk;
 pub mod envelope;
 pub mod error;
 pub mod firewall;
 pub mod module;
+pub mod network;
 pub mod niri;
 pub mod nix;
 pub mod packages;
 pub mod principal;
 pub mod printer;
 pub mod scanner;
+pub mod service;
 pub mod snapshot;
 pub mod timeouts;
 pub mod token;
 pub mod users;
 
 pub use action::Action;
+pub use bluetooth::{BluetoothAdapter, BluetoothDevice, BluetoothOp, BluetoothView};
 pub use capability::{Capability, CapabilityReport};
 pub use config::{ModulesConfig, TriState, UrsineConfig};
+pub use disk::Disk;
 pub use envelope::{Request, RequestBody, Response, ResponseBody, PROTOCOL_VERSION};
 pub use error::{ApiError, ErrorCode};
 pub use firewall::{FirewallStatus, FirewallZone};
 pub use module::ModuleId;
+pub use network::{NetworkDevice, NetworkView, WifiNetwork};
 pub use niri::{
     NiriBindAction, NiriConfigView, NiriEdgeGesture, NiriEnvVar, NiriGestures, NiriKeybind,
     NiriOutput, NiriSpawn, NiriStruts, NiriValues,
@@ -41,6 +48,7 @@ pub use packages::{ApkPackage, FlatpakPackage};
 pub use principal::{AsUser, Principal, PrincipalOrigin};
 pub use printer::{PrintJob, Printer};
 pub use scanner::{AirscanDevice, Scanner, ScannerConfigView};
+pub use service::{Service, ServiceOp};
 pub use snapshot::{BtrbkConfigView, BtrbkSettings, Snapshot, SnapshotStats};
 pub use token::SessionToken;
 pub use users::UserSummary;

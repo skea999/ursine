@@ -7,14 +7,18 @@ use ursine_api::{
     FlatpakPackage, ModuleId, SessionToken, TriState,
 };
 
+use crate::bluetooth::BluetoothState;
 use crate::client::{self, AuthSession, ConfigSnapshot, SearchPage};
+use crate::disks::DisksState;
 use crate::firewall::FirewallState;
 use crate::home::HomeState;
 use crate::login::LoginState;
+use crate::network::NetworkState;
 use crate::niri::NiriState;
 use crate::packages::{PackageKind, PackagesState};
 use crate::printers::PrintersState;
 use crate::scanners::ScannersState;
+use crate::services::ServicesState;
 use crate::settings::SettingsState;
 use crate::snapshots::{SnapAction, SnapSetting, SnapshotsState};
 use crate::store::{PendingStoreAction, StoreAction, StoreScope, StoreState};
@@ -62,6 +66,10 @@ enum Screen {
     Printers,
     Scanners,
     Firewall,
+    Services,
+    Disks,
+    Bluetooth,
+    Network,
 }
 
 pub struct App {
@@ -77,6 +85,10 @@ pub struct App {
     printers: PrintersState,
     scanners: ScannersState,
     firewall: FirewallState,
+    services: ServicesState,
+    disks: DisksState,
+    bluetooth: BluetoothState,
+    network: NetworkState,
     screen: Screen,
     session: Option<Session>,
     /// Bumped on sign-in/sign-out so late async results cannot repopulate a
@@ -107,6 +119,34 @@ pub enum Message {
     OpenPrinters,
     OpenScanners,
     OpenFirewall,
+    OpenServices,
+    OpenDisks,
+    OpenBluetooth,
+    OpenNetwork,
+    RefreshNetwork,
+    NetworkLoaded(u64, Result<ursine_api::NetworkView, ApiError>),
+    WifiEnabled(bool),
+    WifiSsidChanged(String),
+    WifiPasswordChanged(String),
+    WifiConnect,
+    DisconnectNetwork(String),
+    NetworkActionFinished(u64, String, Result<ursine_api::NetworkView, ApiError>),
+    RefreshBluetooth,
+    BluetoothLoaded(u64, Result<ursine_api::BluetoothView, ApiError>),
+    BluetoothPower(bool),
+    BluetoothScan,
+    BluetoothAction(String, ursine_api::BluetoothOp),
+    BluetoothActionFinished(u64, String, Result<ursine_api::BluetoothView, ApiError>),
+    RefreshDisks,
+    DisksLoaded(u64, Result<Vec<ursine_api::Disk>, ApiError>),
+    DiskAction(String, bool),
+    DiskActionFinished(u64, String, Result<Vec<ursine_api::Disk>, ApiError>),
+    RefreshServices,
+    ServicesLoaded(u64, Result<Vec<ursine_api::Service>, ApiError>),
+    ServiceRequested(String, ursine_api::ServiceOp),
+    ServiceConfirmed,
+    ServiceCancelled,
+    ServiceActionFinished(u64, String, Result<Vec<ursine_api::Service>, ApiError>),
     RefreshFirewall,
     FirewallLoaded(u64, Result<ursine_api::FirewallStatus, ApiError>),
     FirewallZoneChanged(String),
@@ -333,6 +373,10 @@ impl cosmic::Application for App {
             printers: PrintersState::default(),
             scanners: ScannersState::default(),
             firewall: FirewallState::default(),
+            services: ServicesState::default(),
+            disks: DisksState::default(),
+            bluetooth: BluetoothState::default(),
+            network: NetworkState::default(),
             screen: Screen::Home,
             session: None,
             epoch: 0,
@@ -386,6 +430,79 @@ impl cosmic::Application for App {
             Message::OpenFirewall => {
                 self.screen = Screen::Firewall;
                 return self.load_firewall();
+            }
+            Message::OpenServices => {
+                self.screen = Screen::Services;
+                return self.load_services();
+            }
+            Message::OpenDisks => {
+                self.screen = Screen::Disks;
+                return self.load_disks();
+            }
+            Message::OpenBluetooth => {
+                self.screen = Screen::Bluetooth;
+                return self.load_bluetooth();
+            }
+            Message::OpenNetwork => {
+                self.screen = Screen::Network;
+                return self.load_network();
+            }
+            Message::RefreshNetwork => return self.load_network(),
+            Message::NetworkLoaded(epoch, result) => return self.finish_network(epoch, result),
+            Message::WifiEnabled(enabled) => {
+                return self.network_action("wifi", client::wifi_enabled(self.token(), enabled))
+            }
+            Message::WifiSsidChanged(value) => self.network.ssid = value,
+            Message::WifiPasswordChanged(value) => self.network.password = value,
+            Message::WifiConnect => {
+                return self.network_action(
+                    "connect",
+                    client::connect_wifi(
+                        self.token(),
+                        self.network.ssid.trim().to_string(),
+                        self.network.password.clone(),
+                    ),
+                )
+            }
+            Message::DisconnectNetwork(device) => {
+                return self.network_action(
+                    "disconnect",
+                    client::disconnect_network(self.token(), device),
+                )
+            }
+            Message::NetworkActionFinished(epoch, label, result) => {
+                return self.finish_network_action(epoch, &label, result)
+            }
+            Message::RefreshBluetooth => return self.load_bluetooth(),
+            Message::BluetoothLoaded(epoch, result) => return self.finish_bluetooth(epoch, result),
+            Message::BluetoothPower(on) => {
+                return self.bluetooth_action("power", client::bluetooth_power(self.token(), on))
+            }
+            Message::BluetoothScan => {
+                return self.bluetooth_action("scan", client::bluetooth_scan(self.token()))
+            }
+            Message::BluetoothAction(address, op) => {
+                return self.bluetooth_action(
+                    "device",
+                    client::bluetooth_action(self.token(), address, op),
+                )
+            }
+            Message::BluetoothActionFinished(epoch, label, result) => {
+                return self.finish_bluetooth_action(epoch, &label, result)
+            }
+            Message::RefreshDisks => return self.load_disks(),
+            Message::DisksLoaded(epoch, result) => return self.finish_disks(epoch, result),
+            Message::DiskAction(device, mount) => return self.disk_action(device, mount),
+            Message::DiskActionFinished(epoch, label, result) => {
+                return self.finish_disk_action(epoch, &label, result)
+            }
+            Message::RefreshServices => return self.load_services(),
+            Message::ServicesLoaded(epoch, result) => return self.finish_services(epoch, result),
+            Message::ServiceRequested(name, op) => self.services.pending = Some((name, op)),
+            Message::ServiceConfirmed => return self.confirm_service(),
+            Message::ServiceCancelled => self.services.pending = None,
+            Message::ServiceActionFinished(epoch, name, result) => {
+                return self.finish_service_action(epoch, &name, result)
             }
             Message::RefreshFirewall => return self.load_firewall(),
             Message::FirewallLoaded(epoch, result) => return self.finish_firewall(epoch, result),
@@ -953,6 +1070,10 @@ impl cosmic::Application for App {
                     Screen::Printers => self.printers.view(),
                     Screen::Scanners => self.scanners.view(),
                     Screen::Firewall => self.firewall.view(),
+                    Screen::Services => self.services.view(),
+                    Screen::Disks => self.disks.view(),
+                    Screen::Bluetooth => self.bluetooth.view(),
+                    Screen::Network => self.network.view(),
                 };
                 cosmic::iced::widget::row(vec![self.sidebar(), content])
                     .width(Length::Fill)
@@ -1885,7 +2006,7 @@ impl App {
     fn sidebar(&self) -> Element<'_, Message> {
         use cosmic::widget::{button, column, container, scrollable, text};
 
-        let entries: [(Screen, &str); 11] = [
+        let entries: [(Screen, &str); 15] = [
             (Screen::Home, "Overview"),
             (Screen::Store, "Nix packages"),
             (Screen::Apk, "APK packages"),
@@ -1893,6 +2014,10 @@ impl App {
             (Screen::Printers, "Printers"),
             (Screen::Scanners, "Scanners"),
             (Screen::Firewall, "Firewall"),
+            (Screen::Services, "Services"),
+            (Screen::Disks, "Disks"),
+            (Screen::Bluetooth, "Bluetooth"),
+            (Screen::Network, "Network"),
             (Screen::Snapshots, "Snapshots"),
             (Screen::Users, "Users"),
             (Screen::Niri, "Niri desktop"),
@@ -1942,6 +2067,10 @@ impl App {
             Screen::Printers => Message::OpenPrinters,
             Screen::Scanners => Message::OpenScanners,
             Screen::Firewall => Message::OpenFirewall,
+            Screen::Services => Message::OpenServices,
+            Screen::Disks => Message::OpenDisks,
+            Screen::Bluetooth => Message::OpenBluetooth,
+            Screen::Network => Message::OpenNetwork,
         }
     }
 
@@ -1967,6 +2096,10 @@ impl App {
             Screen::Printers => self.cap_available(Capability::Cups),
             Screen::Scanners => self.cap_available(Capability::Sane),
             Screen::Firewall => self.cap_available(Capability::Firewalld),
+            Screen::Services => self.cap_available(Capability::OpenRc),
+            Screen::Disks => self.cap_available(Capability::Udisks2),
+            Screen::Bluetooth => self.cap_available(Capability::Bluez),
+            Screen::Network => self.cap_available(Capability::NetworkManager),
         }
     }
 
@@ -2348,6 +2481,346 @@ impl App {
         Task::none()
     }
 
+    fn load_services(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.services.busy || self.services.action_busy {
+            return Task::none();
+        }
+        self.services.busy = true;
+        self.services.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(
+            async move { Message::ServicesLoaded(epoch, client::service_list(token).await) },
+        )
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_services(
+        &mut self,
+        epoch: u64,
+        result: Result<Vec<ursine_api::Service>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.services.busy = false;
+        match result {
+            Ok(services) => self.services.apply(services),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.services.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn confirm_service(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some((name, op)) = self.services.pending.take() else {
+            return Task::none();
+        };
+        if self.services.action_busy {
+            return Task::none();
+        }
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.services.action_busy = true;
+        self.services.error = None;
+        Task::future(async move {
+            let result = client::service_action(token, name, op).await;
+            Message::ServiceActionFinished(epoch, "service".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_service_action(
+        &mut self,
+        epoch: u64,
+        _name: &str,
+        result: Result<Vec<ursine_api::Service>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.services.action_busy = false;
+        match result {
+            Ok(services) => {
+                self.services.apply(services);
+                self.services.message = Some("Service updated.".into());
+                self.services.error = None;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.services.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn load_disks(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.disks.busy || self.disks.action_busy {
+            return Task::none();
+        }
+        self.disks.busy = true;
+        self.disks.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move { Message::DisksLoaded(epoch, client::disk_list(token).await) })
+            .map(cosmic::Action::App)
+    }
+
+    fn finish_disks(
+        &mut self,
+        epoch: u64,
+        result: Result<Vec<ursine_api::Disk>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.disks.busy = false;
+        match result {
+            Ok(disks) => self.disks.apply(disks),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.disks.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn disk_action(&mut self, device: String, mount: bool) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.disks.action_busy {
+            return Task::none();
+        }
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        let label = if mount { "mount" } else { "unmount" }.to_string();
+        self.disks.action_busy = true;
+        self.disks.error = None;
+        Task::future(async move {
+            let result = if mount {
+                client::disk_mount(token, device).await
+            } else {
+                client::disk_unmount(token, device).await
+            };
+            Message::DiskActionFinished(epoch, label, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_disk_action(
+        &mut self,
+        epoch: u64,
+        label: &str,
+        result: Result<Vec<ursine_api::Disk>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.disks.action_busy = false;
+        match result {
+            Ok(disks) => {
+                self.disks.apply(disks);
+                self.disks.message = Some(label.to_string());
+                self.disks.error = None;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.disks.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn load_bluetooth(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.bluetooth.busy || self.bluetooth.action_busy {
+            return Task::none();
+        }
+        self.bluetooth.busy = true;
+        self.bluetooth.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(
+            async move { Message::BluetoothLoaded(epoch, client::bluetooth_view(token).await) },
+        )
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_bluetooth(
+        &mut self,
+        epoch: u64,
+        result: Result<ursine_api::BluetoothView, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.bluetooth.busy = false;
+        match result {
+            Ok(view) => self.bluetooth.apply(view),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.bluetooth.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn bluetooth_action(
+        &mut self,
+        label: &str,
+        future: impl std::future::Future<Output = Result<ursine_api::BluetoothView, ApiError>>
+            + Send
+            + 'static,
+    ) -> Task<cosmic::Action<Message>> {
+        let Some(_session) = &self.session else {
+            return Task::none();
+        };
+        if self.bluetooth.action_busy {
+            return Task::none();
+        }
+        let label = label.to_string();
+        let epoch = self.epoch;
+        self.bluetooth.action_busy = true;
+        self.bluetooth.error = None;
+        Task::future(async move { Message::BluetoothActionFinished(epoch, label, future.await) })
+            .map(cosmic::Action::App)
+    }
+
+    fn finish_bluetooth_action(
+        &mut self,
+        epoch: u64,
+        label: &str,
+        result: Result<ursine_api::BluetoothView, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.bluetooth.action_busy = false;
+        match result {
+            Ok(view) => {
+                self.bluetooth.apply(view);
+                self.bluetooth.message = Some(label.to_string());
+                self.bluetooth.error = None;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.bluetooth.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn load_network(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.network.busy || self.network.action_busy {
+            return Task::none();
+        }
+        self.network.busy = true;
+        self.network.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(
+            async move { Message::NetworkLoaded(epoch, client::network_view(token).await) },
+        )
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_network(
+        &mut self,
+        epoch: u64,
+        result: Result<ursine_api::NetworkView, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.network.busy = false;
+        match result {
+            Ok(view) => self.network.apply(view),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.network.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn network_action(
+        &mut self,
+        label: &str,
+        future: impl std::future::Future<Output = Result<ursine_api::NetworkView, ApiError>>
+            + Send
+            + 'static,
+    ) -> Task<cosmic::Action<Message>> {
+        let Some(_session) = &self.session else {
+            return Task::none();
+        };
+        if self.network.action_busy {
+            return Task::none();
+        }
+        let label = label.to_string();
+        let epoch = self.epoch;
+        self.network.action_busy = true;
+        self.network.error = None;
+        Task::future(async move { Message::NetworkActionFinished(epoch, label, future.await) })
+            .map(cosmic::Action::App)
+    }
+
+    fn finish_network_action(
+        &mut self,
+        epoch: u64,
+        label: &str,
+        result: Result<ursine_api::NetworkView, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.network.action_busy = false;
+        match result {
+            Ok(view) => {
+                self.network.apply(view);
+                self.network.message = Some(label.to_string());
+                self.network.error = None;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.network.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
     fn sign_in(&mut self) -> Task<cosmic::Action<Message>> {
         if self.login.busy {
             return Task::none();
@@ -2387,6 +2860,10 @@ impl App {
                 self.printers = PrintersState::default();
                 self.scanners = ScannersState::default();
                 self.firewall = FirewallState::default();
+                self.services = ServicesState::default();
+                self.disks = DisksState::default();
+                self.bluetooth = BluetoothState::default();
+                self.network = NetworkState::default();
                 self.home.user.clone_from(&user);
                 self.home.busy = true;
                 self.home.error = None;
@@ -2936,6 +3413,10 @@ impl App {
         self.printers = PrintersState::default();
         self.scanners = ScannersState::default();
         self.firewall = FirewallState::default();
+        self.services = ServicesState::default();
+        self.disks = DisksState::default();
+        self.bluetooth = BluetoothState::default();
+        self.network = NetworkState::default();
         self.screen = Screen::Home;
         self.login.password.clear();
         self.login.error = None;

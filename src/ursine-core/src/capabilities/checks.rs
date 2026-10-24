@@ -71,6 +71,24 @@ pub fn check_capability(sys: &dyn Sysinfo, cap: Capability) -> bool {
                 || sys.path_exists(Path::new("/usr/bin/firewall-cmd"))
                 || sys.path_exists(Path::new("/run/firewalld"))
         }
+        Capability::OpenRc => {
+            sys.cmd_in_path("rc-service")
+                || sys.path_exists(Path::new("/sbin/rc-service"))
+                || sys.read_trimmed(Path::new("/proc/1/comm")).as_deref() == Some("openrc")
+        }
+        Capability::Udisks2 => {
+            (sys.cmd_in_path("lsblk") || sys.path_exists(Path::new("/usr/bin/lsblk")))
+                && (sys.cmd_in_path("udisksctl")
+                    || sys.path_exists(Path::new("/usr/bin/udisksctl")))
+        }
+        Capability::Bluez => {
+            (sys.cmd_in_path("bluetoothctl") || sys.path_exists(Path::new("/usr/bin/bluetoothctl")))
+                && sys.path_exists(Path::new("/run/dbus/system_bus_socket"))
+        }
+        Capability::NetworkManager => {
+            (sys.cmd_in_path("nmcli") || sys.path_exists(Path::new("/usr/bin/nmcli")))
+                && sys.path_exists(Path::new("/run/dbus/system_bus_socket"))
+        }
         // Proxy for "D-Bus system bus is up"; the real name probe arrives with
         // the users module (zbus).
         Capability::Accountsservice => sys.path_exists(Path::new("/run/dbus/system_bus_socket")),
@@ -103,6 +121,16 @@ pub fn hints(cap: Capability) -> (&'static str, &'static str) {
         Capability::Firewalld => (
             "firewalld is not available",
             "apk add firewalld && rc-service firewalld start",
+        ),
+        Capability::OpenRc => ("OpenRC is not available", "boot an OpenRC system"),
+        Capability::Udisks2 => ("UDisks2 is not available", "apk add udisks2 util-linux"),
+        Capability::Bluez => (
+            "BlueZ is not available",
+            "apk add bluez && rc-service bluetooth start",
+        ),
+        Capability::NetworkManager => (
+            "NetworkManager is not available",
+            "apk add networkmanager && rc-service networkmanager start",
         ),
         Capability::Accountsservice => ("system D-Bus is not available", "start dbus"),
         Capability::Niri => ("niri not installed", "apk add niri"),

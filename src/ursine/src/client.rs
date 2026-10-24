@@ -11,10 +11,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use ursine_api::{
-    installable_from_attr, timeouts, Action, ApiError, ApkPackage, BtrbkConfigView, BtrbkSettings,
-    FirewallStatus, FlatpakPackage, InstalledPackage, ModuleId, ModulesConfig, NiriConfigView,
-    PrintJob, Printer, Request, RequestBody, Response, ResponseBody, ScannerConfigView,
-    SearchResult, SessionToken, Snapshot, SnapshotStats, TriState, UserSummary, PROTOCOL_VERSION,
+    installable_from_attr, timeouts, Action, ApiError, ApkPackage, BluetoothOp, BluetoothView,
+    BtrbkConfigView, BtrbkSettings, Disk, FirewallStatus, FlatpakPackage, InstalledPackage,
+    ModuleId, ModulesConfig, NetworkView, NiriConfigView, PrintJob, Printer, Request, RequestBody,
+    Response, ResponseBody, ScannerConfigView, SearchResult, Service, ServiceOp, SessionToken,
+    Snapshot, SnapshotStats, TriState, UserSummary, PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
@@ -1384,4 +1385,205 @@ pub async fn firewall_reload(token: SessionToken) -> Result<FirewallStatus, ApiE
     .await?;
     serde_json::from_value(value)
         .map_err(|e| ApiError::internal(format!("cannot read firewall: {e}")))
+}
+
+pub async fn service_list(token: SessionToken) -> Result<Vec<Service>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Services,
+        Action::ListServices,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let services = value
+        .get("services")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon services response has no services"))?;
+    serde_json::from_value(services)
+        .map_err(|e| ApiError::internal(format!("cannot read services: {e}")))
+}
+
+pub async fn service_action(
+    token: SessionToken,
+    name: String,
+    op: ServiceOp,
+) -> Result<Vec<Service>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Services,
+        Action::ServiceAction { name, op },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let services = value
+        .get("services")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon services response has no services"))?;
+    serde_json::from_value(services)
+        .map_err(|e| ApiError::internal(format!("cannot read services: {e}")))
+}
+
+pub async fn disk_list(token: SessionToken) -> Result<Vec<Disk>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Disks,
+        Action::ListDisks,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let disks = value
+        .get("disks")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon disks response has no disks"))?;
+    serde_json::from_value(disks).map_err(|e| ApiError::internal(format!("cannot read disks: {e}")))
+}
+
+pub async fn disk_mount(token: SessionToken, device: String) -> Result<Vec<Disk>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Disks,
+        Action::MountDisk { device },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let disks = value
+        .get("disks")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon disks response has no disks"))?;
+    serde_json::from_value(disks).map_err(|e| ApiError::internal(format!("cannot read disks: {e}")))
+}
+
+pub async fn disk_unmount(token: SessionToken, device: String) -> Result<Vec<Disk>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Disks,
+        Action::UnmountDisk { device },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let disks = value
+        .get("disks")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon disks response has no disks"))?;
+    serde_json::from_value(disks).map_err(|e| ApiError::internal(format!("cannot read disks: {e}")))
+}
+
+pub async fn bluetooth_view(token: SessionToken) -> Result<BluetoothView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Bluetooth,
+        Action::GetBluetooth,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read bluetooth: {e}")))
+}
+
+pub async fn bluetooth_power(token: SessionToken, on: bool) -> Result<BluetoothView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Bluetooth,
+        Action::SetBluetoothPower { on },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read bluetooth: {e}")))
+}
+
+pub async fn bluetooth_scan(token: SessionToken) -> Result<BluetoothView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Bluetooth,
+        Action::ScanBluetooth,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read bluetooth: {e}")))
+}
+
+pub async fn bluetooth_action(
+    token: SessionToken,
+    address: String,
+    op: BluetoothOp,
+) -> Result<BluetoothView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Bluetooth,
+        Action::BluetoothAction { address, op },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read bluetooth: {e}")))
+}
+
+pub async fn network_view(token: SessionToken) -> Result<NetworkView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Network,
+        Action::GetNetwork,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read network: {e}")))
+}
+
+pub async fn wifi_enabled(token: SessionToken, enabled: bool) -> Result<NetworkView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Network,
+        Action::SetWifiEnabled { enabled },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read network: {e}")))
+}
+
+pub async fn connect_wifi(
+    token: SessionToken,
+    ssid: String,
+    password: String,
+) -> Result<NetworkView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Network,
+        Action::ConnectWifi { ssid, password },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read network: {e}")))
+}
+
+pub async fn disconnect_network(
+    token: SessionToken,
+    device: String,
+) -> Result<NetworkView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Network,
+        Action::DisconnectNetwork { device },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read network: {e}")))
 }

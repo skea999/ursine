@@ -37,6 +37,10 @@ enum Panel {
     Printers,
     Scanners,
     Firewall,
+    Services,
+    Disks,
+    Bluetooth,
+    Network,
 }
 
 const MODULES: &[ModuleEntry] = &[
@@ -75,6 +79,30 @@ const MODULES: &[ModuleEntry] = &[
         module: Some(ModuleId::Firewall),
         requires: &[Capability::Firewalld],
         panel: Some(Panel::Firewall),
+    },
+    ModuleEntry {
+        title: "Services",
+        module: Some(ModuleId::Services),
+        requires: &[Capability::OpenRc],
+        panel: Some(Panel::Services),
+    },
+    ModuleEntry {
+        title: "Disks",
+        module: Some(ModuleId::Disks),
+        requires: &[Capability::Udisks2],
+        panel: Some(Panel::Disks),
+    },
+    ModuleEntry {
+        title: "Bluetooth",
+        module: Some(ModuleId::Bluetooth),
+        requires: &[Capability::Bluez],
+        panel: Some(Panel::Bluetooth),
+    },
+    ModuleEntry {
+        title: "Network",
+        module: Some(ModuleId::Network),
+        requires: &[Capability::NetworkManager],
+        panel: Some(Panel::Network),
     },
     ModuleEntry {
         title: "Snapshots (btrbk)",
@@ -177,7 +205,11 @@ impl HomeState {
                 | Panel::Flatpak
                 | Panel::Printers
                 | Panel::Scanners
-                | Panel::Firewall,
+                | Panel::Firewall
+                | Panel::Services
+                | Panel::Disks
+                | Panel::Bluetooth
+                | Panel::Network,
             ) => {
                 let available = !Self::is_manually_off(entry, modules)
                     && entry.requires.iter().all(|required| {
@@ -196,6 +228,10 @@ impl HomeState {
                     Some(Panel::Printers) => Message::OpenPrinters,
                     Some(Panel::Scanners) => Message::OpenScanners,
                     Some(Panel::Firewall) => Message::OpenFirewall,
+                    Some(Panel::Services) => Message::OpenServices,
+                    Some(Panel::Disks) => Message::OpenDisks,
+                    Some(Panel::Bluetooth) => Message::OpenBluetooth,
+                    Some(Panel::Network) => Message::OpenNetwork,
                     None => unreachable!(),
                 };
                 let open = button::text("Open").on_press_maybe(available.then_some(open_message));
@@ -227,6 +263,10 @@ fn module_mode(modules: &ModulesConfig, module: ModuleId) -> TriState {
         ModuleId::Printers => modules.printers,
         ModuleId::Scanners => modules.scanners,
         ModuleId::Firewall => modules.firewall,
+        ModuleId::Services => modules.services,
+        ModuleId::Disks => modules.disks,
+        ModuleId::Bluetooth => modules.bluetooth,
+        ModuleId::Network => modules.network,
         ModuleId::Snapshots => modules.snapshots,
         ModuleId::Users => modules.users,
         ModuleId::Niri => modules.niri,

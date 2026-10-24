@@ -203,6 +203,59 @@ pub enum Action {
         enabled: bool,
     },
 
+    // -- network (NetworkManager) --
+    /// Devices, active connections and visible Wi-Fi networks.
+    GetNetwork,
+    /// Turn the Wi-Fi radio on or off.
+    SetWifiEnabled {
+        enabled: bool,
+    },
+    /// Connect to a Wi-Fi SSID with an optional password.
+    ConnectWifi {
+        ssid: String,
+        password: String,
+    },
+    /// Disconnect one network device.
+    DisconnectNetwork {
+        device: String,
+    },
+
+    // -- bluetooth (BlueZ) --
+    /// Adapter state and known devices.
+    GetBluetooth,
+    /// Turn the adapter on or off.
+    SetBluetoothPower {
+        on: bool,
+    },
+    /// Scan for nearby devices, then return the updated list.
+    ScanBluetooth,
+    /// Pair/connect/disconnect/trust/forget one device.
+    BluetoothAction {
+        address: String,
+        op: crate::BluetoothOp,
+    },
+
+    // -- disks (UDisks2) --
+    /// List block devices and partitions.
+    ListDisks,
+    /// Mount a block device.
+    MountDisk {
+        device: String,
+    },
+    /// Unmount a block device.
+    UnmountDisk {
+        device: String,
+    },
+
+    // -- services (OpenRC/dinit) --
+    /// List init services and their enabled state.
+    ListServices,
+    /// Start/stop/restart/enable/disable one service.
+    ServiceAction {
+        name: String,
+        op: crate::ServiceOp,
+    },
+
     // -- firewall (firewalld) --
     /// Read zones, default zone and services/ports.
     GetFirewall,

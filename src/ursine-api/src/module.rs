@@ -24,6 +24,14 @@ pub enum ModuleId {
     Scanners,
     /// firewalld setup.
     Firewall,
+    /// Init services.
+    Services,
+    /// Block devices.
+    Disks,
+    /// Bluetooth devices.
+    Bluetooth,
+    /// `NetworkManager`.
+    Network,
     /// btrbk snapshot management.
     Snapshots,
     /// Users and groups via accountsservice.
@@ -45,6 +53,10 @@ impl ModuleId {
             Self::Printers => "printers",
             Self::Scanners => "scanners",
             Self::Firewall => "firewall",
+            Self::Services => "services",
+            Self::Disks => "disks",
+            Self::Bluetooth => "bluetooth",
+            Self::Network => "network",
             Self::Snapshots => "snapshots",
             Self::Users => "users",
             Self::Niri => "niri",
@@ -77,6 +89,10 @@ mod tests {
             ModuleId::Printers,
             ModuleId::Scanners,
             ModuleId::Firewall,
+            ModuleId::Services,
+            ModuleId::Disks,
+            ModuleId::Bluetooth,
+            ModuleId::Network,
             ModuleId::Snapshots,
             ModuleId::Users,
             ModuleId::Niri,

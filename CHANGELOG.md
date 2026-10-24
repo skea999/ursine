@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.16.0] — 2026-10-24
+
+### Added
+
+- OpenRC services panel with lifecycle and enable/disable.
+- Disks panel with UDisks2 mount/unmount.
+- Bluetooth adapter/device setup via BlueZ.
+- NetworkManager device and Wi-Fi setup with password on stdin.
+
 ## [0.15.0] — 2026-10-24
 
 ### Added
@@ -185,6 +194,15 @@
 - PAM via `pam-client 0.2` (replaces `pam 0.7`): fixes RUSTSEC-2025-0040 (`users 0.8` vulnerable/unmaintained) and avoids bindgen.
 
 All notable changes to Ursine. Format: Keep a Changelog, semver.
+
+## [0.16.0] — 2026-10-24
+
+### Added
+
+- OpenRC services panel with lifecycle and enable/disable.
+- Disks panel with UDisks2 mount/unmount.
+- Bluetooth adapter/device setup via BlueZ.
+- NetworkManager device and Wi-Fi setup with password on stdin.
 
 ## [0.15.0] — 2026-10-24
 

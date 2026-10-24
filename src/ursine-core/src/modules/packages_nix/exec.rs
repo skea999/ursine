@@ -636,8 +636,50 @@ async fn run_as_user_limited(
     }
 }
 
-/// Run a trusted program as root with literal arguments (no shell). Unlike
-/// `run_root_program`, values may contain spaces for tools such as `lpadmin`.
+/// Run a trusted program as root with literal args and stdin input.
+pub async fn run_root_program_quoted_stdin(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+    input: &str,
+) -> Result<CommandOutcome, ApiError> {
+    if !is_safe_atom(program) {
+        return Err(ApiError::invalid("invalid program"));
+    }
+    let mut cmd = Command::new(program);
+    for arg in args {
+        if arg.len() > 4096 || arg.contains('\0') || arg.contains('\n') {
+            return Err(ApiError::invalid("invalid command argument"));
+        }
+        cmd.arg(arg);
+    }
+    let output = run_command(
+        cmd,
+        timeout,
+        OutputPolicy::Truncate,
+        Some(format!("{input}\n").into_bytes()),
+    )
+    .await?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if output.status.success() {
+        Ok(CommandOutcome { stdout, stderr })
+    } else {
+        Err(ApiError::new(
+            ursine_api::ErrorCode::Internal,
+            format!(
+                "command failed: {}",
+                if stderr.trim().is_empty() {
+                    stdout.trim()
+                } else {
+                    stderr.trim()
+                }
+            ),
+        ))
+    }
+}
+
+/// Run a trusted program as root with literal args (no shell).
 pub async fn run_root_program_quoted(
     program: &str,
     args: &[&str],

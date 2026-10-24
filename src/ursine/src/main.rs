@@ -6,14 +6,18 @@
 
 #![allow(unreachable_pub)] // binary crate: no library surface
 mod app;
+mod bluetooth;
 mod client;
+mod disks;
 mod firewall;
 mod home;
 mod login;
+mod network;
 mod niri;
 mod packages;
 mod printers;
 mod scanners;
+mod services;
 mod settings;
 mod snapshots;
 mod store;

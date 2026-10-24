@@ -46,6 +46,22 @@ const MODULE_SWITCHES: &[ModuleSwitch] = &[
         title: "Firewall",
     },
     ModuleSwitch {
+        module: ModuleId::Services,
+        title: "Services",
+    },
+    ModuleSwitch {
+        module: ModuleId::Disks,
+        title: "Disks",
+    },
+    ModuleSwitch {
+        module: ModuleId::Bluetooth,
+        title: "Bluetooth",
+    },
+    ModuleSwitch {
+        module: ModuleId::Network,
+        title: "Network",
+    },
+    ModuleSwitch {
         module: ModuleId::Snapshots,
         title: "Snapshots",
     },
@@ -188,6 +204,10 @@ fn module_switch(config: &ConfigSnapshot, module: ModuleId) -> TriState {
         ModuleId::Printers => config.modules.printers,
         ModuleId::Scanners => config.modules.scanners,
         ModuleId::Firewall => config.modules.firewall,
+        ModuleId::Services => config.modules.services,
+        ModuleId::Disks => config.modules.disks,
+        ModuleId::Bluetooth => config.modules.bluetooth,
+        ModuleId::Network => config.modules.network,
         ModuleId::Snapshots => config.modules.snapshots,
         ModuleId::Users => config.modules.users,
         ModuleId::Niri => config.modules.niri,
