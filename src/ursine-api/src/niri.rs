@@ -16,6 +16,16 @@ pub struct NiriValues {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub touchpad_dwt: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub touchpad_accel_speed: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub touchpad_accel_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mouse_accel_speed: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mouse_accel_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mouse_natural_scroll: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor_size: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor_theme: Option<String>,
@@ -25,6 +35,10 @@ pub struct NiriValues {
     pub keyboard_repeat_delay: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keyboard_repeat_rate: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyboard_track_layout: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyboard_numlock: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout_border_width: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -14,11 +14,18 @@ pub(super) fn parse_values(doc: &KdlDocument) -> NiriValues {
         touchpad_tap: flag(doc, &["input", "touchpad", "tap"]),
         touchpad_natural_scroll: flag(doc, &["input", "touchpad", "natural-scroll"]),
         touchpad_dwt: flag(doc, &["input", "touchpad", "dwt"]),
+        touchpad_accel_speed: speed(doc, &["input", "touchpad", "accel-speed"]),
+        touchpad_accel_profile: string(doc, &["input", "touchpad", "accel-profile"]),
+        mouse_accel_speed: speed(doc, &["input", "mouse", "accel-speed"]),
+        mouse_accel_profile: string(doc, &["input", "mouse", "accel-profile"]),
+        mouse_natural_scroll: flag(doc, &["input", "mouse", "natural-scroll"]),
         cursor_size: integer(doc, &["cursor", "size"]),
         cursor_theme: string(doc, &["cursor", "theme"]),
         keyboard_layout: string(doc, &["input", "keyboard", "xkb", "layout"]),
         keyboard_repeat_delay: integer(doc, &["input", "keyboard", "repeat-delay"]),
         keyboard_repeat_rate: integer(doc, &["input", "keyboard", "repeat-rate"]),
+        keyboard_track_layout: string(doc, &["input", "keyboard", "track-layout"]),
+        keyboard_numlock: flag(doc, &["input", "keyboard", "numlock"]),
         layout_border_width: integer(doc, &["layout", "border", "width"]),
         layout_focus_ring_width: integer(doc, &["layout", "focus-ring", "width"]),
         layout_struts: struts(doc),
@@ -87,7 +94,16 @@ pub(super) fn apply_section(
             }
         }
         "input.keyboard" => {
-            reject_unknown(object, &["layout", "repeat_delay", "repeat_rate"])?;
+            reject_unknown(
+                object,
+                &[
+                    "layout",
+                    "repeat_delay",
+                    "repeat_rate",
+                    "track_layout",
+                    "numlock",
+                ],
+            )?;
             if let Some(layout) = object.get("layout") {
                 let layout = layout
                     .as_str()
@@ -109,6 +125,21 @@ pub(super) fn apply_section(
                     set_nested_integer(doc, "input", "keyboard", node_name, value);
                     applied = true;
                 }
+            }
+            if let Some(value) = object.get("track_layout") {
+                let value = value
+                    .as_str()
+                    .filter(|value| matches!(*value, "global" | "window"))
+                    .ok_or_else(|| ApiError::invalid("track layout must be global or window"))?;
+                set_nested_string(doc, "input", "keyboard", "track-layout", value);
+                applied = true;
+            }
+            if let Some(value) = object.get("numlock") {
+                let value = value
+                    .as_bool()
+                    .ok_or_else(|| ApiError::invalid("numlock must be boolean"))?;
+                set_nested_flag(doc, "input", "keyboard", "numlock", value);
+                applied = true;
             }
         }
         "screenshot" => {
@@ -147,7 +178,16 @@ pub(super) fn apply_section(
             }
         }
         "input.touchpad" => {
-            reject_unknown(object, &["tap", "natural_scroll", "dwt"])?;
+            reject_unknown(
+                object,
+                &[
+                    "tap",
+                    "natural_scroll",
+                    "dwt",
+                    "accel_speed",
+                    "accel_profile",
+                ],
+            )?;
             for (key, node) in [
                 ("tap", "tap"),
                 ("natural_scroll", "natural-scroll"),
@@ -160,6 +200,36 @@ pub(super) fn apply_section(
                     set_nested_flag(doc, "input", "touchpad", node, on);
                     applied = true;
                 }
+            }
+            if let Some(value) = object.get("accel_speed") {
+                let value = speed_value(value, "touchpad acceleration")?;
+                set_nested_speed(doc, "input", "touchpad", "accel-speed", value);
+                applied = true;
+            }
+            if let Some(value) = object.get("accel_profile") {
+                let value = profile(value, "touchpad acceleration profile")?;
+                set_nested_string(doc, "input", "touchpad", "accel-profile", value);
+                applied = true;
+            }
+        }
+        "input.mouse" => {
+            reject_unknown(object, &["accel_speed", "accel_profile", "natural_scroll"])?;
+            if let Some(value) = object.get("accel_speed") {
+                let value = speed_value(value, "mouse acceleration")?;
+                set_nested_speed(doc, "input", "mouse", "accel-speed", value);
+                applied = true;
+            }
+            if let Some(value) = object.get("accel_profile") {
+                let value = profile(value, "mouse acceleration profile")?;
+                set_nested_string(doc, "input", "mouse", "accel-profile", value);
+                applied = true;
+            }
+            if let Some(value) = object.get("natural_scroll") {
+                let value = value
+                    .as_bool()
+                    .ok_or_else(|| ApiError::invalid("mouse natural scroll must be boolean"))?;
+                set_nested_flag(doc, "input", "mouse", "natural-scroll", value);
+                applied = true;
             }
         }
         "cursor" => {
@@ -308,6 +378,10 @@ fn flag(doc: &KdlDocument, path: &[&str]) -> Option<bool> {
             nested_child(doc, "input", "touchpad", "natural-scroll")
         }
         ["input", "touchpad", "dwt"] => nested_child(doc, "input", "touchpad", "dwt"),
+        ["input", "keyboard", "numlock"] => nested_child(doc, "input", "keyboard", "numlock"),
+        ["input", "mouse", "natural-scroll"] => {
+            nested_child(doc, "input", "mouse", "natural-scroll")
+        }
         ["hotkey-overlay", "skip-at-startup"] => {
             child_node(doc, "hotkey-overlay", "skip-at-startup")
         }
@@ -654,6 +728,51 @@ fn remove_keyboard_layout(doc: &mut KdlDocument) {
     }
 }
 
+#[allow(clippy::cast_possible_truncation)]
+fn speed(doc: &KdlDocument, path: &[&str]) -> Option<i32> {
+    let node = match path {
+        ["input", "touchpad", "accel-speed"] => {
+            nested_child(doc, "input", "touchpad", "accel-speed")
+        }
+        ["input", "mouse", "accel-speed"] => nested_child(doc, "input", "mouse", "accel-speed"),
+        _ => None,
+    }?;
+    match node.entries().first()?.value() {
+        KdlValue::Float(value) => Some((value * 100.0).round() as i32),
+        KdlValue::Integer(value) => i32::try_from(*value).ok(),
+        _ => None,
+    }
+}
+
+fn speed_value(value: &JsonValue, label: &str) -> Result<i32, ApiError> {
+    value
+        .as_i64()
+        .and_then(|value| i32::try_from(value).ok())
+        .filter(|value| (-100..=100).contains(value))
+        .ok_or_else(|| ApiError::invalid(format!("{label} must be -100..100")))
+}
+
+fn profile<'a>(value: &'a JsonValue, label: &str) -> Result<&'a str, ApiError> {
+    value
+        .as_str()
+        .filter(|value| matches!(*value, "adaptive" | "flat"))
+        .ok_or_else(|| ApiError::invalid(format!("{label} must be adaptive or flat")))
+}
+
+fn set_nested_speed(doc: &mut KdlDocument, section: &str, parent: &str, key: &str, value: i32) {
+    set_arg(
+        ensure_nested_child(doc, section, parent, key),
+        KdlValue::Float(f64::from(value) / 100.0),
+    );
+}
+
+fn set_nested_string(doc: &mut KdlDocument, section: &str, parent: &str, key: &str, value: &str) {
+    set_arg(
+        ensure_nested_child(doc, section, parent, key),
+        KdlValue::String(value.to_string()),
+    );
+}
+
 fn set_nested_integer(doc: &mut KdlDocument, section: &str, parent: &str, key: &str, value: u32) {
     set_arg(
         ensure_nested_child(doc, section, parent, key),
@@ -929,6 +1048,33 @@ hotkey-overlay { skip-at-startup; }
         assert!(output.contains("spawn-at-startup"));
         assert!(output.contains("echo hi"));
         assert!(!output.contains("\"foo\""));
+    }
+
+    #[test]
+    fn parses_pointer_settings() {
+        let mut doc: KdlDocument = r#"input {
+    keyboard { track-layout "window"; numlock; }
+    touchpad { accel-speed 0.25; accel-profile "flat"; }
+    mouse { accel-speed -0.5; accel-profile "adaptive"; natural-scroll; }
+}
+"#
+        .parse()
+        .unwrap();
+        let values = parse_values(&doc);
+        assert_eq!(values.keyboard_track_layout.as_deref(), Some("window"));
+        assert_eq!(values.keyboard_numlock, Some(true));
+        assert_eq!(values.touchpad_accel_speed, Some(25));
+        assert_eq!(values.touchpad_accel_profile.as_deref(), Some("flat"));
+        assert_eq!(values.mouse_accel_speed, Some(-50));
+        assert_eq!(values.mouse_natural_scroll, Some(true));
+        apply_section(
+            &mut doc,
+            "input.mouse",
+            &serde_json::json!({"accel_speed": 10, "natural_scroll": false}),
+        )
+        .unwrap();
+        let output = doc.to_string();
+        assert!(output.contains("accel-speed 0.1"));
     }
 
     #[test]

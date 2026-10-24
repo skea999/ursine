@@ -27,6 +27,13 @@ pub struct NiriState {
     pub keyboard_layout: String,
     pub repeat_delay: String,
     pub repeat_rate: String,
+    pub track_layout: String,
+    pub numlock: bool,
+    pub touchpad_accel_speed: String,
+    pub touchpad_accel_profile: String,
+    pub mouse_accel_speed: String,
+    pub mouse_accel_profile: String,
+    pub mouse_natural_scroll: bool,
     pub border_width: String,
     pub focus_ring_width: String,
     pub strut_left: String,
@@ -70,6 +77,19 @@ impl NiriState {
             .keyboard_repeat_rate
             .map(|value| value.to_string())
             .unwrap_or_default();
+        self.track_layout = values.keyboard_track_layout.clone().unwrap_or_default();
+        self.numlock = values.keyboard_numlock.unwrap_or(false);
+        self.touchpad_accel_speed = values
+            .touchpad_accel_speed
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        self.touchpad_accel_profile = values.touchpad_accel_profile.clone().unwrap_or_default();
+        self.mouse_accel_speed = values
+            .mouse_accel_speed
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        self.mouse_accel_profile = values.mouse_accel_profile.clone().unwrap_or_default();
+        self.mouse_natural_scroll = values.mouse_natural_scroll.unwrap_or(false);
         self.border_width = values
             .layout_border_width
             .map(|value| value.to_string())
@@ -147,6 +167,10 @@ impl NiriState {
                     json!(parse_number(&self.repeat_rate, "repeat rate", 5000)?),
                 );
             }
+            if !self.track_layout.is_empty() {
+                value.insert("track_layout".into(), json!(self.track_layout));
+            }
+            value.insert("numlock".into(), json!(self.numlock));
             sections.push((
                 "input.keyboard".to_string(),
                 serde_json::Value::Object(value),
@@ -182,14 +206,35 @@ impl NiriState {
             "animations".to_string(),
             json!({"off": self.animations_off}),
         ));
+        let mut touchpad = serde_json::Map::new();
+        touchpad.insert("tap".into(), json!(self.tap));
+        touchpad.insert("natural_scroll".into(), json!(self.natural_scroll));
+        touchpad.insert("dwt".into(), json!(self.dwt));
+        if !self.touchpad_accel_speed.trim().is_empty() {
+            touchpad.insert(
+                "accel_speed".into(),
+                json!(parse_speed(&self.touchpad_accel_speed, "touchpad speed")?),
+            );
+        }
+        if !self.touchpad_accel_profile.is_empty() {
+            touchpad.insert("accel_profile".into(), json!(self.touchpad_accel_profile));
+        }
         sections.push((
             "input.touchpad".to_string(),
-            json!({
-                "tap": self.tap,
-                "natural_scroll": self.natural_scroll,
-                "dwt": self.dwt,
-            }),
+            serde_json::Value::Object(touchpad),
         ));
+        let mut mouse = serde_json::Map::new();
+        if !self.mouse_accel_speed.trim().is_empty() {
+            mouse.insert(
+                "accel_speed".into(),
+                json!(parse_speed(&self.mouse_accel_speed, "mouse speed")?),
+            );
+        }
+        if !self.mouse_accel_profile.is_empty() {
+            mouse.insert("accel_profile".into(), json!(self.mouse_accel_profile));
+        }
+        mouse.insert("natural_scroll".into(), json!(self.mouse_natural_scroll));
+        sections.push(("input.mouse".to_string(), serde_json::Value::Object(mouse)));
         if !self.cursor_size.trim().is_empty() || !self.cursor_theme.trim().is_empty() {
             let mut value = serde_json::Map::new();
             if !self.cursor_size.trim().is_empty() {
@@ -330,6 +375,20 @@ impl NiriState {
                     text_input("25", self.repeat_rate.clone())
                         .on_input(Message::NiriRepeatRateChanged),
                 ))
+                .add(settings::item(
+                    "Track layout",
+                    dropdown(
+                        vec!["unchanged", "global", "window"],
+                        ["", "global", "window"]
+                            .iter()
+                            .position(|value| *value == self.track_layout),
+                        Message::NiriTrackLayoutChanged,
+                    ),
+                ))
+                .add(settings::item(
+                    "Num Lock at startup",
+                    toggler(self.numlock).on_toggle(Message::NiriNumlockToggled),
+                ))
                 .into(),
         );
 
@@ -357,6 +416,57 @@ impl NiriState {
                 .add(settings::item(
                     "Disable while typing",
                     toggler(self.dwt).on_toggle(Message::NiriDwtToggled),
+                ))
+                .add(settings::item(
+                    "Acceleration speed",
+                    dropdown(
+                        vec!["unchanged", "-0.50", "-0.25", "0", "0.25", "0.50"],
+                        ["", "-50", "-25", "0", "25", "50"]
+                            .iter()
+                            .position(|value| *value == self.touchpad_accel_speed),
+                        Message::NiriTouchpadSpeedPreset,
+                    ),
+                ))
+                .add(settings::item(
+                    "Acceleration profile",
+                    dropdown(
+                        vec!["unchanged", "adaptive", "flat"],
+                        ["", "adaptive", "flat"]
+                            .iter()
+                            .position(|value| *value == self.touchpad_accel_profile),
+                        Message::NiriTouchpadProfileChanged,
+                    ),
+                ))
+                .into(),
+        );
+
+        items.push(
+            settings::section()
+                .title("Mouse")
+                .add(settings::item(
+                    "Acceleration speed",
+                    dropdown(
+                        vec!["unchanged", "-0.50", "-0.25", "0", "0.25", "0.50"],
+                        ["", "-50", "-25", "0", "25", "50"]
+                            .iter()
+                            .position(|value| *value == self.mouse_accel_speed),
+                        Message::NiriMouseSpeedPreset,
+                    ),
+                ))
+                .add(settings::item(
+                    "Acceleration profile",
+                    dropdown(
+                        vec!["unchanged", "adaptive", "flat"],
+                        ["", "adaptive", "flat"]
+                            .iter()
+                            .position(|value| *value == self.mouse_accel_profile),
+                        Message::NiriMouseProfileChanged,
+                    ),
+                ))
+                .add(settings::item(
+                    "Natural scroll",
+                    toggler(self.mouse_natural_scroll)
+                        .on_toggle(Message::NiriMouseNaturalScrollToggled),
                 ))
                 .into(),
         );
@@ -650,6 +760,17 @@ fn layout_value(state: &NiriState, gaps: u32) -> Result<serde_json::Value, Strin
         }
     }
     Ok(serde_json::Value::Object(value))
+}
+
+fn parse_speed(raw: &str, label: &str) -> Result<i32, String> {
+    let value: i32 = raw
+        .trim()
+        .parse()
+        .map_err(|_| format!("{label} must be -100..100."))?;
+    if !(-100..=100).contains(&value) {
+        return Err(format!("{label} must be -100..100."));
+    }
+    Ok(value)
 }
 
 fn parse_number(raw: &str, label: &str, max: u32) -> Result<u32, String> {

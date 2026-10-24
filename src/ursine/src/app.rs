@@ -145,6 +145,13 @@ pub enum Message {
     NiriKeyboardLayoutChanged(String),
     NiriRepeatDelayChanged(String),
     NiriRepeatRateChanged(String),
+    NiriTrackLayoutChanged(usize),
+    NiriNumlockToggled(bool),
+    NiriTouchpadSpeedPreset(usize),
+    NiriTouchpadProfileChanged(usize),
+    NiriMouseSpeedPreset(usize),
+    NiriMouseProfileChanged(usize),
+    NiriMouseNaturalScrollToggled(bool),
     NiriBorderWidthChanged(String),
     NiriFocusRingWidthChanged(String),
     NiriStrutChanged(StrutEdge, String),
@@ -390,6 +397,43 @@ impl cosmic::Application for App {
             Message::NiriKeyboardLayoutChanged(value) => self.niri.keyboard_layout = value,
             Message::NiriRepeatDelayChanged(value) => self.niri.repeat_delay = value,
             Message::NiriRepeatRateChanged(value) => self.niri.repeat_rate = value,
+            Message::NiriTrackLayoutChanged(index) => {
+                self.niri.track_layout = ["", "global", "window"]
+                    .get(index)
+                    .copied()
+                    .unwrap_or_default()
+                    .to_string();
+            }
+            Message::NiriNumlockToggled(value) => self.niri.numlock = value,
+            Message::NiriTouchpadSpeedPreset(index) => {
+                self.niri.touchpad_accel_speed = ["", "-50", "-25", "0", "25", "50"]
+                    .get(index)
+                    .copied()
+                    .unwrap_or_default()
+                    .to_string();
+            }
+            Message::NiriTouchpadProfileChanged(index) => {
+                self.niri.touchpad_accel_profile = ["", "adaptive", "flat"]
+                    .get(index)
+                    .copied()
+                    .unwrap_or_default()
+                    .to_string();
+            }
+            Message::NiriMouseSpeedPreset(index) => {
+                self.niri.mouse_accel_speed = ["", "-50", "-25", "0", "25", "50"]
+                    .get(index)
+                    .copied()
+                    .unwrap_or_default()
+                    .to_string();
+            }
+            Message::NiriMouseProfileChanged(index) => {
+                self.niri.mouse_accel_profile = ["", "adaptive", "flat"]
+                    .get(index)
+                    .copied()
+                    .unwrap_or_default()
+                    .to_string();
+            }
+            Message::NiriMouseNaturalScrollToggled(value) => self.niri.mouse_natural_scroll = value,
             Message::NiriBorderWidthChanged(value) => self.niri.border_width = value,
             Message::NiriFocusRingWidthChanged(value) => self.niri.focus_ring_width = value,
             Message::NiriStrutChanged(edge, value) => match edge {
