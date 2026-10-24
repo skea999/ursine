@@ -588,7 +588,7 @@ fn shell_split(text: &str) -> Result<Vec<String>, String> {
             continue;
         }
         match (quote, character) {
-            (Some('"'), '\\') | (None, '\\') => escaped = true,
+            (Some('"') | None, '\\') => escaped = true,
             (Some(q), c) if c == q => quote = None,
             (None, '\'' | '"') => {
                 quote = Some(character);
