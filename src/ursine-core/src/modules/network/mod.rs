@@ -162,7 +162,7 @@ mod tests {
         let devices = parse_devices("wlan0:wifi:connected:Home\neth0:ethernet:disconnected:\n");
         assert_eq!(devices.len(), 2);
         assert_eq!(devices[0].connection.as_deref(), Some("Home"));
-        let wifi = parse_wifi("*:Home:80:WPA2\nNeighbour:40:WPA2\n");
+        let wifi = parse_wifi("*:Home:80:WPA2\n:Neighbour:40:WPA2\n");
         assert_eq!(wifi.len(), 2);
         assert!(wifi[0].active);
         assert_eq!(wifi[1].signal, 40);
