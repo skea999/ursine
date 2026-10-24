@@ -18,7 +18,8 @@ The daemon and GUI currently manage: layout gaps, border/focus-ring widths,
 struts, animations off, touchpad tap/natural-scroll/dwt, keyboard layout and
 repeat, cursor size/theme, outputs (scale/transform/VRR), environment variables, startup commands,
 keyboard track-layout/numlock, touchpad/mouse acceleration, mouse natural
-scroll, keybinds, hot-corner gestures, screenshot path, and hotkey overlay. The KDL round-trip,
+scroll, keybinds with capture, hot-corner and edge-scroll gestures, screenshot path,
+and hotkey overlay. The KDL round-trip,
 `niri validate` gate, atomic write, timestamped backup, ownership preservation,
 and user-scoped I/O (no root file access) are implemented. Additional v1 form groups below
 (outputs, keybinds, gestures, environment/spawn lists, keyboard/pointer,

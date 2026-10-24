@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0] — 2026-10-24
+
+### Added
+
+- Niri key capture for bindings.
+- Niri edge-scroll gesture tuning.
+
 ## [0.10.1] — 2026-10-24
 
 ### Fixed
@@ -148,6 +155,13 @@
 - PAM via `pam-client 0.2` (replaces `pam 0.7`): fixes RUSTSEC-2025-0040 (`users 0.8` vulnerable/unmaintained) and avoids bindgen.
 
 All notable changes to Ursine. Format: Keep a Changelog, semver.
+
+## [0.11.0] — 2026-10-24
+
+### Added
+
+- Niri key capture for bindings.
+- Niri edge-scroll gesture tuning.
 
 ## [0.10.1] — 2026-10-24
 

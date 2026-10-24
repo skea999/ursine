@@ -55,8 +55,8 @@
 - [x] Niri keyboard layout/repeat, border/focus-ring widths, struts, screenshot path, hotkey overlay | P0
 - [x] Niri outputs (scale/transform/VRR), environment variables, startup commands | P0
 - [x] Niri pointer: keyboard track-layout/numlock, touchpad/mouse acceleration, mouse natural scroll | P0
-- [x] Niri keybinds (text key combo, common action dropdown, args), hot-corner gestures | P0
-- [ ] Niri edge-scroll gesture tuning | P1 | agent
+- [x] Niri keybinds with key capture, common action dropdown, args | P0
+- [x] Niri hot-corner and edge-scroll gestures | P0
 - [ ] v3 (deferred): choose web GUI stack — **must be memory-safe** (Rust→WASM preferred: Leptos/Yew/Dioxus; TypeScript acceptable fallback). See `docs/specs/SPEC-web.md` | P2 | skea999
 
 ### In Progress

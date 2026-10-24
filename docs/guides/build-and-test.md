@@ -127,8 +127,9 @@ podman run --rm --network=host -v "$PWD:/work" -w /work nixos/nix \
    test/lint/gui/analyzer/docs jobs. It builds release PAM `ursined` and the GUI,
    runs the installer smoke tests, creates the tarball/checksum, and uploads
    `ursine-release`. This path has no dependency cache on purpose.
-8. **publish** waits for `package` plus `test`, `lint`, `gui`, `analyzer`,
-   `docs`, and `zizmor`. It publishes tag assets or the rolling `latest`, and
+8. **publish** waits for `package`, `analyzer`, `docs` and `zizmor`; analyzer
+   and docs can finish while the release build runs, but nothing is published
+   until they pass. It publishes tag assets or the rolling `latest`, and
    updates `nix/binary.nix` on tags.
 9. **flake** runs on PR/main only when `flake.nix`, `flake.lock`, or `nix/**`
    changed. It is not a dependency of `package`, so a tag does not try to

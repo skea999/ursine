@@ -27,7 +27,7 @@ pub const BIND_ACTIONS: [&str; 16] = [
     "reload-config",
 ];
 
-use crate::app::{Message, StrutEdge};
+use crate::app::{EdgeField, GestureEdge, Message, StrutEdge};
 
 #[derive(Default)]
 pub struct NiriState {
@@ -80,6 +80,15 @@ pub struct NiriState {
     pub hot_corners: [bool; 4],
     pub hot_corners_off: bool,
     pub gesture_dirty: bool,
+    pub capture: Option<usize>,
+    pub edge_view_width: String,
+    pub edge_view_height: String,
+    pub edge_view_delay: String,
+    pub edge_view_speed: String,
+    pub edge_workspace_width: String,
+    pub edge_workspace_height: String,
+    pub edge_workspace_delay: String,
+    pub edge_workspace_speed: String,
 }
 
 impl NiriState {
@@ -219,7 +228,19 @@ impl NiriState {
                 .any(|corner| corner == "bottom-right"),
         ];
         self.hot_corners_off = values.gestures.hot_corners_off;
+        self.edge_view_width = number_text(values.gestures.dnd_edge_view_scroll.trigger_width);
+        self.edge_view_height = number_text(values.gestures.dnd_edge_view_scroll.trigger_height);
+        self.edge_view_delay = number_text(values.gestures.dnd_edge_view_scroll.delay_ms);
+        self.edge_view_speed = number_text(values.gestures.dnd_edge_view_scroll.max_speed);
+        self.edge_workspace_width =
+            number_text(values.gestures.dnd_edge_workspace_switch.trigger_width);
+        self.edge_workspace_height =
+            number_text(values.gestures.dnd_edge_workspace_switch.trigger_height);
+        self.edge_workspace_delay = number_text(values.gestures.dnd_edge_workspace_switch.delay_ms);
+        self.edge_workspace_speed =
+            number_text(values.gestures.dnd_edge_workspace_switch.max_speed);
         self.gesture_dirty = false;
+        self.capture = None;
         self.view = Some(view);
         self.error = None;
     }
@@ -326,13 +347,51 @@ impl NiriState {
                 .zip(self.hot_corners)
                 .filter_map(|(name, enabled)| enabled.then_some(*name))
                 .collect();
-            sections.push((
-                "gestures".to_string(),
-                json!({
-                    "hot_corners": hot_corners,
-                    "hot_corners_off": self.hot_corners_off,
-                }),
-            ));
+            let mut gestures = serde_json::Map::new();
+            gestures.insert("hot_corners".into(), json!(hot_corners));
+            gestures.insert("hot_corners_off".into(), json!(self.hot_corners_off));
+            for (key, edge) in [
+                ("dnd_edge_view_scroll", GestureEdge::ViewScroll),
+                ("dnd_edge_workspace_switch", GestureEdge::WorkspaceSwitch),
+            ] {
+                let mut values = serde_json::Map::new();
+                for (field, raw, label) in [
+                    (
+                        EdgeField::TriggerWidth,
+                        self.edge_value(edge, EdgeField::TriggerWidth),
+                        "trigger width",
+                    ),
+                    (
+                        EdgeField::TriggerHeight,
+                        self.edge_value(edge, EdgeField::TriggerHeight),
+                        "trigger height",
+                    ),
+                    (
+                        EdgeField::Delay,
+                        self.edge_value(edge, EdgeField::Delay),
+                        "delay",
+                    ),
+                    (
+                        EdgeField::MaxSpeed,
+                        self.edge_value(edge, EdgeField::MaxSpeed),
+                        "max speed",
+                    ),
+                ] {
+                    if !raw.is_empty() {
+                        let name = match field {
+                            EdgeField::TriggerWidth => "trigger_width",
+                            EdgeField::TriggerHeight => "trigger_height",
+                            EdgeField::Delay => "delay_ms",
+                            EdgeField::MaxSpeed => "max_speed",
+                        };
+                        values.insert(name.into(), json!(parse_number(raw, label, 100_000)?));
+                    }
+                }
+                if !values.is_empty() {
+                    gestures.insert(key.into(), serde_json::Value::Object(values));
+                }
+            }
+            sections.push(("gestures".to_string(), serde_json::Value::Object(gestures)));
         }
         sections.push((
             "animations".to_string(),
@@ -386,6 +445,48 @@ impl NiriState {
             sections.push(("cursor".to_string(), serde_json::Value::Object(value)));
         }
         Ok(sections)
+    }
+
+    pub fn set_edge(&mut self, edge: GestureEdge, field: EdgeField, value: String) {
+        let slot = match (edge, field) {
+            (GestureEdge::ViewScroll, EdgeField::TriggerWidth) => &mut self.edge_view_width,
+            (GestureEdge::ViewScroll, EdgeField::TriggerHeight) => &mut self.edge_view_height,
+            (GestureEdge::ViewScroll, EdgeField::Delay) => &mut self.edge_view_delay,
+            (GestureEdge::ViewScroll, EdgeField::MaxSpeed) => &mut self.edge_view_speed,
+            (GestureEdge::WorkspaceSwitch, EdgeField::TriggerWidth) => {
+                &mut self.edge_workspace_width
+            }
+            (GestureEdge::WorkspaceSwitch, EdgeField::TriggerHeight) => {
+                &mut self.edge_workspace_height
+            }
+            (GestureEdge::WorkspaceSwitch, EdgeField::Delay) => &mut self.edge_workspace_delay,
+            (GestureEdge::WorkspaceSwitch, EdgeField::MaxSpeed) => &mut self.edge_workspace_speed,
+        };
+        *slot = value;
+    }
+
+    fn edge_value(&self, edge: GestureEdge, field: EdgeField) -> &str {
+        match (edge, field) {
+            (GestureEdge::ViewScroll, EdgeField::TriggerWidth) => &self.edge_view_width,
+            (GestureEdge::ViewScroll, EdgeField::TriggerHeight) => &self.edge_view_height,
+            (GestureEdge::ViewScroll, EdgeField::Delay) => &self.edge_view_delay,
+            (GestureEdge::ViewScroll, EdgeField::MaxSpeed) => &self.edge_view_speed,
+            (GestureEdge::WorkspaceSwitch, EdgeField::TriggerWidth) => &self.edge_workspace_width,
+            (GestureEdge::WorkspaceSwitch, EdgeField::TriggerHeight) => &self.edge_workspace_height,
+            (GestureEdge::WorkspaceSwitch, EdgeField::Delay) => &self.edge_workspace_delay,
+            (GestureEdge::WorkspaceSwitch, EdgeField::MaxSpeed) => &self.edge_workspace_speed,
+        }
+    }
+
+    fn edge_input(
+        &self,
+        edge: GestureEdge,
+        field: EdgeField,
+        placeholder: &'static str,
+    ) -> Element<'_, Message> {
+        text_input(placeholder, self.edge_value(edge, field).to_string())
+            .on_input(move |value| Message::NiriEdgeChanged(edge, field, value))
+            .into()
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -812,6 +913,13 @@ impl NiriState {
                             move |value| Message::NiriBindActionChanged(index, value),
                         )
                         .into(),
+                        button::text(if self.capture == Some(index) {
+                            "Press a key…"
+                        } else {
+                            "Capture"
+                        })
+                        .on_press(Message::NiriStartCapture(index))
+                        .into(),
                         button::text("Remove")
                             .on_press(Message::NiriBindRemove(index))
                             .into(),
@@ -898,6 +1006,30 @@ impl NiriState {
                     toggler(self.hot_corners[3])
                         .on_toggle(move |value| Message::NiriHotCornerToggled(3, value)),
                 ))
+                .add(settings::item(
+                    "View-scroll trigger width/height/delay/max speed",
+                    row(vec![
+                        self.edge_input(GestureEdge::ViewScroll, EdgeField::TriggerWidth, "30"),
+                        self.edge_input(GestureEdge::ViewScroll, EdgeField::TriggerHeight, ""),
+                        self.edge_input(GestureEdge::ViewScroll, EdgeField::Delay, "100"),
+                        self.edge_input(GestureEdge::ViewScroll, EdgeField::MaxSpeed, "1500"),
+                    ])
+                    .spacing(8),
+                ))
+                .add(settings::item(
+                    "Workspace-switch trigger width/height/delay/max speed",
+                    row(vec![
+                        self.edge_input(GestureEdge::WorkspaceSwitch, EdgeField::TriggerWidth, ""),
+                        self.edge_input(
+                            GestureEdge::WorkspaceSwitch,
+                            EdgeField::TriggerHeight,
+                            "100",
+                        ),
+                        self.edge_input(GestureEdge::WorkspaceSwitch, EdgeField::Delay, ""),
+                        self.edge_input(GestureEdge::WorkspaceSwitch, EdgeField::MaxSpeed, ""),
+                    ])
+                    .spacing(8),
+                ))
                 .into(),
         );
 
@@ -978,6 +1110,10 @@ fn shell_split(text: &str) -> Result<Vec<String>, String> {
         return Err("Startup command is empty.".into());
     }
     Ok(args)
+}
+
+fn number_text(value: Option<u32>) -> String {
+    value.map(|value| value.to_string()).unwrap_or_default()
 }
 
 fn has_layout_extras(state: &NiriState) -> bool {

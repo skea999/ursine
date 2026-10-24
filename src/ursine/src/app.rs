@@ -24,6 +24,20 @@ struct Session {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GestureEdge {
+    ViewScroll,
+    WorkspaceSwitch,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EdgeField {
+    TriggerWidth,
+    TriggerHeight,
+    Delay,
+    MaxSpeed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StrutEdge {
     Left,
     Right,
@@ -181,8 +195,11 @@ pub enum Message {
     NiriNewBindActionChanged(usize),
     NiriNewBindArgsChanged(String),
     NiriBindAdd,
+    NiriStartCapture(usize),
+    NiriKeyCaptured(String),
     NiriHotCornerToggled(usize, bool),
     NiriHotCornersOffToggled(bool),
+    NiriEdgeChanged(GestureEdge, EdgeField, String),
     NiriAnimationsToggled(bool),
     NiriTapToggled(bool),
     NiriNaturalScrollToggled(bool),
@@ -576,6 +593,17 @@ impl cosmic::Application for App {
             Message::NiriNewBindKeyChanged(value) => self.niri.new_bind_key = value,
             Message::NiriNewBindActionChanged(value) => self.niri.new_bind_action = value,
             Message::NiriNewBindArgsChanged(value) => self.niri.new_bind_args = value,
+            Message::NiriStartCapture(index) => {
+                self.niri.capture = Some(index);
+            }
+            Message::NiriKeyCaptured(key) => {
+                if let Some(index) = self.niri.capture.take() {
+                    if let Some(bind) = self.niri.keybinds.get_mut(index) {
+                        bind.key = key;
+                        self.niri.keybind_dirty = true;
+                    }
+                }
+            }
             Message::NiriBindAdd => {
                 let key = self.niri.new_bind_key.trim();
                 if !key.is_empty() {
@@ -606,6 +634,10 @@ impl cosmic::Application for App {
             }
             Message::NiriHotCornersOffToggled(value) => {
                 self.niri.hot_corners_off = value;
+                self.niri.gesture_dirty = true;
+            }
+            Message::NiriEdgeChanged(edge, field, value) => {
+                self.niri.set_edge(edge, field, value);
                 self.niri.gesture_dirty = true;
             }
             Message::NiriOutputAdd => {
@@ -706,11 +738,17 @@ impl cosmic::Application for App {
     }
 
     fn subscription(&self) -> cosmic::iced::Subscription<Message> {
+        let mut subscriptions = Vec::new();
         if self.store.action_busy {
-            cosmic::iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::StoreTick)
-        } else {
-            cosmic::iced::Subscription::none()
+            subscriptions.push(
+                cosmic::iced::time::every(std::time::Duration::from_secs(1))
+                    .map(|_| Message::StoreTick),
+            );
         }
+        if self.screen == Screen::Niri && self.niri.capture.is_some() {
+            subscriptions.push(cosmic::iced::event::listen_with(niri_key_message));
+        }
+        cosmic::iced::Subscription::batch(subscriptions)
     }
 
     fn view(&self) -> Element<'_, Self::Message> {
@@ -2326,6 +2364,53 @@ impl App {
         self.login.password.clear();
         self.login.error = None;
     }
+}
+
+fn niri_key_message(
+    event: cosmic::iced::Event,
+    _status: cosmic::iced::event::Status,
+    _window: cosmic::iced::window::Id,
+) -> Option<Message> {
+    let cosmic::iced::Event::Keyboard(cosmic::iced::keyboard::Event::KeyPressed {
+        key,
+        modifiers,
+        ..
+    }) = event
+    else {
+        return None;
+    };
+    let key = key.as_ref();
+    niri_combo(modifiers, &key).map(Message::NiriKeyCaptured)
+}
+
+fn niri_combo(
+    modifiers: cosmic::iced::keyboard::Modifiers,
+    key: &cosmic::iced::keyboard::Key<&str>,
+) -> Option<String> {
+    use cosmic::iced::keyboard::key::Named;
+    let key = match key {
+        cosmic::iced::keyboard::Key::Character(character) => character.to_uppercase(),
+        cosmic::iced::keyboard::Key::Named(named) => match named {
+            Named::Control | Named::Shift | Named::Alt | Named::Super | Named::Meta => return None,
+            other => format!("{other:?}"),
+        },
+        cosmic::iced::keyboard::Key::Unidentified => return None,
+    };
+    let mut combo = Vec::new();
+    if modifiers.logo() {
+        combo.push("Mod".to_string());
+    }
+    if modifiers.control() {
+        combo.push("Ctrl".to_string());
+    }
+    if modifiers.alt() {
+        combo.push("Alt".to_string());
+    }
+    if modifiers.shift() {
+        combo.push("Shift".to_string());
+    }
+    combo.push(key);
+    Some(combo.join("+"))
 }
 
 /// Turn a daemon error into something a human can act on.
