@@ -361,6 +361,13 @@ fn string(doc: &KdlDocument, path: &[&str]) -> Option<String> {
             .get("xkb")?
             .children()?
             .get("layout"),
+        ["input", "keyboard", "track-layout"] => {
+            nested_child(doc, "input", "keyboard", "track-layout")
+        }
+        ["input", "touchpad", "accel-profile"] => {
+            nested_child(doc, "input", "touchpad", "accel-profile")
+        }
+        ["input", "mouse", "accel-profile"] => nested_child(doc, "input", "mouse", "accel-profile"),
         _ => None,
     }?;
     node.entries()
