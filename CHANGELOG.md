@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0] — 2026-10-24
+
+### Added
+
+- Firewall panel for firewalld: zones, default zone, services, ports,
+  permanent changes and reload.
+
 ## [0.14.0] — 2026-10-24
 
 ### Changed
@@ -178,6 +185,13 @@
 - PAM via `pam-client 0.2` (replaces `pam 0.7`): fixes RUSTSEC-2025-0040 (`users 0.8` vulnerable/unmaintained) and avoids bindgen.
 
 All notable changes to Ursine. Format: Keep a Changelog, semver.
+
+## [0.15.0] — 2026-10-24
+
+### Added
+
+- Firewall panel for firewalld: zones, default zone, services, ports,
+  permanent changes and reload.
 
 ## [0.14.0] — 2026-10-24
 

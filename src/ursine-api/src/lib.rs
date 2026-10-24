@@ -9,6 +9,7 @@ pub mod capability;
 pub mod config;
 pub mod envelope;
 pub mod error;
+pub mod firewall;
 pub mod module;
 pub mod niri;
 pub mod nix;
@@ -26,6 +27,7 @@ pub use capability::{Capability, CapabilityReport};
 pub use config::{ModulesConfig, TriState, UrsineConfig};
 pub use envelope::{Request, RequestBody, Response, ResponseBody, PROTOCOL_VERSION};
 pub use error::{ApiError, ErrorCode};
+pub use firewall::{FirewallStatus, FirewallZone};
 pub use module::ModuleId;
 pub use niri::{
     NiriBindAction, NiriConfigView, NiriEdgeGesture, NiriEnvVar, NiriGestures, NiriKeybind,

@@ -36,6 +36,7 @@ enum Panel {
     Flatpak,
     Printers,
     Scanners,
+    Firewall,
 }
 
 const MODULES: &[ModuleEntry] = &[
@@ -68,6 +69,12 @@ const MODULES: &[ModuleEntry] = &[
         module: Some(ModuleId::Scanners),
         requires: &[Capability::Sane],
         panel: Some(Panel::Scanners),
+    },
+    ModuleEntry {
+        title: "Firewall",
+        module: Some(ModuleId::Firewall),
+        requires: &[Capability::Firewalld],
+        panel: Some(Panel::Firewall),
     },
     ModuleEntry {
         title: "Snapshots (btrbk)",
@@ -169,7 +176,8 @@ impl HomeState {
                 | Panel::Apk
                 | Panel::Flatpak
                 | Panel::Printers
-                | Panel::Scanners,
+                | Panel::Scanners
+                | Panel::Firewall,
             ) => {
                 let available = !Self::is_manually_off(entry, modules)
                     && entry.requires.iter().all(|required| {
@@ -187,6 +195,7 @@ impl HomeState {
                     }
                     Some(Panel::Printers) => Message::OpenPrinters,
                     Some(Panel::Scanners) => Message::OpenScanners,
+                    Some(Panel::Firewall) => Message::OpenFirewall,
                     None => unreachable!(),
                 };
                 let open = button::text("Open").on_press_maybe(available.then_some(open_message));
@@ -217,6 +226,7 @@ fn module_mode(modules: &ModulesConfig, module: ModuleId) -> TriState {
         ModuleId::PackagesFlatpak => modules.packages_flatpak,
         ModuleId::Printers => modules.printers,
         ModuleId::Scanners => modules.scanners,
+        ModuleId::Firewall => modules.firewall,
         ModuleId::Snapshots => modules.snapshots,
         ModuleId::Users => modules.users,
         ModuleId::Niri => modules.niri,

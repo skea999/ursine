@@ -203,6 +203,36 @@ pub enum Action {
         enabled: bool,
     },
 
+    // -- firewall (firewalld) --
+    /// Read zones, default zone and services/ports.
+    GetFirewall,
+    /// Set the default zone.
+    SetDefaultFirewallZone {
+        zone: String,
+    },
+    /// Open a service in a zone permanently and reload.
+    AddFirewallService {
+        zone: String,
+        service: String,
+    },
+    /// Close a service in a zone permanently and reload.
+    RemoveFirewallService {
+        zone: String,
+        service: String,
+    },
+    /// Open a port in a zone permanently and reload.
+    AddFirewallPort {
+        zone: String,
+        port: String,
+    },
+    /// Close a port in a zone permanently and reload.
+    RemoveFirewallPort {
+        zone: String,
+        port: String,
+    },
+    /// Reload firewalld.
+    ReloadFirewall,
+
     // -- snapshots (btrbk) --
     /// List btrbk-managed snapshots.
     ListSnapshots,

@@ -7,6 +7,7 @@
 #![allow(unreachable_pub)] // binary crate: no library surface
 mod app;
 mod client;
+mod firewall;
 mod home;
 mod login;
 mod niri;

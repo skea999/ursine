@@ -12,9 +12,9 @@ use std::time::{Duration, Instant};
 
 use ursine_api::{
     installable_from_attr, timeouts, Action, ApiError, ApkPackage, BtrbkConfigView, BtrbkSettings,
-    FlatpakPackage, InstalledPackage, ModuleId, ModulesConfig, NiriConfigView, PrintJob, Printer,
-    Request, RequestBody, Response, ResponseBody, ScannerConfigView, SearchResult, SessionToken,
-    Snapshot, SnapshotStats, TriState, UserSummary, PROTOCOL_VERSION,
+    FirewallStatus, FlatpakPackage, InstalledPackage, ModuleId, ModulesConfig, NiriConfigView,
+    PrintJob, Printer, Request, RequestBody, Response, ResponseBody, ScannerConfigView,
+    SearchResult, SessionToken, Snapshot, SnapshotStats, TriState, UserSummary, PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
@@ -1274,4 +1274,114 @@ pub async fn set_scanner_discovery(
     .await?;
     serde_json::from_value(value)
         .map_err(|e| ApiError::internal(format!("cannot read scanner config: {e}")))
+}
+
+pub async fn firewall_status(token: SessionToken) -> Result<FirewallStatus, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Firewall,
+        Action::GetFirewall,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read firewall: {e}")))
+}
+
+pub async fn firewall_set_default(
+    token: SessionToken,
+    zone: String,
+) -> Result<FirewallStatus, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Firewall,
+        Action::SetDefaultFirewallZone { zone },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read firewall: {e}")))
+}
+
+pub async fn firewall_add_service(
+    token: SessionToken,
+    zone: String,
+    service: String,
+) -> Result<FirewallStatus, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Firewall,
+        Action::AddFirewallService { zone, service },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read firewall: {e}")))
+}
+
+pub async fn firewall_remove_service(
+    token: SessionToken,
+    zone: String,
+    service: String,
+) -> Result<FirewallStatus, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Firewall,
+        Action::RemoveFirewallService { zone, service },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read firewall: {e}")))
+}
+
+pub async fn firewall_add_port(
+    token: SessionToken,
+    zone: String,
+    port: String,
+) -> Result<FirewallStatus, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Firewall,
+        Action::AddFirewallPort { zone, port },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read firewall: {e}")))
+}
+
+pub async fn firewall_remove_port(
+    token: SessionToken,
+    zone: String,
+    port: String,
+) -> Result<FirewallStatus, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Firewall,
+        Action::RemoveFirewallPort { zone, port },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read firewall: {e}")))
+}
+
+pub async fn firewall_reload(token: SessionToken) -> Result<FirewallStatus, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Firewall,
+        Action::ReloadFirewall,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read firewall: {e}")))
 }

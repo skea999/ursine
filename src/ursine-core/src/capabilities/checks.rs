@@ -66,6 +66,11 @@ pub fn check_capability(sys: &dyn Sysinfo, cap: Capability) -> bool {
                 || sys.path_exists(Path::new("/usr/bin/scanimage"))
                 || sys.path_exists(Path::new("/usr/local/bin/scanimage"))
         }
+        Capability::Firewalld => {
+            sys.cmd_in_path("firewall-cmd")
+                || sys.path_exists(Path::new("/usr/bin/firewall-cmd"))
+                || sys.path_exists(Path::new("/run/firewalld"))
+        }
         // Proxy for "D-Bus system bus is up"; the real name probe arrives with
         // the users module (zbus).
         Capability::Accountsservice => sys.path_exists(Path::new("/run/dbus/system_bus_socket")),
@@ -95,6 +100,10 @@ pub fn hints(cap: Capability) -> (&'static str, &'static str) {
             "apk add cups && rc-service cupsd start",
         ),
         Capability::Sane => ("SANE is not available", "apk add sane-utils"),
+        Capability::Firewalld => (
+            "firewalld is not available",
+            "apk add firewalld && rc-service firewalld start",
+        ),
         Capability::Accountsservice => ("system D-Bus is not available", "start dbus"),
         Capability::Niri => ("niri not installed", "apk add niri"),
         Capability::Dinit => ("PID 1 is not dinit", "boot with dinit (OpenRC fallback)"),

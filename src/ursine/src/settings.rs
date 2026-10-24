@@ -42,6 +42,10 @@ const MODULE_SWITCHES: &[ModuleSwitch] = &[
         title: "Scanners",
     },
     ModuleSwitch {
+        module: ModuleId::Firewall,
+        title: "Firewall",
+    },
+    ModuleSwitch {
         module: ModuleId::Snapshots,
         title: "Snapshots",
     },
@@ -183,6 +187,7 @@ fn module_switch(config: &ConfigSnapshot, module: ModuleId) -> TriState {
         ModuleId::PackagesFlatpak => config.modules.packages_flatpak,
         ModuleId::Printers => config.modules.printers,
         ModuleId::Scanners => config.modules.scanners,
+        ModuleId::Firewall => config.modules.firewall,
         ModuleId::Snapshots => config.modules.snapshots,
         ModuleId::Users => config.modules.users,
         ModuleId::Niri => config.modules.niri,

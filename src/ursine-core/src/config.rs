@@ -72,6 +72,7 @@ pub const fn configurable_module(module: ModuleId) -> Option<&'static str> {
         ModuleId::PackagesFlatpak => Some("packages_flatpak"),
         ModuleId::Printers => Some("printers"),
         ModuleId::Scanners => Some("scanners"),
+        ModuleId::Firewall => Some("firewall"),
         ModuleId::Snapshots => Some("snapshots"),
         ModuleId::Users => Some("users"),
         ModuleId::Niri => Some("niri"),

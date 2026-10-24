@@ -22,6 +22,8 @@ pub enum ModuleId {
     Printers,
     /// SANE scanner setup.
     Scanners,
+    /// firewalld setup.
+    Firewall,
     /// btrbk snapshot management.
     Snapshots,
     /// Users and groups via accountsservice.
@@ -42,6 +44,7 @@ impl ModuleId {
             Self::PackagesFlatpak => "packages_flatpak",
             Self::Printers => "printers",
             Self::Scanners => "scanners",
+            Self::Firewall => "firewall",
             Self::Snapshots => "snapshots",
             Self::Users => "users",
             Self::Niri => "niri",
@@ -73,6 +76,7 @@ mod tests {
             ModuleId::PackagesFlatpak,
             ModuleId::Printers,
             ModuleId::Scanners,
+            ModuleId::Firewall,
             ModuleId::Snapshots,
             ModuleId::Users,
             ModuleId::Niri,

@@ -5,6 +5,7 @@
 use serde_json::json;
 use ursine_api::{Action, ApiError, Capability, ModuleId, Response, UrsineConfig};
 
+pub mod firewall;
 pub mod niri;
 pub mod packages_apk;
 pub mod packages_flatpak;
@@ -34,6 +35,7 @@ fn required_caps(module: ModuleId) -> &'static [Capability] {
         ModuleId::PackagesFlatpak => &[Capability::Flatpak],
         ModuleId::Printers => &[Capability::Cups],
         ModuleId::Scanners => &[Capability::Sane],
+        ModuleId::Firewall => &[Capability::Firewalld],
         ModuleId::Snapshots => &[Capability::Btrbk, Capability::Btrfs],
         ModuleId::Users => &[Capability::Accountsservice],
         ModuleId::Niri => &[Capability::Niri],
@@ -73,6 +75,8 @@ pub async fn handle(
         (ModuleId::Printers, action) => printers::handle(action, ctx).await,
 
         (ModuleId::Scanners, action) => scanners::handle(action, ctx).await,
+
+        (ModuleId::Firewall, action) => firewall::handle(action, ctx).await,
 
         (ModuleId::Snapshots, action) => snapshots::handle(action, ctx).await,
 
@@ -153,6 +157,13 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::GetNiriConfig => "get_niri_config",
         Action::ValidateNiriConfig { .. } => "validate_niri_config",
         Action::SetNiriSection { .. } => "set_niri_section",
+        Action::GetFirewall => "get_firewall",
+        Action::SetDefaultFirewallZone { .. } => "set_default_firewall_zone",
+        Action::AddFirewallService { .. } => "add_firewall_service",
+        Action::RemoveFirewallService { .. } => "remove_firewall_service",
+        Action::AddFirewallPort { .. } => "add_firewall_port",
+        Action::RemoveFirewallPort { .. } => "remove_firewall_port",
+        Action::ReloadFirewall => "reload_firewall",
     }
 }
 
@@ -208,7 +219,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn capabilities_list_returns_all_ten() {
+    async fn capabilities_list_returns_all_eleven() {
         let (caps, cfg, _path) = ctx_with(AllMissing);
         let ctx = ModuleCtx {
             caps: &caps,
@@ -218,7 +229,7 @@ mod tests {
         let v = handle(ModuleId::Capabilities, &Action::List, &ctx)
             .await
             .unwrap();
-        assert_eq!(v.as_array().unwrap().len(), 10);
+        assert_eq!(v.as_array().unwrap().len(), 11);
     }
 
     #[tokio::test]

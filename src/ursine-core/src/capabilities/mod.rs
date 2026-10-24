@@ -95,6 +95,7 @@ pub fn module_switch(modules: &ModulesConfig, cap: Capability) -> TriState {
         Capability::Flatpak => modules.packages_flatpak,
         Capability::Cups => modules.printers,
         Capability::Sane => modules.scanners,
+        Capability::Firewalld => modules.firewall,
         Capability::Accountsservice => modules.users,
         Capability::Niri => modules.niri,
         Capability::Dinit => TriState::Auto,

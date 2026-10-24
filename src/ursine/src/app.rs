@@ -8,6 +8,7 @@ use ursine_api::{
 };
 
 use crate::client::{self, AuthSession, ConfigSnapshot, SearchPage};
+use crate::firewall::FirewallState;
 use crate::home::HomeState;
 use crate::login::LoginState;
 use crate::niri::NiriState;
@@ -60,6 +61,7 @@ enum Screen {
     Flatpak,
     Printers,
     Scanners,
+    Firewall,
 }
 
 pub struct App {
@@ -74,6 +76,7 @@ pub struct App {
     packages: PackagesState,
     printers: PrintersState,
     scanners: ScannersState,
+    firewall: FirewallState,
     screen: Screen,
     session: Option<Session>,
     /// Bumped on sign-in/sign-out so late async results cannot repopulate a
@@ -103,6 +106,19 @@ pub enum Message {
     OpenPackages(PackageKind),
     OpenPrinters,
     OpenScanners,
+    OpenFirewall,
+    RefreshFirewall,
+    FirewallLoaded(u64, Result<ursine_api::FirewallStatus, ApiError>),
+    FirewallZoneChanged(String),
+    FirewallDefaultZoneSelected(usize),
+    FirewallServiceChanged(String),
+    FirewallPortChanged(String),
+    FirewallAddService,
+    FirewallAddPort,
+    FirewallRemoveService(String, String),
+    FirewallRemovePort(String, String),
+    FirewallReload,
+    FirewallActionFinished(u64, String, Result<ursine_api::FirewallStatus, ApiError>),
     RefreshScanners,
     ScannersLoaded(u64, Result<ursine_api::ScannerConfigView, ApiError>),
     ScannerNameChanged(String),
@@ -316,6 +332,7 @@ impl cosmic::Application for App {
             packages: PackagesState::default(),
             printers: PrintersState::default(),
             scanners: ScannersState::default(),
+            firewall: FirewallState::default(),
             screen: Screen::Home,
             session: None,
             epoch: 0,
@@ -365,6 +382,63 @@ impl cosmic::Application for App {
             Message::OpenScanners => {
                 self.screen = Screen::Scanners;
                 return self.load_scanners();
+            }
+            Message::OpenFirewall => {
+                self.screen = Screen::Firewall;
+                return self.load_firewall();
+            }
+            Message::RefreshFirewall => return self.load_firewall(),
+            Message::FirewallLoaded(epoch, result) => return self.finish_firewall(epoch, result),
+            Message::FirewallZoneChanged(value) => self.firewall.zone = value,
+            Message::FirewallDefaultZoneSelected(index) => {
+                if let Some(status) = &self.firewall.status {
+                    if let Some(zone) = status.zones.get(index) {
+                        return self.firewall_action(
+                            "default",
+                            client::firewall_set_default(self.token(), zone.name.clone()),
+                        );
+                    }
+                }
+            }
+            Message::FirewallServiceChanged(value) => self.firewall.service = value,
+            Message::FirewallPortChanged(value) => self.firewall.port = value,
+            Message::FirewallAddService => {
+                return self.firewall_action(
+                    "add service",
+                    client::firewall_add_service(
+                        self.token(),
+                        self.firewall.zone.clone(),
+                        self.firewall.service.trim().to_string(),
+                    ),
+                )
+            }
+            Message::FirewallAddPort => {
+                return self.firewall_action(
+                    "add port",
+                    client::firewall_add_port(
+                        self.token(),
+                        self.firewall.zone.clone(),
+                        self.firewall.port.trim().to_string(),
+                    ),
+                )
+            }
+            Message::FirewallRemoveService(zone, service) => {
+                return self.firewall_action(
+                    "remove service",
+                    client::firewall_remove_service(self.token(), zone, service),
+                )
+            }
+            Message::FirewallRemovePort(zone, port) => {
+                return self.firewall_action(
+                    "remove port",
+                    client::firewall_remove_port(self.token(), zone, port),
+                )
+            }
+            Message::FirewallReload => {
+                return self.firewall_action("reload", client::firewall_reload(self.token()))
+            }
+            Message::FirewallActionFinished(epoch, label, result) => {
+                return self.finish_firewall_action(epoch, &label, result)
             }
             Message::RefreshScanners => return self.load_scanners(),
             Message::ScannersLoaded(epoch, result) => return self.finish_scanners(epoch, result),
@@ -878,6 +952,7 @@ impl cosmic::Application for App {
                     Screen::Apk | Screen::Flatpak => self.packages.view(),
                     Screen::Printers => self.printers.view(),
                     Screen::Scanners => self.scanners.view(),
+                    Screen::Firewall => self.firewall.view(),
                 };
                 cosmic::iced::widget::row(vec![self.sidebar(), content])
                     .width(Length::Fill)
@@ -1810,13 +1885,14 @@ impl App {
     fn sidebar(&self) -> Element<'_, Message> {
         use cosmic::widget::{button, column, container, scrollable, text};
 
-        let entries: [(Screen, &str); 10] = [
+        let entries: [(Screen, &str); 11] = [
             (Screen::Home, "Overview"),
             (Screen::Store, "Nix packages"),
             (Screen::Apk, "APK packages"),
             (Screen::Flatpak, "Flatpak applications"),
             (Screen::Printers, "Printers"),
             (Screen::Scanners, "Scanners"),
+            (Screen::Firewall, "Firewall"),
             (Screen::Snapshots, "Snapshots"),
             (Screen::Users, "Users"),
             (Screen::Niri, "Niri desktop"),
@@ -1865,6 +1941,7 @@ impl App {
             Screen::Flatpak => Message::OpenPackages(PackageKind::Flatpak),
             Screen::Printers => Message::OpenPrinters,
             Screen::Scanners => Message::OpenScanners,
+            Screen::Firewall => Message::OpenFirewall,
         }
     }
 
@@ -1889,6 +1966,7 @@ impl App {
             Screen::Flatpak => self.cap_available(Capability::Flatpak),
             Screen::Printers => self.cap_available(Capability::Cups),
             Screen::Scanners => self.cap_available(Capability::Sane),
+            Screen::Firewall => self.cap_available(Capability::Firewalld),
         }
     }
 
@@ -2185,6 +2263,91 @@ impl App {
         Task::none()
     }
 
+    fn load_firewall(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.firewall.busy || self.firewall.action_busy {
+            return Task::none();
+        }
+        self.firewall.busy = true;
+        self.firewall.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(
+            async move { Message::FirewallLoaded(epoch, client::firewall_status(token).await) },
+        )
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_firewall(
+        &mut self,
+        epoch: u64,
+        result: Result<ursine_api::FirewallStatus, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.firewall.busy = false;
+        match result {
+            Ok(status) => self.firewall.apply(status),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.firewall.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn firewall_action(
+        &mut self,
+        label: &str,
+        future: impl std::future::Future<Output = Result<ursine_api::FirewallStatus, ApiError>>
+            + Send
+            + 'static,
+    ) -> Task<cosmic::Action<Message>> {
+        let Some(_session) = &self.session else {
+            return Task::none();
+        };
+        if self.firewall.action_busy {
+            return Task::none();
+        }
+        let label = label.to_string();
+        let epoch = self.epoch;
+        self.firewall.action_busy = true;
+        self.firewall.error = None;
+        Task::future(async move { Message::FirewallActionFinished(epoch, label, future.await) })
+            .map(cosmic::Action::App)
+    }
+
+    fn finish_firewall_action(
+        &mut self,
+        epoch: u64,
+        label: &str,
+        result: Result<ursine_api::FirewallStatus, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.firewall.action_busy = false;
+        match result {
+            Ok(status) => {
+                self.firewall.apply(status);
+                self.firewall.message = Some(label.to_string());
+                self.firewall.error = None;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.firewall.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
     fn sign_in(&mut self) -> Task<cosmic::Action<Message>> {
         if self.login.busy {
             return Task::none();
@@ -2223,6 +2386,7 @@ impl App {
                 self.packages = PackagesState::default();
                 self.printers = PrintersState::default();
                 self.scanners = ScannersState::default();
+                self.firewall = FirewallState::default();
                 self.home.user.clone_from(&user);
                 self.home.busy = true;
                 self.home.error = None;
@@ -2771,6 +2935,7 @@ impl App {
         self.packages = PackagesState::default();
         self.printers = PrintersState::default();
         self.scanners = ScannersState::default();
+        self.firewall = FirewallState::default();
         self.screen = Screen::Home;
         self.login.password.clear();
         self.login.error = None;
