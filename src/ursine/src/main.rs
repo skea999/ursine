@@ -11,6 +11,7 @@ mod home;
 mod login;
 mod niri;
 mod packages;
+mod printers;
 mod settings;
 mod snapshots;
 mod store;

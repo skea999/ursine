@@ -12,6 +12,7 @@ use crate::home::HomeState;
 use crate::login::LoginState;
 use crate::niri::NiriState;
 use crate::packages::{PackageKind, PackagesState};
+use crate::printers::PrintersState;
 use crate::settings::SettingsState;
 use crate::snapshots::{SnapAction, SnapSetting, SnapshotsState};
 use crate::store::{PendingStoreAction, StoreAction, StoreScope, StoreState};
@@ -56,6 +57,7 @@ enum Screen {
     Niri,
     Apk,
     Flatpak,
+    Printers,
 }
 
 pub struct App {
@@ -68,6 +70,7 @@ pub struct App {
     users: UsersState,
     niri: NiriState,
     packages: PackagesState,
+    printers: PrintersState,
     screen: Screen,
     session: Option<Session>,
     /// Bumped on sign-in/sign-out so late async results cannot repopulate a
@@ -95,6 +98,26 @@ pub enum Message {
     OpenUsers,
     OpenNiri,
     OpenPackages(PackageKind),
+    OpenPrinters,
+    RefreshPrinters,
+    PrintersLoaded(
+        u64,
+        Result<(Vec<ursine_api::Printer>, Vec<ursine_api::PrintJob>), ApiError>,
+    ),
+    PrinterNameChanged(String),
+    PrinterUriChanged(String),
+    PrinterDescriptionChanged(String),
+    PrinterLocationChanged(String),
+    PrinterAddRequested,
+    PrinterSetDefault(String),
+    PrinterPause(String, bool),
+    PrinterRemoveRequested(String),
+    PrinterRemoveConfirmed,
+    PrinterRemoveCancelled,
+    PrinterCancelAllRequested,
+    PrinterCancelConfirmed,
+    PrinterCancelCancelled,
+    PrinterActionFinished(u64, String, Result<serde_json::Value, ApiError>),
     PackageQueryChanged(String),
     PackageInstallChanged(String),
     PackageScopeChanged(usize),
@@ -272,6 +295,7 @@ impl cosmic::Application for App {
             users: UsersState::default(),
             niri: NiriState::default(),
             packages: PackagesState::default(),
+            printers: PrintersState::default(),
             screen: Screen::Home,
             session: None,
             epoch: 0,
@@ -314,6 +338,43 @@ impl cosmic::Application for App {
                 return self.load_niri();
             }
             Message::OpenPackages(kind) => return self.open_packages(kind),
+            Message::OpenPrinters => {
+                self.screen = Screen::Printers;
+                return self.load_printers();
+            }
+            Message::RefreshPrinters => return self.load_printers(),
+            Message::PrintersLoaded(epoch, result) => return self.finish_printers(epoch, result),
+            Message::PrinterNameChanged(value) => self.printers.name = value,
+            Message::PrinterUriChanged(value) => self.printers.uri = value,
+            Message::PrinterDescriptionChanged(value) => self.printers.description = value,
+            Message::PrinterLocationChanged(value) => self.printers.location = value,
+            Message::PrinterAddRequested => return self.add_printer(),
+            Message::PrinterSetDefault(name) => {
+                return self
+                    .printer_action("default", client::set_default_printer(self.token(), name))
+            }
+            Message::PrinterPause(name, pause) => {
+                return self
+                    .printer_action("pause", client::pause_printer(self.token(), name, pause))
+            }
+            Message::PrinterRemoveRequested(name) => self.printers.pending_remove = Some(name),
+            Message::PrinterRemoveConfirmed => {
+                if let Some(name) = self.printers.pending_remove.take() {
+                    return self
+                        .printer_action("remove", client::remove_printer(self.token(), name));
+                }
+            }
+            Message::PrinterRemoveCancelled => self.printers.pending_remove = None,
+            Message::PrinterCancelAllRequested => self.printers.pending_cancel = true,
+            Message::PrinterCancelConfirmed => {
+                self.printers.pending_cancel = false;
+                return self
+                    .printer_action("cancel", client::cancel_printer_jobs(self.token(), None));
+            }
+            Message::PrinterCancelCancelled => self.printers.pending_cancel = false,
+            Message::PrinterActionFinished(epoch, label, result) => {
+                return self.finish_printer_action(epoch, &label, result)
+            }
             Message::PackageQueryChanged(value) => self.packages.query = value,
             Message::PackageInstallChanged(value) => self.packages.install = value,
             Message::PackageScopeChanged(index) => {
@@ -770,6 +831,7 @@ impl cosmic::Application for App {
                     Screen::Users => self.users.view(),
                     Screen::Niri => self.niri.view(),
                     Screen::Apk | Screen::Flatpak => self.packages.view(),
+                    Screen::Printers => self.printers.view(),
                 };
                 cosmic::iced::widget::row(vec![self.sidebar(), content])
                     .width(Length::Fill)
@@ -1702,11 +1764,12 @@ impl App {
     fn sidebar(&self) -> Element<'_, Message> {
         use cosmic::widget::{button, column, container, scrollable, text};
 
-        let entries: [(Screen, &str); 8] = [
+        let entries: [(Screen, &str); 9] = [
             (Screen::Home, "Overview"),
             (Screen::Store, "Nix packages"),
             (Screen::Apk, "APK packages"),
             (Screen::Flatpak, "Flatpak applications"),
+            (Screen::Printers, "Printers"),
             (Screen::Snapshots, "Snapshots"),
             (Screen::Users, "Users"),
             (Screen::Niri, "Niri desktop"),
@@ -1753,6 +1816,7 @@ impl App {
             Screen::Niri => Message::OpenNiri,
             Screen::Apk => Message::OpenPackages(PackageKind::Apk),
             Screen::Flatpak => Message::OpenPackages(PackageKind::Flatpak),
+            Screen::Printers => Message::OpenPrinters,
         }
     }
 
@@ -1775,7 +1839,123 @@ impl App {
             Screen::Niri => self.cap_available(Capability::Niri),
             Screen::Apk => self.cap_available(Capability::Apk),
             Screen::Flatpak => self.cap_available(Capability::Flatpak),
+            Screen::Printers => self.cap_available(Capability::Cups),
         }
+    }
+
+    fn token(&self) -> SessionToken {
+        self.session
+            .as_ref()
+            .map_or_else(|| SessionToken::new(""), |session| session.token.clone())
+    }
+
+    fn load_printers(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.printers.busy || self.printers.action_busy {
+            return Task::none();
+        }
+        self.printers.busy = true;
+        self.printers.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(
+            async move { Message::PrintersLoaded(epoch, client::printer_page(token).await) },
+        )
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_printers(
+        &mut self,
+        epoch: u64,
+        result: Result<(Vec<ursine_api::Printer>, Vec<ursine_api::PrintJob>), ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.printers.busy = false;
+        match result {
+            Ok((printers, jobs)) => self.printers.apply(printers, jobs),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.printers.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn add_printer(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.printers.action_busy {
+            return Task::none();
+        }
+        let name = self.printers.name.trim().to_string();
+        let uri = self.printers.uri.trim().to_string();
+        if name.is_empty() || uri.is_empty() {
+            self.printers.error = Some("Name and URI are required.".into());
+            return Task::none();
+        }
+        let description = self.printers.description.trim().to_string();
+        let location = self.printers.location.trim().to_string();
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.printers.action_busy = true;
+        self.printers.error = None;
+        Task::future(async move {
+            let result = client::add_printer(token, name, uri, description, location).await;
+            Message::PrinterActionFinished(epoch, "add".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn printer_action(
+        &mut self,
+        label: &str,
+        future: impl std::future::Future<Output = Result<serde_json::Value, ApiError>> + Send + 'static,
+    ) -> Task<cosmic::Action<Message>> {
+        let Some(_session) = &self.session else {
+            return Task::none();
+        };
+        if self.printers.action_busy {
+            return Task::none();
+        }
+        let epoch = self.epoch;
+        let label = label.to_string();
+        self.printers.action_busy = true;
+        self.printers.error = None;
+        Task::future(async move { Message::PrinterActionFinished(epoch, label, future.await) })
+            .map(cosmic::Action::App)
+    }
+
+    fn finish_printer_action(
+        &mut self,
+        epoch: u64,
+        label: &str,
+        result: Result<serde_json::Value, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.printers.action_busy = false;
+        match result {
+            Ok(_) => {
+                self.printers.message = Some(label.to_string());
+                self.printers.error = None;
+                return self.load_printers();
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.printers.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
     }
 
     fn sign_in(&mut self) -> Task<cosmic::Action<Message>> {
@@ -1814,6 +1994,7 @@ impl App {
                 self.users = UsersState::default();
                 self.niri = NiriState::default();
                 self.packages = PackagesState::default();
+                self.printers = PrintersState::default();
                 self.home.user.clone_from(&user);
                 self.home.busy = true;
                 self.home.error = None;
@@ -2360,6 +2541,7 @@ impl App {
         self.users = UsersState::default();
         self.niri = NiriState::default();
         self.packages = PackagesState::default();
+        self.printers = PrintersState::default();
         self.screen = Screen::Home;
         self.login.password.clear();
         self.login.error = None;

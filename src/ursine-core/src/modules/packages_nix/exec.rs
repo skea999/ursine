@@ -636,6 +636,43 @@ async fn run_as_user_limited(
     }
 }
 
+/// Run a trusted program as root with literal arguments (no shell). Unlike
+/// `run_root_program`, values may contain spaces for tools such as `lpadmin`.
+pub async fn run_root_program_quoted(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<CommandOutcome, ApiError> {
+    if !is_safe_atom(program) {
+        return Err(ApiError::invalid("invalid program"));
+    }
+    let mut cmd = Command::new(program);
+    for arg in args {
+        if arg.len() > 4096 || arg.contains('\0') || arg.contains('\n') {
+            return Err(ApiError::invalid("invalid command argument"));
+        }
+        cmd.arg(arg);
+    }
+    let output = run_command(cmd, timeout, OutputPolicy::Truncate, None).await?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if output.status.success() {
+        Ok(CommandOutcome { stdout, stderr })
+    } else {
+        Err(ApiError::new(
+            ursine_api::ErrorCode::Internal,
+            format!(
+                "command failed: {}",
+                if stderr.trim().is_empty() {
+                    stdout.trim()
+                } else {
+                    stderr.trim()
+                }
+            ),
+        ))
+    }
+}
+
 /// Run a validated argv as ROOT (no shell is involved). Used for store-wide
 /// operations and for profile commands users cannot lock themselves.
 pub async fn run_root_program(

@@ -93,6 +93,7 @@ pub fn module_switch(modules: &ModulesConfig, cap: Capability) -> TriState {
         Capability::Nix => modules.packages_nix,
         Capability::Apk => modules.packages_apk,
         Capability::Flatpak => modules.packages_flatpak,
+        Capability::Cups => modules.printers,
         Capability::Accountsservice => modules.users,
         Capability::Niri => modules.niri,
         Capability::Dinit => TriState::Auto,

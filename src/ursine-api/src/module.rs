@@ -18,6 +18,8 @@ pub enum ModuleId {
     PackagesApk,
     /// Flatpak applications.
     PackagesFlatpak,
+    /// CUPS printers and jobs.
+    Printers,
     /// btrbk snapshot management.
     Snapshots,
     /// Users and groups via accountsservice.
@@ -36,6 +38,7 @@ impl ModuleId {
             Self::PackagesNix => "packages_nix",
             Self::PackagesApk => "packages_apk",
             Self::PackagesFlatpak => "packages_flatpak",
+            Self::Printers => "printers",
             Self::Snapshots => "snapshots",
             Self::Users => "users",
             Self::Niri => "niri",
@@ -65,6 +68,7 @@ mod tests {
             ModuleId::PackagesNix,
             ModuleId::PackagesApk,
             ModuleId::PackagesFlatpak,
+            ModuleId::Printers,
             ModuleId::Snapshots,
             ModuleId::Users,
             ModuleId::Niri,

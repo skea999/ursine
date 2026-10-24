@@ -56,6 +56,11 @@ pub fn check_capability(sys: &dyn Sysinfo, cap: Capability) -> bool {
                 || sys.path_exists(Path::new("/usr/bin/flatpak"))
                 || sys.path_exists(Path::new("/usr/local/bin/flatpak"))
         }
+        Capability::Cups => {
+            sys.cmd_in_path("lpstat")
+                || sys.path_exists(Path::new("/usr/bin/lpstat"))
+                || sys.path_exists(Path::new("/run/cups/cups.sock"))
+        }
         // Proxy for "D-Bus system bus is up"; the real name probe arrives with
         // the users module (zbus).
         Capability::Accountsservice => sys.path_exists(Path::new("/run/dbus/system_bus_socket")),
@@ -80,6 +85,10 @@ pub fn hints(cap: Capability) -> (&'static str, &'static str) {
         ),
         Capability::Apk => ("apk is not available", "boot a FeralOS/Alpine system"),
         Capability::Flatpak => ("flatpak is not installed", "apk add flatpak"),
+        Capability::Cups => (
+            "CUPS is not available",
+            "apk add cups && rc-service cupsd start",
+        ),
         Capability::Accountsservice => ("system D-Bus is not available", "start dbus"),
         Capability::Niri => ("niri not installed", "apk add niri"),
         Capability::Dinit => ("PID 1 is not dinit", "boot with dinit (OpenRC fallback)"),

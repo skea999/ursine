@@ -141,6 +141,38 @@ pub enum Action {
         system: bool,
     },
 
+    // -- printers (CUPS) --
+    /// List CUPS printers and the system default.
+    ListPrinters,
+    /// List queued jobs, optionally for one printer.
+    PrinterJobs {
+        printer: Option<String>,
+    },
+    /// Add a driverless IPP/USB printer.
+    AddPrinter {
+        name: String,
+        uri: String,
+        description: String,
+        location: String,
+    },
+    /// Remove a printer.
+    RemovePrinter {
+        name: String,
+    },
+    /// Set the system default printer.
+    SetDefaultPrinter {
+        name: String,
+    },
+    /// Pause or resume a printer.
+    PausePrinter {
+        name: String,
+        pause: bool,
+    },
+    /// Cancel queued jobs, optionally for one printer.
+    CancelPrinterJobs {
+        printer: Option<String>,
+    },
+
     // -- snapshots (btrbk) --
     /// List btrbk-managed snapshots.
     ListSnapshots,

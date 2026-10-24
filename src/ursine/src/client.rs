@@ -12,9 +12,9 @@ use std::time::{Duration, Instant};
 
 use ursine_api::{
     installable_from_attr, timeouts, Action, ApiError, ApkPackage, BtrbkConfigView, BtrbkSettings,
-    FlatpakPackage, InstalledPackage, ModuleId, ModulesConfig, NiriConfigView, Request,
-    RequestBody, Response, ResponseBody, SearchResult, SessionToken, Snapshot, SnapshotStats,
-    TriState, UserSummary, PROTOCOL_VERSION,
+    FlatpakPackage, InstalledPackage, ModuleId, ModulesConfig, NiriConfigView, PrintJob, Printer,
+    Request, RequestBody, Response, ResponseBody, SearchResult, SessionToken, Snapshot,
+    SnapshotStats, TriState, UserSummary, PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
@@ -1066,4 +1066,116 @@ async fn flatpak_packages(
         .ok_or_else(|| ApiError::internal("daemon flatpak response has no packages"))?;
     serde_json::from_value(rows)
         .map_err(|e| ApiError::internal(format!("cannot read flatpak packages: {e}")))
+}
+
+pub async fn printer_page(token: SessionToken) -> Result<(Vec<Printer>, Vec<PrintJob>), ApiError> {
+    let printers = call_with_timeout(
+        token.clone(),
+        ModuleId::Printers,
+        Action::ListPrinters,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let jobs = call_with_timeout(
+        token,
+        ModuleId::Printers,
+        Action::PrinterJobs { printer: None },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let printers = printers
+        .get("printers")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon printer response has no printers"))?;
+    let jobs = jobs
+        .get("jobs")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon printer response has no jobs"))?;
+    Ok((
+        serde_json::from_value(printers)
+            .map_err(|e| ApiError::internal(format!("cannot read printers: {e}")))?,
+        serde_json::from_value(jobs)
+            .map_err(|e| ApiError::internal(format!("cannot read print jobs: {e}")))?,
+    ))
+}
+
+pub async fn add_printer(
+    token: SessionToken,
+    name: String,
+    uri: String,
+    description: String,
+    location: String,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Printers,
+        Action::AddPrinter {
+            name,
+            uri,
+            description,
+            location,
+        },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn remove_printer(
+    token: SessionToken,
+    name: String,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Printers,
+        Action::RemovePrinter { name },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn set_default_printer(
+    token: SessionToken,
+    name: String,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Printers,
+        Action::SetDefaultPrinter { name },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn pause_printer(
+    token: SessionToken,
+    name: String,
+    pause: bool,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Printers,
+        Action::PausePrinter { name, pause },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn cancel_printer_jobs(
+    token: SessionToken,
+    printer: Option<String>,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Printers,
+        Action::CancelPrinterJobs { printer },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
 }

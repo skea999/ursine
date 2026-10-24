@@ -34,6 +34,10 @@ const MODULE_SWITCHES: &[ModuleSwitch] = &[
         title: "Flatpak applications",
     },
     ModuleSwitch {
+        module: ModuleId::Printers,
+        title: "Printers",
+    },
+    ModuleSwitch {
         module: ModuleId::Snapshots,
         title: "Snapshots",
     },
@@ -173,6 +177,7 @@ fn module_switch(config: &ConfigSnapshot, module: ModuleId) -> TriState {
         ModuleId::PackagesNix => config.modules.packages_nix,
         ModuleId::PackagesApk => config.modules.packages_apk,
         ModuleId::PackagesFlatpak => config.modules.packages_flatpak,
+        ModuleId::Printers => config.modules.printers,
         ModuleId::Snapshots => config.modules.snapshots,
         ModuleId::Users => config.modules.users,
         ModuleId::Niri => config.modules.niri,

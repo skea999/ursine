@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0] — 2026-10-24
+
+### Added
+
+- CUPS printers panel: list, default, driverless add, remove, pause/resume,
+  queued jobs, cancel all; capability `cups` and module switch.
+
 ## [0.11.0] — 2026-10-24
 
 ### Added
@@ -155,6 +162,13 @@
 - PAM via `pam-client 0.2` (replaces `pam 0.7`): fixes RUSTSEC-2025-0040 (`users 0.8` vulnerable/unmaintained) and avoids bindgen.
 
 All notable changes to Ursine. Format: Keep a Changelog, semver.
+
+## [0.12.0] — 2026-10-24
+
+### Added
+
+- CUPS printers panel: list, default, driverless add, remove, pause/resume,
+  queued jobs, cancel all; capability `cups` and module switch.
 
 ## [0.11.0] — 2026-10-24
 

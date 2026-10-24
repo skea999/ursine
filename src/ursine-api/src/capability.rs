@@ -19,6 +19,8 @@ pub enum Capability {
     Apk,
     /// Flatpak binary present.
     Flatpak,
+    /// CUPS is running and lpstat is available.
+    Cups,
     /// org.freedesktop.Accounts reachable on D-Bus.
     Accountsservice,
     /// niri binary + user config present.
@@ -29,12 +31,13 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability the daemon probes, in display order.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Btrbk,
         Self::Btrfs,
         Self::Nix,
         Self::Apk,
         Self::Flatpak,
+        Self::Cups,
         Self::Accountsservice,
         Self::Niri,
         Self::Dinit,
@@ -47,6 +50,7 @@ impl Capability {
             Self::Nix => "nix",
             Self::Apk => "apk",
             Self::Flatpak => "flatpak",
+            Self::Cups => "cups",
             Self::Accountsservice => "accountsservice",
             Self::Niri => "niri",
             Self::Dinit => "dinit",
@@ -97,7 +101,7 @@ mod tests {
 
     #[test]
     fn all_capabilities_are_listed_once() {
-        assert_eq!(Capability::ALL.len(), 8);
+        assert_eq!(Capability::ALL.len(), 9);
         assert!(Capability::ALL.contains(&Capability::Apk));
         assert!(Capability::ALL.contains(&Capability::Flatpak));
     }

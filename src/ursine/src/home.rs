@@ -34,6 +34,7 @@ enum Panel {
     Niri,
     Apk,
     Flatpak,
+    Printers,
 }
 
 const MODULES: &[ModuleEntry] = &[
@@ -54,6 +55,12 @@ const MODULES: &[ModuleEntry] = &[
         module: Some(ModuleId::PackagesFlatpak),
         requires: &[Capability::Flatpak],
         panel: Some(Panel::Flatpak),
+    },
+    ModuleEntry {
+        title: "Printers",
+        module: Some(ModuleId::Printers),
+        requires: &[Capability::Cups],
+        panel: Some(Panel::Printers),
     },
     ModuleEntry {
         title: "Snapshots (btrbk)",
@@ -153,7 +160,8 @@ impl HomeState {
                 | Panel::Users
                 | Panel::Niri
                 | Panel::Apk
-                | Panel::Flatpak,
+                | Panel::Flatpak
+                | Panel::Printers,
             ) => {
                 let available = !Self::is_manually_off(entry, modules)
                     && entry.requires.iter().all(|required| {
@@ -169,6 +177,7 @@ impl HomeState {
                     Some(Panel::Flatpak) => {
                         Message::OpenPackages(crate::packages::PackageKind::Flatpak)
                     }
+                    Some(Panel::Printers) => Message::OpenPrinters,
                     None => unreachable!(),
                 };
                 let open = button::text("Open").on_press_maybe(available.then_some(open_message));
@@ -197,6 +206,7 @@ fn module_mode(modules: &ModulesConfig, module: ModuleId) -> TriState {
         ModuleId::PackagesNix => modules.packages_nix,
         ModuleId::PackagesApk => modules.packages_apk,
         ModuleId::PackagesFlatpak => modules.packages_flatpak,
+        ModuleId::Printers => modules.printers,
         ModuleId::Snapshots => modules.snapshots,
         ModuleId::Users => modules.users,
         ModuleId::Niri => modules.niri,
