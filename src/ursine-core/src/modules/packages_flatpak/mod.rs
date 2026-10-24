@@ -49,6 +49,12 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             let output = run(*system, ctx.as_user, &args).await?;
             Ok(json!({"output": output}))
         }
+        Action::RemoveFlatpakOrphans { system } => {
+            let scope = scope(*system);
+            let args = ["uninstall", "--unused", "-y", "--noninteractive", scope];
+            let output = run(*system, ctx.as_user, &args).await?;
+            Ok(json!({"output": output}))
+        }
         Action::UpdateFlatpak { system } => {
             let scope = scope(*system);
             let args = ["update", "-y", "--noninteractive", scope];

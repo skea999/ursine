@@ -142,6 +142,7 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::InstallFlatpak { .. } => "install_flatpak",
         Action::RemoveFlatpak { .. } => "remove_flatpak",
         Action::UpdateFlatpak { .. } => "update_flatpak",
+        Action::RemoveFlatpakOrphans { .. } => "remove_flatpak_orphans",
         Action::Search { .. } => "search",
         Action::Install { .. } => "install",
         Action::Remove { .. } => "remove",

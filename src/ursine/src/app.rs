@@ -204,6 +204,9 @@ pub enum Message {
     PackageUpdateRequested,
     PackageUpdateConfirmed,
     PackageUpdateCancelled,
+    PackageOrphansRequested,
+    PackageOrphansConfirmed,
+    PackageOrphansCancelled,
     PackageRemoveRequested(PackageKind, String, String),
     PackageRemoveConfirmed,
     PackageRemoveCancelled,
@@ -224,6 +227,7 @@ pub enum Message {
     SnapshotRestoreConfirmed,
     SnapshotRestoreCancelled,
     SnapshotSettingChanged(SnapSetting, usize),
+    SnapshotSettingCustom(SnapSetting, String),
     SaveBtrbkConfig,
     SnapshotSelected(usize),
     SnapshotRemoveSelected,
@@ -631,6 +635,12 @@ impl cosmic::Application for App {
             }
             Message::PackageUpdateConfirmed => return self.confirm_package_update(),
             Message::PackageUpdateCancelled => self.packages.pending_update = None,
+            Message::PackageOrphansRequested => self.packages.pending_orphans = true,
+            Message::PackageOrphansCancelled => self.packages.pending_orphans = false,
+            Message::PackageOrphansConfirmed => {
+                self.packages.pending_orphans = false;
+                return self.confirm_flatpak_orphans();
+            }
             Message::PackageRemoveRequested(kind, name, id) => {
                 self.packages.pending_remove = Some((kind, name, id));
             }
@@ -665,6 +675,9 @@ impl cosmic::Application for App {
             Message::SnapshotRestoreCancelled => self.snapshots.pending_restore = None,
             Message::SnapshotSettingChanged(setting, index) => {
                 setting.apply(&mut self.snapshots.settings, index);
+            }
+            Message::SnapshotSettingCustom(setting, value) => {
+                setting.set_custom(&mut self.snapshots.settings, &value);
             }
             Message::SaveBtrbkConfig => return self.save_btrbk_config(),
             Message::SnapshotSelected(index) => self.select_snapshot(index),
@@ -1972,6 +1985,25 @@ impl App {
         .map(cosmic::Action::App)
     }
 
+    fn confirm_flatpak_orphans(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.packages.action_busy {
+            return Task::none();
+        }
+        let system = self.packages.system;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.error = None;
+        Task::future(async move {
+            let result = client::flatpak_remove_orphans(token, system).await;
+            Message::PackageActionFinished(epoch, "orphans".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
     fn finish_package_action(
         &mut self,
         epoch: u64,
@@ -2854,6 +2886,7 @@ impl App {
                 self.screen = Screen::Home;
                 self.epoch = self.epoch.wrapping_add(1);
                 self.store = StoreState::default();
+                self.store.as_user_input.clone_from(&user);
                 self.users = UsersState::default();
                 self.niri = NiriState::default();
                 self.packages = PackagesState::default();

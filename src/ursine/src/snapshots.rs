@@ -126,6 +126,31 @@ impl SnapSetting {
         self.options().iter().position(|option| *option == value)
     }
 
+    pub fn supports_custom(self) -> bool {
+        matches!(
+            self,
+            Self::SnapshotPreserveMin
+                | Self::SnapshotPreserve
+                | Self::TargetPreserveMin
+                | Self::TargetPreserve
+                | Self::ArchivePreserveMin
+                | Self::ArchivePreserve
+        )
+    }
+
+    pub fn set_custom(self, settings: &mut BtrbkSettings, value: &str) {
+        let field = match self {
+            Self::SnapshotPreserveMin => &mut settings.snapshot_preserve_min,
+            Self::SnapshotPreserve => &mut settings.snapshot_preserve,
+            Self::TargetPreserveMin => &mut settings.target_preserve_min,
+            Self::TargetPreserve => &mut settings.target_preserve,
+            Self::ArchivePreserveMin => &mut settings.archive_preserve_min,
+            Self::ArchivePreserve => &mut settings.archive_preserve,
+            _ => return,
+        };
+        *field = (!value.trim().is_empty()).then(|| value.trim().to_string());
+    }
+
     pub fn apply(self, settings: &mut BtrbkSettings, index: usize) {
         let value = if index == 0 {
             None
@@ -231,15 +256,21 @@ impl SnapshotsState {
                 let mut rows: Vec<Element<'_, Message>> = Vec::new();
                 for setting in SnapSetting::ALL {
                     let selected = setting.selected(&self.settings);
-                    rows.push(
-                        settings::item(
-                            setting.label(),
-                            dropdown(setting.options(), selected, move |index| {
-                                Message::SnapshotSettingChanged(setting, index)
-                            }),
-                        )
-                        .into(),
-                    );
+                    let mut row = row(vec![dropdown(setting.options(), selected, move |index| {
+                        Message::SnapshotSettingChanged(setting, index)
+                    })
+                    .into()])
+                    .spacing(8);
+                    if setting.supports_custom() {
+                        row = row.push(
+                            text_input(
+                                "custom, e.g. 14d 8w 6m",
+                                setting.value(&self.settings).cloned().unwrap_or_default(),
+                            )
+                            .on_input(move |value| Message::SnapshotSettingCustom(setting, value)),
+                        );
+                    }
+                    rows.push(settings::item(setting.label(), row).into());
                 }
                 rows.push(
                     settings::item(

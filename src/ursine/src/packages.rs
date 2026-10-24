@@ -43,6 +43,7 @@ pub struct PackagesState {
     pub message: Option<String>,
     pub pending_remove: Option<(PackageKind, String, String)>,
     pub pending_update: Option<PackageKind>,
+    pub pending_orphans: bool,
 }
 
 impl Default for PackagesState {
@@ -61,6 +62,7 @@ impl Default for PackagesState {
             message: None,
             pending_remove: None,
             pending_update: None,
+            pending_orphans: false,
         }
     }
 }
@@ -83,6 +85,7 @@ impl PackagesState {
         self.message = None;
         self.pending_remove = None;
         self.pending_update = None;
+        self.pending_orphans = false;
     }
 
     pub fn apply_apk(&mut self, packages: Vec<ApkPackage>) {
@@ -102,7 +105,20 @@ impl PackagesState {
             return text("Select a package source.").into();
         };
         let mut items: Vec<Element<'_, Message>> = vec![row(vec![
-            text::title2(kind.title()).into(),
+            (if kind == PackageKind::Apk {
+                button::suggested("APK")
+            } else {
+                button::text("APK")
+            })
+            .on_press(Message::OpenPackages(PackageKind::Apk))
+            .into(),
+            (if kind == PackageKind::Flatpak {
+                button::suggested("Flatpak")
+            } else {
+                button::text("Flatpak")
+            })
+            .on_press(Message::OpenPackages(PackageKind::Flatpak))
+            .into(),
             text("").width(Length::Fill).into(),
             button::text("Refresh")
                 .on_press_maybe(
@@ -128,28 +144,18 @@ impl PackagesState {
 
         items.push(
             settings::section()
-                .title("Source")
+                .title("Store")
                 .add(settings::item(
-                    "Package backend",
-                    dropdown(
-                        vec!["APK (system)", "Flatpak"],
-                        Some(usize::from(kind != PackageKind::Apk)),
-                        |index| {
-                            Message::OpenPackages(if index == 0 {
-                                PackageKind::Apk
-                            } else {
-                                PackageKind::Flatpak
-                            })
-                        },
-                    ),
-                ))
-                .add(settings::item(
-                    "Flatpak installation",
-                    dropdown(
-                        vec!["System", "User"],
-                        Some(usize::from(!self.system)),
-                        Message::PackageScopeChanged,
-                    ),
+                    "Installation",
+                    if kind == PackageKind::Flatpak {
+                        Element::from(dropdown(
+                            vec!["System", "User"],
+                            Some(usize::from(!self.system)),
+                            Message::PackageScopeChanged,
+                        ))
+                    } else {
+                        Element::from(text("system-wide"))
+                    },
                 ))
                 .add(settings::item(
                     "Search",
@@ -217,6 +223,13 @@ impl PackagesState {
                             Message::PackageUpdateRequested
                         },
                     )),
+                ))
+                .add(settings::item(
+                    "Remove unused Flatpak runtimes",
+                    button::destructive("Remove orphans…").on_press_maybe(
+                        (kind == PackageKind::Flatpak && !self.action_busy)
+                            .then_some(Message::PackageOrphansRequested),
+                    ),
                 ))
                 .into(),
         );
@@ -302,6 +315,32 @@ impl PackagesState {
                                 .into(),
                             button::text("Cancel")
                                 .on_press(Message::PackageRemoveCancelled)
+                                .into(),
+                        ])
+                        .spacing(8),
+                    ))
+                    .into(),
+            );
+        }
+
+        if self.pending_orphans {
+            items.push(
+                settings::section()
+                    .title("Confirm orphan removal")
+                    .add(settings::item(
+                        "Consequences",
+                        text("Remove unused Flatpak runtimes in this installation?"),
+                    ))
+                    .add(settings::item(
+                        "Actions",
+                        row(vec![
+                            button::destructive("Remove orphans")
+                                .on_press_maybe(
+                                    (!self.action_busy).then_some(Message::PackageOrphansConfirmed),
+                                )
+                                .into(),
+                            button::text("Cancel")
+                                .on_press(Message::PackageOrphansCancelled)
                                 .into(),
                         ])
                         .spacing(8),

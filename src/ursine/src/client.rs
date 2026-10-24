@@ -1041,6 +1041,20 @@ pub async fn flatpak_remove(
     .await
 }
 
+pub async fn flatpak_remove_orphans(
+    token: SessionToken,
+    system: bool,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::RemoveFlatpakOrphans { system },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
 pub async fn flatpak_update(
     token: SessionToken,
     system: bool,

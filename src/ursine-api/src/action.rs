@@ -140,6 +140,10 @@ pub enum Action {
     UpdateFlatpak {
         system: bool,
     },
+    /// Remove unused Flatpak runtimes.
+    RemoveFlatpakOrphans {
+        system: bool,
+    },
 
     // -- printers (CUPS) --
     /// List CUPS printers and the system default.

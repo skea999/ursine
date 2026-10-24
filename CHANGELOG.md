@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.17.0] — 2026-10-24
+
+### Changed
+
+- btrbk retention fields now accept custom day/week/month/year expressions in
+  addition to presets.
+- APK/Flatpak are separate tabs; the source dropdown was removed. Flatpak scope
+  is only shown for Flatpak.
+- Nix store defaults the target field to the signed-in user and remains editable.
+- Flatpak panel can remove unused runtimes with confirmation.
+
 ## [0.16.1] — 2026-10-24
 
 ### Fixed
@@ -200,6 +211,17 @@
 - PAM via `pam-client 0.2` (replaces `pam 0.7`): fixes RUSTSEC-2025-0040 (`users 0.8` vulnerable/unmaintained) and avoids bindgen.
 
 All notable changes to Ursine. Format: Keep a Changelog, semver.
+
+## [0.17.0] — 2026-10-24
+
+### Changed
+
+- btrbk retention fields now accept custom day/week/month/year expressions in
+  addition to presets.
+- APK/Flatpak are separate tabs; the source dropdown was removed. Flatpak scope
+  is only shown for Flatpak.
+- Nix store defaults the target field to the signed-in user and remains editable.
+- Flatpak panel can remove unused runtimes with confirmation.
 
 ## [0.16.1] — 2026-10-24
 

@@ -75,3 +75,8 @@ let snaps = btrbk::parse_snapshots(&out)?;
 ## Open Questions
 
 - Per-subvolume overrides and pre-update hooks remain future work.
+
+## GUI retention
+
+Preset dropdowns remain for common values; custom text fields accept
+`btrbk` retention syntax such as `14d 8w 6m` and `24h 14d`.
