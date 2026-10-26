@@ -17,10 +17,11 @@ nix profile add ursine#ursine
 sudo "$HOME/.nix-profile/bin/ursine-activate"
 ```
 
-`ursine-activate` discovers the Nix profile generically, writes
-`/etc/pam.d/ursine` as a symlink into that profile, renders the init unit with
-the profile's `bin/ursined`, and restarts the service. Re-run it after every
-upgrade:
+`ursine-activate` discovers the Nix profile generically, copies `ursined` to
+the root-owned `/usr/local/sbin/ursined`, copies the PAM policy to
+`/etc/pam.d/ursine`, renders the init unit against the root-owned binary, and
+restarts the service. The user-writable Nix profile is never the live root
+service path. Re-run it after every upgrade:
 
 ```bash
 nix profile upgrade ursine
@@ -185,13 +186,12 @@ installer stops. `--force` creates a timestamped backup first.
 
 ## Nix
 
-`nix profile add github:skea999/ursine` installs the binaries, but a Nix profile
-cannot write `/etc/pam.d` or an init unit. On NixOS, configure PAM declaratively
-with `security.pam.services.ursine`; on non-NixOS systems, run the release
-installer (or a distro package) after installing the Nix package. New release
-tarballs contain `install.sh` and `packaging/` at their root, so the same
-installer can be run from the store path. The currently pinned v0.1.0 tarball
-predates that layout; it is replaced on the next tagged release.
+`ursine-activate` is the Nix installation path. It copies the daemon and PAM
+policy to root-owned paths, so the profile itself never writes to `/etc` or the
+init service directory. On NixOS, configure PAM declaratively with
+`security.pam.services.ursine`; the activation script targets non-NixOS dinit,
+OpenRC and systemd hosts. On those systems, run the activation command above;
+no separate release-tarball install is needed.
 
 ## Uninstall
 

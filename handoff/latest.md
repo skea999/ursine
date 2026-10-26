@@ -6,6 +6,18 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-26 — init hardening, 0.18.4
+
+**Status**: 0.18.4 review-closed; release pending push/tag.
+
+- Fixed FeralOS init detection: PID 1 (and `/proc/1/exe`) wins over installed OpenRC/dinit tooling; OpenRC+dinit hosts select dinit.
+- Activation now copies `ursined` to `/usr/local/sbin/ursined` and PAM policy to `/etc/pam.d/ursine`; the user-writable Nix profile is never the live root path. Paths are validated, temp files use `mktemp`, and dinit dirs are restricted to `/lib/dinit.d` or `/etc/dinit.d`.
+- dinit unit has no distribution-specific targets; activation/deactivation handle stale units and `boot.d` links, preserve an existing `ursined.conf`, and tolerate already-enabled services.
+- install.sh defaults dinit to `/lib/dinit.d`, rejects empty/`/` destdir, restarts systemd/OpenRC, reloads dinit, and validates existing file ownership/mode.
+- CI smoke now covers automatic PID-1 detection, stale-unit cleanup, root-owned copies, second-run idempotency, boot-link removal, `--root /` rejection, and dinit install defaults.
+- Review: two cycles; previous critical/high/medium findings fixed. Validation: shellcheck, actionlint, staged activation/deactivation smoke, dinit-check.
+- Next: Services dinit backend+GUI (P0), real FeralOS PAM/dinit smoke, v2 polish.
+
 ## Session 2026-10-23 — users + niri baseline, 0.7.0
 
 **Status**: 0.7.0 released. Main CI 39981968110 green; tag CI 39986691808 green; Nix pin 86d90e2; local profile `ursined 0.7.0 (auth: pam)`.

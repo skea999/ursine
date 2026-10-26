@@ -54,7 +54,7 @@ flake.lock
 .github/workflows/ci.yml   test matrix + flake + release (installer smoke test)
 .cargo/config.toml         target-dir = "artifacts/target" + musl dynamic (-crt-static off)
 ci/Containerfile.dev       dev/CI image: rust:1-alpine + linux-pam-dev + clippy/rustfmt
-src/tools/ursine-activate.sh Nix profile activation: init detection, PAM symlink, unit render, restart
+src/tools/ursine-activate.sh Nix profile activation: init detection, root-owned daemon/PAM copies, unit render, restart
 src/tools/ursine-deactivate.sh Nix profile deactivation: stop/disable, remove PAM/unit files
 scripts/clean-artifacts.sh keep LAST 3 nix out-links + nix-collect-garbage (-d); --all = + cargo clean
 install.sh                 cross-distro installer: paths, PAM, systemd/OpenRC/dinit
@@ -83,7 +83,7 @@ Run `scripts/clean-artifacts.sh` after builds or whenever disk is tight
 
 - CI IS the test infra: green matrix = merge gate
 - flake: `nix flake check` must pass locally before tag
-- Release artifacts smoke-tested by extracting tarball in an Alpine container, staging systemd/OpenRC/dinit, checking PAM `0644`, and running the staged `ursined --version` to require `auth: pam`
+- Release artifacts smoke-tested by extracting tarball in an Alpine container, staging systemd/OpenRC/dinit, checking PAM `0644`, root-owned daemon copies, automatic PID-1 init detection, stale-unit cleanup, and running the staged `ursined --version` to require `auth: pam`
 
 ## Boundaries
 

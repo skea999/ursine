@@ -13,8 +13,12 @@
 
 set -eu
 
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/run/current-system/sw/bin
+export PATH
+
 # ── Defaults (overridable by environment or flags) ──────────────────────────
 DESTDIR=${DESTDIR:-}
+DESTDIR_SET=0
 PREFIX=${PREFIX:-/usr/local}
 BINDIR=${BINDIR:-}
 SBINDIR=${SBINDIR:-}
@@ -100,6 +104,7 @@ EOF
 # ── Argument parsing ────────────────────────────────────────────────────────
 need_value() {
   [ "$#" -ge 2 ] || die "option $1 needs a value"
+  [ -n "$2" ] || die "option $1 needs a non-empty value"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -188,10 +193,12 @@ while [ "$#" -gt 0 ]; do
   --destdir)
     need_value "$@"
     DESTDIR=$2
+    DESTDIR_SET=1
     shift 2
     ;;
   --destdir=*)
     DESTDIR=${1#*=}
+    DESTDIR_SET=1
     shift
     ;;
   --bin-dir | --from)
@@ -261,6 +268,11 @@ trim_trailing_slash() {
   fi
 }
 
+if [ "$DESTDIR_SET" -eq 1 ]; then
+  [ -n "$DESTDIR" ] || die "--destdir must not be empty"
+  [ "$DESTDIR" != / ] || die "--destdir must not be /"
+fi
+
 PREFIX=$(trim_trailing_slash "$PREFIX")
 SYSCONFDIR=$(trim_trailing_slash "$SYSCONFDIR")
 PAMDIR=$(trim_trailing_slash "$PAMDIR")
@@ -298,9 +310,15 @@ done
 
 case "$DESTDIR" in
 '') ;;
+/) die "--destdir must not be /" ;;
 /*) validate_path "$DESTDIR" ;;
 *) die "--destdir must be absolute: $DESTDIR" ;;
 esac
+if [ -n "$DESTDIR" ] && [ -e "$DESTDIR" ]; then
+  DESTDIR=$(CDPATH='' cd -- "$DESTDIR" && pwd -P) ||
+    die "cannot resolve --destdir: $DESTDIR"
+  [ "$DESTDIR" != / ] || die "--destdir must not be /"
+fi
 
 target_path() {
   printf '%s%s' "$DESTDIR" "$1"
@@ -378,11 +396,21 @@ OS_LIKE=$(printf '%s' "$OS_LIKE" | tr '[:upper:]' '[:lower:]')
 
 detect_init() {
   # PID 1 is authoritative: a host can have both OpenRC and dinit installed.
-  pid1=
-  if [ -r /proc/1/comm ]; then
+  pid1=${URSINE_PID1_COMM:-}
+  if [ -z "$pid1" ] && [ -r /proc/1/comm ]; then
     pid1=$(tr -d '\n' </proc/1/comm)
   fi
   [ -n "$pid1" ] || pid1=$(ps -p 1 -o comm= 2>/dev/null | tr -d '[:space:]' || true)
+  if [ "$pid1" = init ]; then
+    pid1_exe=${URSINE_PID1_EXE:-}
+    if [ -z "$pid1_exe" ] && [ -L /proc/1/exe ]; then
+      pid1_exe=$(readlink /proc/1/exe 2>/dev/null || true)
+    fi
+    case "$pid1_exe" in
+    */dinit) pid1=dinit ;;
+    */openrc-init) pid1=openrc-init ;;
+    esac
+  fi
   case "$pid1" in
   systemd)
     printf systemd
@@ -393,6 +421,14 @@ detect_init() {
     return 0
     ;;
   init | openrc-init)
+    if [ -d /run/openrc ]; then
+      printf openrc
+      return 0
+    fi
+    if command -v dinitctl >/dev/null 2>&1 && dinitctl list >/dev/null 2>&1; then
+      printf dinit
+      return 0
+    fi
     if command -v rc-service >/dev/null 2>&1; then
       printf openrc
       return 0
@@ -401,11 +437,14 @@ detect_init() {
   esac
   if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
     printf systemd
-  elif command -v dinitctl >/dev/null 2>&1 &&
-    { [ -d /etc/dinit.d ] || [ -d /lib/dinit.d ]; }; then
+  elif command -v dinitctl >/dev/null 2>&1 && dinitctl list >/dev/null 2>&1; then
     printf dinit
+  elif [ -d /run/openrc ] && command -v rc-service >/dev/null 2>&1; then
+    printf openrc
   elif command -v rc-service >/dev/null 2>&1 && [ -d /etc/init.d ]; then
     printf openrc
+  elif command -v dinitctl >/dev/null 2>&1; then
+    printf dinit
   else
     printf none
   fi
@@ -423,7 +462,13 @@ if [ -z "$UNITDIR" ]; then
   case "$INIT" in
   systemd) UNITDIR=/etc/systemd/system ;;
   openrc) UNITDIR=/etc/init.d ;;
-  dinit) UNITDIR=/etc/dinit.d ;;
+  dinit)
+    if [ -d /lib/dinit.d ] || [ ! -d /etc/dinit.d ]; then
+      UNITDIR=/lib/dinit.d
+    else
+      UNITDIR=/etc/dinit.d
+    fi
+    ;;
   none) UNITDIR= ;;
   esac
 fi
@@ -592,6 +637,9 @@ install_rendered() {
     if cmp -s "$inst_tmp" "$inst_dst"; then
       rm -f "$inst_tmp"
       chmod "$inst_mode" "$inst_dst" || die "cannot set mode on $inst_dst"
+      if [ "$(id -u)" -eq 0 ]; then
+        chown 0:0 "$inst_dst" || die "cannot set owner on $inst_dst"
+      fi
       info "unchanged: $inst_dst"
       return 0
     fi
@@ -679,17 +727,26 @@ if [ -z "$DESTDIR" ] && [ "$INSTALL_SERVICE" -eq 1 ] && [ "$START" -eq 1 ]; then
   case "$INIT" in
   systemd)
     systemctl daemon-reload || die "systemctl daemon-reload failed"
-    systemctl enable --now ursined.service || die "systemctl enable --now failed"
+    systemctl enable ursined.service || die "systemctl enable failed"
+    systemctl restart ursined.service || die "systemctl restart failed"
     info "started: ursined.service"
     ;;
   openrc)
     rc-update add ursined default || die "rc-update add failed"
-    rc-service ursined start || die "rc-service start failed"
+    rc-service ursined restart 2>/dev/null || rc-service ursined start ||
+      die "rc-service start failed"
     info "started: ursined"
     ;;
   dinit)
-    dinitctl enable ursined || warn "could not enable ursined; run: dinitctl enable ursined"
-    dinitctl start ursined || die "dinitctl start failed"
+    if ! enable_out=$(dinitctl enable ursined 2>&1); then
+      [ -L "${DESTDIR}/etc/dinit.d/boot.d/ursined" ] ||
+        [ -L "${DESTDIR}/lib/dinit.d/boot.d/ursined" ] ||
+        die "dinitctl enable failed: $enable_out"
+      warn "dinit service was already enabled"
+    fi
+    dinitctl reload ursined >/dev/null 2>&1 || true
+    dinitctl restart ursined 2>/dev/null || dinitctl start ursined ||
+      die "dinitctl start failed"
     info "started: ursined"
     ;;
   esac

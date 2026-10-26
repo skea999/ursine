@@ -20,8 +20,10 @@ nix profile add ursine#ursine
 sudo "$HOME/.nix-profile/bin/ursine-activate"
 ```
 
-The last command installs `/etc/pam.d/ursine` and the init unit, then starts
-`ursined`. It needs root; the Nix package itself only writes to the Nix store.
+The last command copies `ursined` to `/usr/local/sbin/ursined`, installs
+`/etc/pam.d/ursine` and the init unit, then starts `ursined`. Root-owned copies
+are used so the user-writable Nix profile cannot replace the live root service.
+It needs root; the Nix package itself only writes to the Nix store.
 
 Packages are layered: `ursine` depends on `ursined`, and `ursined` includes the
 versioned activation/deactivation tools it needs.

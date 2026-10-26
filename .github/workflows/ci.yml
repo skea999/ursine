@@ -442,6 +442,15 @@ jobs:
             test -x "$root/usr/sbin/ursined"
             test "$("$root/usr/sbin/ursined" --version | grep -c 'auth: pam')" = "1"
           done
+          root="$PWD/artifacts/smoke/install-dinit-default"
+          artifacts/smoke/install.sh --destdir "$root" --prefix /usr --init dinit --no-start
+          test -f "$root/lib/dinit.d/ursined"
+          test -x "$root/usr/lib/dinit/ursined"
+          test -f "$root/etc/dinit.d/config/ursined.conf"
+          root="$PWD/artifacts/smoke/install-dinit-auto"
+          URSINE_PID1_COMM=init URSINE_PID1_EXE=/sbin/dinit \
+            artifacts/smoke/install.sh --destdir "$root" --prefix /usr --no-start
+          test -f "$root/lib/dinit.d/ursined"
           profile="$PWD/artifacts/smoke/profile"
           mkdir -p "$profile"
           cp -R artifacts/smoke/bin artifacts/smoke/packaging "$profile/"
@@ -449,21 +458,71 @@ jobs:
             root="$PWD/artifacts/smoke/activate-$init"
             artifacts/smoke/bin/ursine-activate --profile "$profile" --root "$root" --init "$init" --no-start
             test -f "$root/etc/pam.d/ursine"
-            test "$(readlink "$root/etc/pam.d/ursine")" = "$profile/packaging/pam.d/ursine"
+            test ! -L "$root/etc/pam.d/ursine"
+            test "$(stat -c '%a' "$root/etc/pam.d/ursine")" = "644"
+            test -f "$root/usr/local/sbin/ursined"
+            test ! -L "$root/usr/local/sbin/ursined"
+            test "$(stat -c '%a' "$root/usr/local/sbin/ursined")" = "755"
             case "$init" in
-            systemd) test -f "$root/etc/systemd/system/ursined.service" ;;
-            openrc) test -x "$root/etc/init.d/ursined" ;;
+            systemd)
+              test -f "$root/etc/systemd/system/ursined.service"
+              grep -Fq "/usr/local/sbin/ursined" "$root/etc/systemd/system/ursined.service"
+              ! grep -Fq "$profile" "$root/etc/systemd/system/ursined.service"
+              ;;
+            openrc)
+              test -x "$root/etc/init.d/ursined"
+              grep -Fq "/usr/local/sbin/ursined" "$root/etc/init.d/ursined"
+              ! grep -Fq "$profile" "$root/etc/init.d/ursined"
+              ;;
             dinit)
               test -f "$root/lib/dinit.d/ursined"
               test -x "$root/usr/lib/dinit/ursined"
               test -f "$root/etc/dinit.d/config/ursined.conf"
+              grep -Fq "/usr/local/sbin/ursined" "$root/usr/lib/dinit/ursined"
+              ! grep -Fq "$profile" "$root/usr/lib/dinit/ursined"
+              mkdir -p "$root/lib/dinit.d/boot.d" "$root/etc/dinit.d/boot.d"
+              ln -sfn ../ursined "$root/lib/dinit.d/boot.d/ursined"
+              ln -sfn ../ursined "$root/etc/dinit.d/boot.d/ursined"
               ;;
             esac
           done
+          root="$PWD/artifacts/smoke/activate-auto-dinit"
+          mkdir -p "$root/etc/init.d" "$root/etc/dinit.d/boot.d" "$root/lib/dinit.d/boot.d"
+          printf '# Ursine control daemon\n' > "$root/etc/init.d/ursined"
+          printf '# Ursine control daemon\n' > "$root/etc/dinit.d/ursined"
+          printf '# Ursine control daemon\n' > "$root/lib/dinit.d/ursined"
+          ln -sfn ../ursined "$root/etc/dinit.d/boot.d/ursined"
+          ln -sfn ../ursined "$root/lib/dinit.d/boot.d/ursined"
+          URSINE_PID1_COMM=init URSINE_PID1_EXE=/sbin/dinit \
+            artifacts/smoke/bin/ursine-activate --profile "$profile" --root "$root" --no-start
+          URSINE_PID1_COMM=init URSINE_PID1_EXE=/sbin/dinit \
+            artifacts/smoke/bin/ursine-activate --profile "$profile" --root "$root" --no-start
+          test -f "$root/lib/dinit.d/ursined"
+          test ! -e "$root/etc/dinit.d/ursined"
+          test ! -e "$root/etc/init.d/ursined"
+          test ! -L "$root/etc/dinit.d/boot.d/ursined"
+          test ! -L "$root/lib/dinit.d/boot.d/ursined"
+          if artifacts/smoke/bin/ursine-activate --profile "$profile" --root / --no-start; then
+            echo "activation accepted --root /" >&2
+            exit 1
+          fi
           for init in systemd openrc dinit; do
             root="$PWD/artifacts/smoke/activate-$init"
             artifacts/smoke/bin/ursine-deactivate --profile "$profile" --root "$root" --init "$init"
             test ! -e "$root/etc/pam.d/ursine"
+            test ! -e "$root/usr/local/sbin/ursined"
+            case "$init" in
+            systemd) test ! -e "$root/etc/systemd/system/ursined.service" ;;
+            openrc) test ! -e "$root/etc/init.d/ursined" ;;
+            dinit)
+              test ! -e "$root/lib/dinit.d/ursined"
+              test ! -e "$root/etc/dinit.d/ursined"
+              test ! -e "$root/usr/lib/dinit/ursined"
+              test ! -e "$root/etc/dinit.d/config/ursined.conf"
+              test ! -L "$root/lib/dinit.d/boot.d/ursined"
+              test ! -L "$root/etc/dinit.d/boot.d/ursined"
+              ;;
+            esac
           done
       - name: Stage release assets
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')

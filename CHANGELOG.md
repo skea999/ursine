@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.18.4] — 2026-10-26
+
+### Security
+
+- Nix activation now copies `ursined` and the PAM policy to root-owned paths
+  instead of pointing the root service at the user-writable profile.
+- Activation validates staged paths, uses unpredictable temp files, and
+  restricts the dinit unit directory to `/lib/dinit.d` or `/etc/dinit.d`.
+
+### Fixed
+
+- Init detection prefers the actual dinit runtime when PID 1 reports `init`,
+  including FeralOS hosts that also ship OpenRC.
+- Re-running activation is idempotent when the dinit service is already
+  enabled; a cached description is reloaded before restart.
+- A stale `/etc/dinit.d/ursined` can no longer win over or delete the canonical
+  `/lib/dinit.d/ursined` unit.
+- Deactivation removes dinit boot links, root-owned activation files, and old
+  PAM symlinks; it no longer aborts when `dinitctl` is unavailable.
+- `install.sh` defaults dinit to `/lib/dinit.d`, tolerates already-enabled
+  services, and reloads changed units before restart.
+- `--root /` and empty `--root` are rejected instead of operating on the live
+  root.
+- CI covers automatic dinit detection, stale-unit cleanup, root-owned assets,
+  second-run idempotency, and rejects `--root /`.
+
 ## [0.18.3] — 2026-10-26
 
 ### Fixed
@@ -246,150 +272,3 @@
 - CI gates: cargo-vet (supply chain), cargo-audit (RustSec), Semgrep SAST.
 - Nix flake packages the pinned musl release artifact (`nix/binary.nix`): nixpkgs does not cache musl toolchains, and static musl cannot `dlopen` PAM modules — Alpine builds, Nix publishes reproducibly. Release v0.1.0 published.
 - PAM via `pam-client 0.2` (replaces `pam 0.7`): fixes RUSTSEC-2025-0040 (`users 0.8` vulnerable/unmaintained) and avoids bindgen.
-
-All notable changes to Ursine. Format: Keep a Changelog, semver.
-
-## [0.18.2] — 2026-10-24
-
-### Changed
-
-- Package rows now use one shared layout for Nix, APK and Flatpak.
-
-## [0.18.1] — 2026-10-24
-
-### Fixed
-
-- Home module-switch test after the unified Package manager entry.
-
-## [0.18.0] — 2026-10-24
-
-### Changed
-
-- Unified **Package manager** screen with Nix/APK/Flatpak tabs.
-- APK/Flatpak/Nix now share the same section order: Scope, Maintenance,
-  Upgrade all, Pattern actions (Nix only), Search, Installed.
-- Nix package descriptions use a consistent column layout and `attr:`/`url:`
-  labels.
-- btrbk retention accepts custom day/week/month/year expressions.
-
-## [0.17.0] — 2026-10-24
-
-### Changed
-
-- btrbk retention fields now accept custom day/week/month/year expressions in
-  addition to presets.
-- APK/Flatpak are separate tabs; the source dropdown was removed. Flatpak scope
-  is only shown for Flatpak.
-- Nix store defaults the target field to the signed-in user and remains editable.
-- Flatpak panel can remove unused runtimes with confirmation.
-
-## [0.16.1] — 2026-10-24
-
-### Fixed
-
-- NetworkManager Wi-Fi parser test fixture for the empty `IN-USE` field.
-
-## [0.16.0] — 2026-10-24
-
-### Added
-
-- OpenRC services panel with lifecycle and enable/disable.
-- Disks panel with UDisks2 mount/unmount.
-- Bluetooth adapter/device setup via BlueZ.
-- NetworkManager device and Wi-Fi setup with password on stdin.
-
-## [0.15.0] — 2026-10-24
-
-### Added
-
-- Firewall panel for firewalld: zones, default zone, services, ports,
-  permanent changes and reload.
-
-## [0.14.0] — 2026-10-24
-
-### Changed
-
-- Scanners is now a SANE setup page: discovery plus manual `airscan.conf`
-  devices. Image scanning and PNG output were removed.
-- CUPS manual printer setup: explicit URI, driver/model or PPD, and `-o`
-  options in addition to driverless add.
-
-## [0.13.0] — 2026-10-24
-
-### Added
-
-- SANE scanners panel: device discovery and one-page PNG scans to the target
-  user's Pictures directory.
-
-## [0.12.0] — 2026-10-24
-
-### Added
-
-- CUPS printers panel: list, default, driverless add, remove, pause/resume,
-  queued jobs, cancel all; capability `cups` and module switch.
-
-## [0.11.0] — 2026-10-24
-
-### Added
-
-- Niri key capture for bindings.
-- Niri edge-scroll gesture tuning.
-
-## [0.10.1] — 2026-10-24
-
-### Fixed
-
-- Keybind/gesture parser test fixture and CI packaging gate: the package now
-  runs only after every test and analyzer job succeeds.
-
-## [0.10.0] — 2026-10-24
-
-### Added
-
-- Niri keybind editor with key combo, action dropdown, arguments and remove/add.
-- Niri hot-corner toggles with off switch.
-
-## [0.9.1] — 2026-10-24
-
-### Fixed
-
-- Parse keyboard track-layout and pointer acceleration profiles.
-
-## [0.9.0] — 2026-10-24
-
-### Added
-
-- Niri pointer forms: keyboard track-layout and Num Lock, touchpad and mouse
-  acceleration profile/speed, mouse natural scroll.
-
-## [0.8.1] — 2026-10-24
-
-### Fixed
-
-- Clippy failure in the Niri startup-command shell splitter.
-
-## [0.8.0] — 2026-10-24 — 2026-10-16
-
-### Added
-
-- Workflow updated to the new harness chains: Pattern 8 Pre-Commit Review Gate (Tier 1 cargo build/test/clippy/fmt → Tier 2 `@review` lens briefs requirements|code|security|ux-responsive, ≤2 cycles) and skill-chain with decision-grounding, code-change-impact, adr steps — 18/18 referenced skills verified present.
-- Agent hygiene: 16/23 agents hidden from Tab (subagents dispatch-only), model overrides removed (default model everywhere), all frontmatters valid YAML, orchestrator can dispatch the 3 new agents (compliance-auditor, legacy-modernizer, smart-contract-auditor).
-- Harness re-aligned after template update: new agents (compliance-auditor, legacy-modernizer, smart-contract-auditor — 23 total), updated researcher agent + workflow rules (security lens, decision-grounding, adr), refreshed agents-guide + global-setup docs. opencode.json merged (template bash permissions + our instructions).
-- `docs/intent/ursine.md` — **confirmed Statement of Intent** (interview-me protocol, explicit yes): version plan v1-v6, UI principles (UIs must look alike, user-friendly), phasing ≠ exclusion.
-- ROADMAP rewritten to the confirmed v1-v6 plan; PROJECT.md vision/scope updated.
-- Agents wired for the project: `opencode.json` `instructions` load project docs (CONTEXT, architecture, PROJECT, handoff, TASKS) into every agent; `.opencode/rules/ursine.md` binding invariants (opencode-rules plugin).
-- Build & CI policy documented (`docs/architecture/overview.md`): musl everywhere (nix included, pkgsMusl/pkgsStatic), local builds via Docker + Alpine images (`rust:alpine`), GitHub CI test matrix per cargo feature, `nix flake check`/`nix build` per push, Release artifacts on tag.
-- Project planning complete: architecture, naming, roadmap.
-  - `docs/architecture/overview.md` — all decisions + rationale (auth: no polkit, PAM handshake + RAM session tokens; stateless no-DB; runtime capabilities + tri-state config; asUser for per-user ops; two feature axes).
-  - `docs/PROJECT.md` — vision, users, scope (build vs already-packaged), risks.
-  - `CONTEXT.md` — Rust stack + domain vocabulary.
-  - `ROADMAP.md` — milestones v0.1 skeleton → v1.0.
-  - `handoff/latest.md` + `state/session-state.json` — session memory.
-  - File-based session protocol in `AGENTS.md` (template's PowerShell session-memory skill not available on this machine).
-- `.githooks/pre-commit` — secrets scan + `cargo fmt --check`.
-
-### Decided
-
-- Name: Ursine. Binaries `ursined` (root daemon, dinit), `ursine` (GUI GTK4/libadwaita). Crates `ursine-api`, `ursine-core`. Web assets `web/`. Packaging in `skea999/feralos-aports`.
-- Stack: Rust everywhere (single workspace). GUI must be gtk4-rs anyway; shared serde types make a second backend language a liability.
-- Modules v1: packages (nix first — no GUI exists on any distro), snapshots, users, niri config editor. NOT building printers/scanners/bluetooth/network/firewall/disks (already packaged on Alpine).

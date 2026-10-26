@@ -1,11 +1,18 @@
 # Tasks — Ursine
 
-**Milestone**: v0.4 — users + niri baseline (0.7.0)
-**Updated**: 2026-10-21
+**Milestone**: v0.18.4 — init hardening (2026-10-26)
+**Updated**: 2026-10-26
 **Workflow rule (binding)**: backend first, frontend immediately, same feature. No next feature until daemon + frontend reach parity.
 **UI rule (binding)**: patterns from cosmic-settings (structure), Webmin (action coverage), Cockpit (gating/status/confirmations).
 
 ## Current Sprint
+
+### Done — init hardening, 0.18.4 (2026-10-26)
+
+- [x] PID 1 and `/proc/1/exe` drive init detection; OpenRC+dinit hosts use dinit.
+- [x] Nix activation copies daemon/PAM to root-owned paths; path validation, mktemp, canonical dinit unit, stale unit/boot-link cleanup, preserved config, idempotent enable.
+- [x] `install.sh` dinit default `/lib/dinit.d`, empty/`/` destdir rejection, systemd/OpenRC restart, dinit reload, ownership/mode convergence.
+- [x] CI smoke: auto-detect, stale cleanup, root-owned copies, second run, boot links, `--root /` rejection, dinit install defaults.
 
 ### Done — settings + config modes (2026-10-21)
 
@@ -77,7 +84,7 @@
 - [x] `v0.3.0` release: GitHub tag pipeline green; tarball + checksum + flake source archive published; `nix/binary.nix` auto-pinned in `bdbf6ce`; `verify-pin` green | P0
 - [x] `v0.3.1` release: Settings/manual module modes; tag pipeline green; tarball + checksum + flake archive published; `nix/binary.nix` auto-pinned in `8dada79`; `verify-pin` green | P0
 - [x] `README.md` documents Nix build/input usage, release pin behavior, local dev flake, and project overview | P1
-- [x] Nix package chain `ursine` -> `ursined` -> `ursine-activate`: daemon owns versioned activation tools and packaging assets; detect systemd/OpenRC/dinit, install PAM symlink + unit, restart/deactivate; staged tests for all inits, idempotency, dry-run, and `nix run` apps | P0
+- [x] Nix package chain `ursine` -> `ursined` -> `ursine-activate`: daemon owns versioned activation tools and packaging assets; detect systemd/OpenRC/dinit, install root-owned daemon/PAM copies + unit, restart/deactivate; staged tests for all inits, idempotency, dry-run, and `nix run` apps | P0
 - [x] systemd unit `[Install] WantedBy=multi-user.target` restored; audit dir enforced `0750` with parent/target checks; review findings triaged | P0
 
 ### Done — v0.3 GUI store view (2026-10-20)
