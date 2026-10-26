@@ -9,13 +9,15 @@
 
 ### Remaining plan — source `docs/planning/features-v1-v2.md`
 
-**v1.0 closure**
+#### v1.0 closure
+
 - [x] Niri outputs `mode` + `position` and show `niri --version`.
 - [ ] Niri animation durations/curves; compatibility gate against version; validation errors mapped to field.
 - [ ] APKBUILDs in `feralos-aports`; real FeralOS PAM/activation/module smoke.
 - [ ] v1.0 tag after the above.
 
-**v2 required detail**
+#### v2 required detail
+
 - [x] APK: per-package upgrade and update-available list.
 - [ ] APK: repository list, dependency/size preview, progress/log, protected-package warnings.
 - [x] Flatpak: per-app update.
@@ -26,7 +28,8 @@
 - [ ] Firewall: enable/disable, zone management, custom services, active rules summary.
 - [ ] Disks: UUID, SMART, usage/free, format/partition behind explicit enablement.
 
-**Decisions**
+#### Decisions
+
 - Scanners: configuration only; no image scan (done).
 - Autologin: excluded.
 - Services: OpenRC + dinit (done).

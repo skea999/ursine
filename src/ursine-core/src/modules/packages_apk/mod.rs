@@ -205,11 +205,11 @@ mod tests {
 
     #[test]
     fn parses_update_list() {
-        let updates = parse_updates(
-            "Installed:                                Available:\n\
-             niri-25.11-r2 < 25.11-r3\n\
-             apk-tools-3.0.0-r1 < apk-tools-3.0.1-r0\n",
-        );
+        let updates = parse_updates(concat!(
+            "Installed:                                Available:\n",
+            "niri-25.11-r2 < 25.11-r3\n",
+            "apk-tools-3.0.0-r1 < apk-tools-3.0.1-r0\n",
+        ));
         assert_eq!(updates.len(), 2);
         assert_eq!(updates[0].name, "niri");
         assert_eq!(updates[0].installed, "25.11-r2");
