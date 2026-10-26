@@ -18,7 +18,8 @@
 **v2 required detail**
 - [x] APK: per-package upgrade and update-available list.
 - [ ] APK: repository list, dependency/size preview, progress/log, protected-package warnings.
-- [ ] Flatpak: remote dropdown, app/runtime split, update-available + per-app update, permissions editor, size/progress, target user.
+- [x] Flatpak: per-app update.
+- [ ] Flatpak: remote dropdown, app/runtime split, update-available list, permissions editor, size/progress, target user.
 - [ ] Printers: paper size, duplex, color mode; job details/progress.
 - [ ] Bluetooth: pairing agent PIN/passkey; battery/connected details.
 - [ ] Network: Ethernet, IP/gateway/DNS, DHCP/static IPv4, forget, VPN.

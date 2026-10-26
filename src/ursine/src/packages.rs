@@ -295,13 +295,20 @@ impl PackagesState {
                             .on_press(Message::PackageInstallDirect(app_id.clone()))
                             .into()
                     } else {
-                        button::text("Remove")
-                            .on_press(Message::PackageRemoveRequested(
-                                kind,
-                                app_id.clone(),
-                                app_id,
-                            ))
-                            .into()
+                        row(vec![
+                            button::text("Upgrade")
+                                .on_press(Message::FlatpakUpgradeRequested(app_id.clone()))
+                                .into(),
+                            button::text("Remove")
+                                .on_press(Message::PackageRemoveRequested(
+                                    kind,
+                                    app_id.clone(),
+                                    app_id,
+                                ))
+                                .into(),
+                        ])
+                        .spacing(8)
+                        .into()
                     };
                     let description = if package.origin.is_empty() {
                         format!("{} · {}", package.app_id, package.branch)

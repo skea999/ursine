@@ -210,6 +210,7 @@ pub enum Message {
     PackageRefreshIndexes,
     PackageUpdateRequested,
     ApkUpgradeRequested(String),
+    FlatpakUpgradeRequested(String),
     PackageUpdateConfirmed,
     PackageUpdateCancelled,
     PackageOrphansRequested,
@@ -660,6 +661,9 @@ impl cosmic::Application for App {
             Message::PackageRemoveConfirmed => return self.confirm_package_remove(),
             Message::PackageRemoveCancelled => self.packages.pending_remove = None,
             Message::ApkUpgradeRequested(package) => return self.upgrade_apk_package(package),
+            Message::FlatpakUpgradeRequested(app_id) => {
+                return self.upgrade_flatpak_package(app_id)
+            }
             Message::PackageApkLoaded(epoch, result) => return self.finish_apk(epoch, result),
             Message::PackageApkUpdatesLoaded(epoch, result) => {
                 return self.finish_apk_updates(epoch, result)
@@ -2064,6 +2068,28 @@ impl App {
                 epoch,
                 "upgrade package".into(),
                 client::apk_upgrade_package(token, package).await,
+            )
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn upgrade_flatpak_package(&mut self, app_id: String) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.packages.action_busy {
+            return Task::none();
+        }
+        let system = self.packages.system;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.error = None;
+        Task::future(async move {
+            Message::PackageActionFinished(
+                epoch,
+                "upgrade package".into(),
+                client::flatpak_update_app(token, app_id, system).await,
             )
         })
         .map(cosmic::Action::App)

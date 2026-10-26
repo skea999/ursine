@@ -61,6 +61,13 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             let output = run(*system, ctx.as_user, &args).await?;
             Ok(json!({"output": output}))
         }
+        Action::UpdateFlatpakApp { app_id, system } => {
+            validate_app_id(app_id)?;
+            let scope = scope(*system);
+            let args = ["update", "-y", "--noninteractive", scope, app_id];
+            let output = run(*system, ctx.as_user, &args).await?;
+            Ok(json!({"output": output}))
+        }
         _ => Err(ApiError::invalid(
             "action is not valid for module packages_flatpak",
         )),

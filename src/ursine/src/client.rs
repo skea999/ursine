@@ -1057,6 +1057,21 @@ pub async fn flatpak_install(
     .await
 }
 
+pub async fn flatpak_update_app(
+    token: SessionToken,
+    app_id: String,
+    system: bool,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::UpdateFlatpakApp { app_id, system },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
 pub async fn flatpak_remove(
     token: SessionToken,
     app_id: String,

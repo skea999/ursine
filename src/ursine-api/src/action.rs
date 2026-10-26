@@ -146,6 +146,11 @@ pub enum Action {
     UpdateFlatpak {
         system: bool,
     },
+    /// Update one Flatpak application in the selected installation.
+    UpdateFlatpakApp {
+        app_id: String,
+        system: bool,
+    },
     /// Remove unused Flatpak runtimes.
     RemoveFlatpakOrphans {
         system: bool,
