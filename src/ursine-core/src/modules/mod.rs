@@ -134,6 +134,7 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::InstallApk { .. } => "install_apk",
         Action::RemoveApk { .. } => "remove_apk",
         Action::UpgradeApk => "upgrade_apk",
+        Action::ListApkUpdates => "list_apk_updates",
         Action::UpgradeApkPackage { .. } => "upgrade_apk_package",
         Action::ListFlatpak { .. } => "list_flatpak",
         Action::ListPrinters => "list_printers",

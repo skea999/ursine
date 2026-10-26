@@ -115,6 +115,8 @@ pub enum Action {
     },
     /// Upgrade every installed APK package.
     UpgradeApk,
+    /// Installed APK packages with a newer version in the repositories.
+    ListApkUpdates,
     /// Upgrade one installed APK package.
     UpgradeApkPackage {
         package: String,

@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use serde_json::json;
-use ursine_api::{Action, ApiError, ApkPackage};
+use ursine_api::{Action, ApiError, ApkPackage, ApkUpdate};
 
 use super::ModuleCtx;
 use crate::modules::packages_nix::exec;
@@ -30,6 +30,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             Ok(json!({"output": run(&["del", package]).await?}))
         }
         Action::UpgradeApk => Ok(json!({"output": run(&["upgrade", "--no-progress"]).await?})),
+        Action::ListApkUpdates => Ok(json!({"updates": updates().await?})),
         _ => Err(ApiError::invalid(
             "action is not valid for module packages_apk",
         )),
@@ -69,6 +70,36 @@ fn parse_installed(versioned: &str, names: &str) -> Vec<ApkPackage> {
         });
     }
     rows
+}
+
+async fn updates() -> Result<Vec<ApkUpdate>, ApiError> {
+    let output = run(&["version", "-l", "<"]).await?;
+    Ok(parse_updates(&output))
+}
+
+fn parse_updates(output: &str) -> Vec<ApkUpdate> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let installed = fields.next()?;
+            if fields.next()? != "<" {
+                return None;
+            }
+            let available = fields.next()?;
+            let (name, installed_version) = split_id(installed);
+            let available_version = available
+                .strip_prefix(&format!("{name}-"))
+                .unwrap_or(available)
+                .to_string();
+            Some(ApkUpdate {
+                name,
+                installed: installed_version,
+                available: available_version,
+            })
+        })
+        .take(MAX_ROWS)
+        .collect()
 }
 
 async fn search(query: &str) -> Result<Vec<ApkPackage>, ApiError> {
@@ -170,6 +201,21 @@ mod tests {
         assert_eq!(rows[0].name, "niri");
         assert_eq!(rows[0].version, "25.11-r2");
         assert_eq!(rows[1].name, "niri-portalsconf");
+    }
+
+    #[test]
+    fn parses_update_list() {
+        let updates = parse_updates(
+            "Installed:                                Available:\n\
+             niri-25.11-r2 < 25.11-r3\n\
+             apk-tools-3.0.0-r1 < apk-tools-3.0.1-r0\n",
+        );
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0].name, "niri");
+        assert_eq!(updates[0].installed, "25.11-r2");
+        assert_eq!(updates[0].available, "25.11-r3");
+        assert_eq!(updates[1].name, "apk-tools");
+        assert_eq!(updates[1].available, "3.0.1-r0");
     }
 
     #[test]

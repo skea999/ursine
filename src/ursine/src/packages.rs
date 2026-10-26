@@ -3,7 +3,7 @@
 use cosmic::iced::Length;
 use cosmic::widget::{button, column, dropdown, row, scrollable, settings, text, text_input};
 use cosmic::Element;
-use ursine_api::{ApkPackage, FlatpakPackage};
+use ursine_api::{ApkPackage, ApkUpdate, FlatpakPackage};
 
 use crate::app::Message;
 use crate::package_row::package_row;
@@ -33,6 +33,7 @@ impl PackageKind {
 pub struct PackagesState {
     pub kind: Option<PackageKind>,
     pub apk: Vec<ApkPackage>,
+    pub apk_updates: Vec<ApkUpdate>,
     pub flatpak: Vec<FlatpakPackage>,
     pub system: bool,
     pub query: String,
@@ -52,6 +53,7 @@ impl Default for PackagesState {
         Self {
             kind: None,
             apk: Vec::new(),
+            apk_updates: Vec::new(),
             flatpak: Vec::new(),
             system: true,
             query: String::new(),
@@ -80,6 +82,7 @@ impl PackagesState {
 
     fn apache_clear(&mut self) {
         self.apk.clear();
+        self.apk_updates.clear();
         self.flatpak.clear();
         self.searching = false;
         self.error = None;
@@ -93,6 +96,10 @@ impl PackagesState {
         self.apk = packages;
         self.flatpak.clear();
         self.error = None;
+    }
+
+    pub fn apply_apk_updates(&mut self, updates: Vec<ApkUpdate>) {
+        self.apk_updates = updates;
     }
 
     pub fn apply_flatpak(&mut self, packages: Vec<FlatpakPackage>) {
@@ -170,17 +177,38 @@ impl PackagesState {
                 .into(),
         );
 
-        items.push(
-            settings::section()
-                .title("Upgrade")
-                .add(settings::item(
-                    "Upgrade every installed item",
-                    button::suggested("Upgrade all").on_press_maybe(
-                        (!self.action_busy).then_some(Message::PackageUpdateRequested),
-                    ),
-                ))
-                .into(),
-        );
+        let mut upgrade = settings::section().title("Upgrade").add(settings::item(
+            "Upgrade every installed item",
+            button::suggested("Upgrade all")
+                .on_press_maybe((!self.action_busy).then_some(Message::PackageUpdateRequested)),
+        ));
+        if kind == PackageKind::Apk && !self.apk_updates.is_empty() {
+            upgrade = upgrade.add(settings::item(
+                format!("Available updates ({})", self.apk_updates.len()),
+                column(
+                    self.apk_updates
+                        .iter()
+                        .map(|update| {
+                            row(vec![
+                                text(format!(
+                                    "{} {} -> {}",
+                                    update.name, update.installed, update.available
+                                ))
+                                .width(Length::Fill)
+                                .into(),
+                                button::text("Upgrade")
+                                    .on_press(Message::ApkUpgradeRequested(update.name.clone()))
+                                    .into(),
+                            ])
+                            .spacing(8)
+                            .into()
+                        })
+                        .collect::<Vec<Element<'_, Message>>>(),
+                )
+                .spacing(4),
+            ));
+        }
+        items.push(upgrade.into());
 
         items.push(
             settings::section()

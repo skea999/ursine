@@ -3,8 +3,8 @@
 use cosmic::iced::Length;
 use cosmic::{Element, Task};
 use ursine_api::{
-    validate_installable, Action, ApiError, ApkPackage, Capability, CapabilityReport, ErrorCode,
-    FlatpakPackage, ModuleId, SessionToken, TriState,
+    validate_installable, Action, ApiError, ApkPackage, ApkUpdate, Capability, CapabilityReport,
+    ErrorCode, FlatpakPackage, ModuleId, SessionToken, TriState,
 };
 
 use crate::bluetooth::BluetoothState;
@@ -219,6 +219,7 @@ pub enum Message {
     PackageRemoveConfirmed,
     PackageRemoveCancelled,
     PackageApkLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
+    PackageApkUpdatesLoaded(u64, Result<Vec<ApkUpdate>, ApiError>),
     PackageFlatpakLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
     PackageApkSearchLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
     PackageFlatpakSearchLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
@@ -660,6 +661,9 @@ impl cosmic::Application for App {
             Message::PackageRemoveCancelled => self.packages.pending_remove = None,
             Message::ApkUpgradeRequested(package) => return self.upgrade_apk_package(package),
             Message::PackageApkLoaded(epoch, result) => return self.finish_apk(epoch, result),
+            Message::PackageApkUpdatesLoaded(epoch, result) => {
+                return self.finish_apk_updates(epoch, result)
+            }
             Message::PackageFlatpakLoaded(epoch, result) => {
                 return self.finish_flatpak(epoch, result)
             }
@@ -1822,15 +1826,24 @@ impl App {
         let token = session.token.clone();
         let epoch = self.epoch;
         let system = self.packages.system;
-        Task::future(async move {
-            match kind {
-                PackageKind::Apk => Message::PackageApkLoaded(epoch, client::apk_list(token).await),
-                PackageKind::Flatpak => {
-                    Message::PackageFlatpakLoaded(epoch, client::flatpak_list(token, system).await)
-                }
-            }
-        })
-        .map(cosmic::Action::App)
+        if kind == PackageKind::Apk {
+            let list_token = token.clone();
+            let updates_token = token;
+            let list = Task::future(async move {
+                Message::PackageApkLoaded(epoch, client::apk_list(list_token).await)
+            })
+            .map(cosmic::Action::App);
+            let updates = Task::future(async move {
+                Message::PackageApkUpdatesLoaded(epoch, client::apk_updates(updates_token).await)
+            })
+            .map(cosmic::Action::App);
+            Task::batch(vec![list, updates])
+        } else {
+            Task::future(async move {
+                Message::PackageFlatpakLoaded(epoch, client::flatpak_list(token, system).await)
+            })
+            .map(cosmic::Action::App)
+        }
     }
 
     fn finish_apk(
@@ -1847,6 +1860,26 @@ impl App {
                 self.packages.apply_apk(packages);
                 self.packages.searching = false;
             }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.packages.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn finish_apk_updates(
+        &mut self,
+        epoch: u64,
+        result: Result<Vec<ApkUpdate>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        match result {
+            Ok(updates) => self.packages.apply_apk_updates(updates),
             Err(error) => {
                 if self.handle_session_error(&error) {
                     return Task::none();

@@ -13,6 +13,14 @@ pub struct ApkPackage {
     pub description: Option<String>,
 }
 
+/// One pending APK update.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApkUpdate {
+    pub name: String,
+    pub installed: String,
+    pub available: String,
+}
+
 /// One Flatpak application row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlatpakPackage {

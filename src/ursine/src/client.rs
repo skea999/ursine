@@ -11,11 +11,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use ursine_api::{
-    installable_from_attr, timeouts, Action, ApiError, ApkPackage, BluetoothOp, BluetoothView,
-    BtrbkConfigView, BtrbkSettings, Disk, FirewallStatus, FlatpakPackage, InstalledPackage,
-    ModuleId, ModulesConfig, NetworkView, NiriConfigView, PrintJob, Printer, Request, RequestBody,
-    Response, ResponseBody, ScannerConfigView, SearchResult, Service, ServiceOp, SessionToken,
-    Snapshot, SnapshotStats, TriState, UserSummary, PROTOCOL_VERSION,
+    installable_from_attr, timeouts, Action, ApiError, ApkPackage, ApkUpdate, BluetoothOp,
+    BluetoothView, BtrbkConfigView, BtrbkSettings, Disk, FirewallStatus, FlatpakPackage,
+    InstalledPackage, ModuleId, ModulesConfig, NetworkView, NiriConfigView, PrintJob, Printer,
+    Request, RequestBody, Response, ResponseBody, ScannerConfigView, SearchResult, Service,
+    ServiceOp, SessionToken, Snapshot, SnapshotStats, TriState, UserSummary, PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
@@ -936,6 +936,23 @@ pub async fn apk_refresh(token: SessionToken) -> Result<serde_json::Value, ApiEr
         MUTATE_TIMEOUT,
     )
     .await
+}
+
+pub async fn apk_updates(token: SessionToken) -> Result<Vec<ApkUpdate>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesApk,
+        Action::ListApkUpdates,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let updates = value
+        .get("updates")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon apk updates response has no updates"))?;
+    serde_json::from_value(updates)
+        .map_err(|e| ApiError::internal(format!("cannot read apk updates: {e}")))
 }
 
 pub async fn apk_install(
