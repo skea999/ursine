@@ -185,15 +185,16 @@ v2 polish:
 
 ### scanners (SANE)
 
+Configuration only; image acquisition is intentionally out of scope
+(`docs/specs/SPEC-scanners.md`).
+
 - Capability: `scanimage`/SANE available.
-- List devices.
-- Select device, source, resolution, color mode, page size.
-- Preview scan.
-- Scan to PDF/PNG.
-- Progress and cancel.
-- Save location selection.
-- GUI panel with device and option dropdowns.
-- Backend: `scanimage` as the invoking user where possible.
+- List discovered devices.
+- Read/write `/etc/sane.d/airscan.conf`.
+- Add/update/remove manual airscan devices (name, address, protocol).
+- Toggle airscan discovery.
+- GUI panel with device list, form, discovery toggle, confirmation for remove.
+- Backend: `scanimage -L` and fixed root-owned airscan config; no scan command.
 
 ### bluetooth (BlueZ)
 
@@ -265,7 +266,7 @@ v2 polish:
 
 Not required by the intent table but compatible:
 
-- users avatars and autologin (accountsservice);
+- users avatars (autologin is excluded: not feasible for this product);
 - snapshot hook before package updates;
 - system audit-log viewer;
 - services panel for dinit/OpenRC;

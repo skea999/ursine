@@ -7,6 +7,27 @@
 
 ## Current Sprint
 
+### Remaining plan — source `docs/planning/features-v1-v2.md`
+
+**v1.0 closure**
+- [ ] Niri outputs `mode` + `position`; animation durations/curves; `niri --version` schema check; validation errors mapped to field.
+- [ ] APKBUILDs in `feralos-aports`; real FeralOS PAM/activation/module smoke.
+- [ ] v1.0 tag after the above.
+
+**v2 required detail**
+- [ ] APK: per-package upgrade, update-available list, repository list, dependency/size preview, progress/log, protected-package warnings.
+- [ ] Flatpak: remote dropdown, app/runtime split, update-available + per-app update, permissions editor, size/progress, target user.
+- [ ] Printers: paper size, duplex, color mode; job details/progress.
+- [ ] Bluetooth: pairing agent PIN/passkey; battery/connected details.
+- [ ] Network: Ethernet, IP/gateway/DNS, DHCP/static IPv4, forget, VPN.
+- [ ] Firewall: enable/disable, zone management, custom services, active rules summary.
+- [ ] Disks: UUID, SMART, usage/free, format/partition behind explicit enablement.
+
+**Decisions**
+- Scanners: configuration only; no image scan (done).
+- Autologin: excluded.
+- Services: OpenRC + dinit (done).
+
 ### Done — init hardening, 0.18.4 (2026-10-26)
 
 - [x] PID 1 and `/proc/1/exe` drive init detection; OpenRC+dinit hosts use dinit.

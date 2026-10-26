@@ -15,6 +15,7 @@
     "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
+    "Implement remaining plan: Niri v1 residuals, APK/Flatpak polish, printers options, Bluetooth agent/battery, network details, firewall, disks. Scanner stays config-only; autologin excluded.",
     "v0.19.0: push + tag; CI package/publish/verify-pin. Then real FeralOS services smoke and v2 polish.",
     "0.18.4 released and auto-pinned 568ba15; use as base for 0.19.0.",
     "v0.18.4: push + tag; CI package/publish/verify-pin. Then Services dinit backend+GUI (P0), real FeralOS PAM/dinit smoke, v2 polish.",
@@ -40,6 +41,8 @@
     "Optional: promote agent fixes (hidden/no-model/quote) to skea-store template (15 files differ)."
   ],
   "key_decisions": [
+    "PLAN TRACEABILITY (2026-10-26, binding): read intent/ROADMAP/features inventory/module SPEC before proposing or coding; every item must map to an explicit plan line; classify required vs optional/deferred; never invent scope; user decisions override docs and update plan/spec before code.",
+    "SCOPE DECISIONS (2026-10-26): scanners are configuration-only (SPEC-scanners; no image scan); autologin is out of scope; Services supports OpenRC+dinit.",
     "REVIEW CLOSURE (2026-10-21, binding): fix every confirmed finding — blocker, high, medium and low — before commit. Zero known defects at commit time. A deferral needs explicit user approval recorded in state/session-state.json with owner and rationale. A fix cycle revalidates the full gate; new findings count as new defects.",
     "FEATURE PARITY (2026-10-21, binding): every user-facing function ships backend first, then frontend immediately in the same feature. No new feature until daemon and frontends reach functional parity. A daemon action without a frontend control is incomplete. Deferral only with explicit user approval recorded here.",
     "UI REFERENCES (2026-10-21, binding): take interaction/layout patterns from cosmic-settings (native COSMIC structure), Webmin (dense module/action coverage), Cockpit (capability gating, status visibility, destructive confirmations). Copy patterns, not code; Ursine terminology and thin-frontend rules win.",

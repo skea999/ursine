@@ -66,6 +66,7 @@ accounts.set_password(&user_path, &hashed).await?;
 - Create a user with full name + admin toggle (wheel) from GUI; user appears in regreet at next login
 - Reset a password; remove a user with home cleanup — both confirmed and audited
 
-## Open Questions
+## Deferred
 
-- Avatars and automatic login toggles: v2 or v1? (accountsservice supports both; cheap to add). Default: v2.
+- Avatars: optional v2 candidate.
+- Automatic login: out of scope (not feasible for this product).

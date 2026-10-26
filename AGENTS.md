@@ -16,6 +16,8 @@ Stack: **Rust** (workspace, edition 2021+). Target Alpine Linux / musl. Decision
 
 **Direct** (simple task): @codebase or specialist direct.
 
+**Plan traceability (binding)**: before proposing or implementing, read `docs/intent/ursine.md`, `ROADMAP.md`, `docs/planning/features-v1-v2.md`, and the relevant `docs/specs/SPEC-*.md`. Every feature must map to an explicit plan/spec line. Classify it as required, optional candidate, or deferred; never invent scope from a generic admin-tool comparison. A user decision overrides stale docs: update the plan/spec and record the decision before changing code. Current overrides: scanners are configuration-only (`SPEC-scanners`; no image scan), autologin is out of scope, and Services supports OpenRC+dinit.
+
 **Static analysis (binding)**: canonical commands in `docs/guides/build-and-test.md`; policy and gates in `docs/STATIC-ANALYSIS.md`. All build/test/static work runs in containers (`ursine-ci:1`, `ursine-static:1`, `nixos/nix`). Never run cargo/nix/scanners on the host. `scripts/static-check.sh` is the single static entry point.
 
 **Review closure (binding)**: fix every confirmed finding — blocker, high, medium and low — before commit. "Perfect code" means zero known defects at commit time, not zero detected defects. Never silently downgrade or defer a finding: a deferral requires explicit user approval and must be recorded in `state/session-state.json` with owner and rationale. A fix cycle revalidates the full gate; findings introduced by a fix count as new defects. Do not commit while any finding is open without that recorded approval.
