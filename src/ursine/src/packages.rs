@@ -6,6 +6,7 @@ use cosmic::Element;
 use ursine_api::{ApkPackage, FlatpakPackage};
 
 use crate::app::Message;
+use crate::package_row::package_row;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PackageKind {
@@ -231,54 +232,54 @@ impl PackagesState {
             PackageKind::Apk => {
                 for package in &self.apk {
                     let name = package.name.clone();
-                    list = list.add(settings::item(
-                        format!(
-                            "{} {}{}",
-                            package.name,
-                            package.version,
-                            package
-                                .description
-                                .as_ref()
-                                .map(|description| format!(" — {description}"))
-                                .unwrap_or_default()
-                        ),
-                        if self.searching {
-                            button::text("Install")
-                                .on_press(Message::PackageInstallDirect(package.name.clone()))
-                        } else {
-                            button::text("Remove").on_press(Message::PackageRemoveRequested(
-                                kind,
-                                name.clone(),
-                                name,
-                            ))
-                        },
+                    let action: Element<'_, Message> = if self.searching {
+                        button::text("Install")
+                            .on_press(Message::PackageInstallDirect(package.name.clone()))
+                            .into()
+                    } else {
+                        button::text("Remove")
+                            .on_press(Message::PackageRemoveRequested(kind, name.clone(), name))
+                            .into()
+                    };
+                    let description = package.description.clone().map_or_else(
+                        || text("no description").into(),
+                        |description| text(description).into(),
+                    );
+                    list = list.add(package_row(
+                        format!("{} {}", package.name, package.version),
+                        description,
+                        action,
                     ));
                 }
             }
             PackageKind::Flatpak => {
                 for package in &self.flatpak {
                     let app_id = package.app_id.clone();
-                    list = list.add(settings::item(
-                        format!(
-                            "{} ({}) {}{}",
-                            package.name,
-                            package.app_id,
-                            package.version,
-                            if package.origin.is_empty() {
-                                String::new()
-                            } else {
-                                format!(" — {}", package.origin)
-                            }
-                        ),
-                        if self.searching {
-                            button::text("Install").on_press(Message::PackageInstallDirect(app_id))
-                        } else {
-                            button::text("Remove").on_press(Message::PackageRemoveRequested(
+                    let action: Element<'_, Message> = if self.searching {
+                        button::text("Install")
+                            .on_press(Message::PackageInstallDirect(app_id.clone()))
+                            .into()
+                    } else {
+                        button::text("Remove")
+                            .on_press(Message::PackageRemoveRequested(
                                 kind,
                                 app_id.clone(),
                                 app_id,
                             ))
-                        },
+                            .into()
+                    };
+                    let description = if package.origin.is_empty() {
+                        format!("{} · {}", package.app_id, package.branch)
+                    } else {
+                        format!(
+                            "{} · {} · {}",
+                            package.app_id, package.branch, package.origin
+                        )
+                    };
+                    list = list.add(package_row(
+                        format!("{} {}", package.name, package.version),
+                        text(description).into(),
+                        action,
                     ));
                 }
             }

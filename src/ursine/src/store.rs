@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use crate::package_row::package_row;
 use cosmic::widget::{button, column, dropdown, row, scrollable, settings, text, text_input};
 use cosmic::Element;
 use ursine_api::{Action, CommandOutcome, InstalledPackage, SearchResult};
@@ -970,22 +971,6 @@ fn truncate(text: &str) -> String {
     let mut clipped: String = text.chars().take(MAX_OUTPUT_CHARS).collect();
     clipped.push_str("\n…");
     clipped
-}
-
-fn package_row<'a>(
-    title: String,
-    description: Element<'a, Message>,
-    action: Element<'a, Message>,
-) -> Element<'a, Message> {
-    row(vec![
-        column(vec![text(title).into(), description])
-            .spacing(2)
-            .width(cosmic::iced::Length::Fill)
-            .into(),
-        action,
-    ])
-    .spacing(12)
-    .into()
 }
 
 fn package_detail(package: &InstalledPackage) -> Element<'_, Message> {

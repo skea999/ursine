@@ -14,6 +14,7 @@ mod home;
 mod login;
 mod network;
 mod niri;
+mod package_row;
 mod packages;
 mod printers;
 mod scanners;
