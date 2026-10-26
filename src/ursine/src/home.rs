@@ -23,6 +23,8 @@ struct ModuleEntry {
     title: &'static str,
     module: Option<ModuleId>,
     requires: &'static [Capability],
+    /// Requirement is satisfied by any listed capability instead of all.
+    any: bool,
     panel: Option<Panel>,
 }
 
@@ -46,66 +48,77 @@ const MODULES: &[ModuleEntry] = &[
         title: "Package manager",
         module: None,
         requires: &[],
+        any: false,
         panel: Some(Panel::Packages),
     },
     ModuleEntry {
         title: "Printers",
         module: Some(ModuleId::Printers),
         requires: &[Capability::Cups],
+        any: false,
         panel: Some(Panel::Printers),
     },
     ModuleEntry {
         title: "Scanners",
         module: Some(ModuleId::Scanners),
         requires: &[Capability::Sane],
+        any: false,
         panel: Some(Panel::Scanners),
     },
     ModuleEntry {
         title: "Firewall",
         module: Some(ModuleId::Firewall),
         requires: &[Capability::Firewalld],
+        any: false,
         panel: Some(Panel::Firewall),
     },
     ModuleEntry {
         title: "Services",
         module: Some(ModuleId::Services),
-        requires: &[Capability::OpenRc],
+        requires: &[Capability::OpenRc, Capability::Dinit],
+        any: true,
         panel: Some(Panel::Services),
     },
     ModuleEntry {
         title: "Disks",
         module: Some(ModuleId::Disks),
         requires: &[Capability::Udisks2],
+        any: false,
         panel: Some(Panel::Disks),
     },
     ModuleEntry {
         title: "Bluetooth",
         module: Some(ModuleId::Bluetooth),
         requires: &[Capability::Bluez],
+        any: false,
         panel: Some(Panel::Bluetooth),
     },
     ModuleEntry {
         title: "Network",
         module: Some(ModuleId::Network),
         requires: &[Capability::NetworkManager],
+        any: false,
         panel: Some(Panel::Network),
     },
     ModuleEntry {
         title: "Snapshots (btrbk)",
         module: Some(ModuleId::Snapshots),
         requires: &[Capability::Btrbk, Capability::Btrfs],
+        any: false,
         panel: Some(Panel::Snapshots),
     },
     ModuleEntry {
         title: "Users",
         module: Some(ModuleId::Users),
         requires: &[Capability::Accountsservice],
+        any: false,
         panel: Some(Panel::Users),
     },
     ModuleEntry {
         title: "Niri desktop",
         module: Some(ModuleId::Niri),
         requires: &[Capability::Niri],
+        any: false,
         panel: Some(Panel::Niri),
     },
 ];
@@ -196,10 +209,17 @@ impl HomeState {
                 | Panel::Network,
             ) => {
                 let available = !Self::is_manually_off(entry, modules)
-                    && entry.requires.iter().all(|required| {
-                        self.report(*required)
-                            .is_some_and(|report| report.available)
-                    });
+                    && if entry.any {
+                        entry.requires.iter().any(|required| {
+                            self.report(*required)
+                                .is_some_and(|report| report.available)
+                        })
+                    } else {
+                        entry.requires.iter().all(|required| {
+                            self.report(*required)
+                                .is_some_and(|report| report.available)
+                        })
+                    };
                 let open_message = match entry.panel {
                     Some(Panel::Packages) => Message::OpenPackageManager,
                     Some(Panel::Snapshots) => Message::OpenSnapshots,
@@ -257,6 +277,16 @@ fn module_mode(modules: &ModulesConfig, module: ModuleId) -> TriState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn services_requires_either_init() {
+        let entry = MODULES
+            .iter()
+            .find(|entry| entry.module == Some(ModuleId::Services))
+            .expect("services module");
+        assert!(entry.any);
+        assert_eq!(entry.requires, &[Capability::OpenRc, Capability::Dinit]);
+    }
 
     #[test]
     fn manual_off_disables_the_module_row() {

@@ -2180,7 +2180,9 @@ impl App {
             Screen::Printers => self.cap_available(Capability::Cups),
             Screen::Scanners => self.cap_available(Capability::Sane),
             Screen::Firewall => self.cap_available(Capability::Firewalld),
-            Screen::Services => self.cap_available(Capability::OpenRc),
+            Screen::Services => {
+                self.cap_available(Capability::OpenRc) || self.cap_available(Capability::Dinit)
+            }
             Screen::Disks => self.cap_available(Capability::Udisks2),
             Screen::Bluetooth => self.cap_available(Capability::Bluez),
             Screen::Network => self.cap_available(Capability::NetworkManager),

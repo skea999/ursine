@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.19.0] — 2026-10-26
+
+### Added
+
+- Services module supports dinit: list, start/stop/restart, enable/disable,
+  `boot.d` enabled state, and idempotent enable/disable.
+- Services gate accepts OpenRC or dinit; dinit wins when it is the running init.
+- Services GUI identifies the active backend.
+
+### Fixed
+
+- OpenRC capability now requires the OpenRC runtime, not just installed
+  `rc-service` tooling on a dinit host.
+
 ## [0.18.4] — 2026-10-26
 
 ### Security

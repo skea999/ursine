@@ -96,13 +96,12 @@ pub fn module_switch(modules: &ModulesConfig, cap: Capability) -> TriState {
         Capability::Cups => modules.printers,
         Capability::Sane => modules.scanners,
         Capability::Firewalld => modules.firewall,
-        Capability::OpenRc => modules.services,
+        Capability::OpenRc | Capability::Dinit => modules.services,
         Capability::Udisks2 => modules.disks,
         Capability::Bluez => modules.bluetooth,
         Capability::NetworkManager => modules.network,
         Capability::Accountsservice => modules.users,
         Capability::Niri => modules.niri,
-        Capability::Dinit => TriState::Auto,
     }
 }
 
@@ -207,6 +206,8 @@ mod tests {
         };
         assert_eq!(module_switch(&m, Capability::Btrbk), TriState::Off);
         assert_eq!(module_switch(&m, Capability::Btrfs), TriState::Off);
+        assert_eq!(module_switch(&m, Capability::OpenRc), TriState::Auto);
+        assert_eq!(module_switch(&m, Capability::Dinit), TriState::Auto);
         assert!(module_switch(&m, Capability::Nix).is_auto());
     }
 }

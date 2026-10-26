@@ -14,6 +14,13 @@
 - [x] `install.sh` dinit default `/lib/dinit.d`, empty/`/` destdir rejection, systemd/OpenRC restart, dinit reload, ownership/mode convergence.
 - [x] CI smoke: auto-detect, stale cleanup, root-owned copies, second run, boot links, `--root /` rejection, dinit install defaults.
 
+### Done — dinit services (2026-10-26)
+
+- [x] Services backend supports OpenRC and dinit; backend chosen by runtime capability (dinit wins when running).
+- [x] dinit list/action: `dinitctl list/start/stop/restart/enable/disable`, `boot.d` enabled detection, idempotent enable/disable.
+- [x] Gate accepts `openrc` OR `dinit`; OpenRC capability no longer true from tooling alone.
+- [x] GUI heading follows backend; Home/Services availability accepts either init.
+
 ### Done — settings + config modes (2026-10-21)
 
 - [x] Separate Settings screen with gear navigation, capability refresh, and module switches (`auto` / `manual on` / `manual off`); daemon `config.get_config` and `config.set_module_switch`; TOML edits preserve unrelated content, write durably with hardened temp files, and apply live; `config.init` refuses overwrite | P0

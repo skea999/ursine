@@ -40,14 +40,13 @@ fn required_caps(module: ModuleId) -> &'static [Capability] {
         ModuleId::Printers => &[Capability::Cups],
         ModuleId::Scanners => &[Capability::Sane],
         ModuleId::Firewall => &[Capability::Firewalld],
-        ModuleId::Services => &[Capability::OpenRc],
         ModuleId::Disks => &[Capability::Udisks2],
         ModuleId::Bluetooth => &[Capability::Bluez],
         ModuleId::Network => &[Capability::NetworkManager],
         ModuleId::Snapshots => &[Capability::Btrbk, Capability::Btrfs],
         ModuleId::Users => &[Capability::Accountsservice],
         ModuleId::Niri => &[Capability::Niri],
-        ModuleId::System | ModuleId::Config | ModuleId::Capabilities => &[],
+        ModuleId::Services | ModuleId::System | ModuleId::Config | ModuleId::Capabilities => &[],
     }
 }
 
@@ -58,9 +57,20 @@ pub async fn handle(
     ctx: &ModuleCtx<'_>,
 ) -> Result<serde_json::Value, ApiError> {
     // Binding rule: capability gate before ANY module action.
-    for &cap in required_caps(module) {
-        let switch = module_switch(&ctx.config.modules, cap);
-        ctx.caps.ensure_available(switch, &[cap])?;
+    if module == ModuleId::Services {
+        let switch = module_switch(&ctx.config.modules, Capability::OpenRc);
+        ctx.caps.ensure_available(switch, &[])?;
+        if !ctx.caps.check(Capability::OpenRc) && !ctx.caps.check(Capability::Dinit) {
+            return Err(ApiError::unavailable(
+                "no supported init service manager",
+                "boot OpenRC or dinit",
+            ));
+        }
+    } else {
+        for &cap in required_caps(module) {
+            let switch = module_switch(&ctx.config.modules, cap);
+            ctx.caps.ensure_available(switch, &[cap])?;
+        }
     }
 
     match (module, action) {

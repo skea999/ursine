@@ -2,22 +2,27 @@
 
 ## Objective
 
-Manage init services from the GUI. v2 supports OpenRC; dinit remains the
-FeralOS boot manager and can be added with the same API later.
+Manage init services from the GUI. Supports the running init: OpenRC and dinit.
+The backend chooses by capability, not by the presence of tooling: on FeralOS
+both OpenRC and dinit packages can be installed, but PID 1 is dinit.
 
 ## API surface
 
-| Action | Backend |
-|---|---|
-| `list_services` | `rc-status --servicelist` + `rc-update show` |
-| `service_action` | `rc-service start/stop/restart`; `rc-update add/del` |
+| Action | OpenRC backend | dinit backend |
+|---|---|---|
+| `list_services` | `rc-status --servicelist` + `rc-update show` | `dinitctl list` + `boot.d` links |
+| `service_action` | `rc-service start/stop/restart`; `rc-update add/del` | `dinitctl start/stop/restart`; `dinitctl enable/disable` |
 
-- Capability: `openrc`.
-- Module switch: `services`.
+- Capability: `openrc` **or** `dinit`; the services module switch applies to both.
 - Name: `[A-Za-z0-9_.-]`.
 - Root commands; absolute paths; argv only.
-- Status: started, stopped, crashed.
-- Enable/disable uses the `default` runlevel.
+- States: OpenRC `started`, `stopped`, `crashed`; dinit `started`, `stopped`,
+  `failed`, `unknown`.
+- Enabled: OpenRC from `rc-update show`; dinit from `boot.d/<service>` links in
+  `/etc/dinit.d`, `/lib/dinit.d`, `/usr/lib/dinit.d`, or
+  `/usr/local/lib/dinit.d`.
+- Enable/disable is idempotent. Dinit enable/disable checks `boot.d` first.
+- No shell; no command string interpolation.
 
 ## GUI
 
@@ -26,3 +31,4 @@ FeralOS boot manager and can be added with the same API later.
 - Start/stop/restart and enable/disable.
 - Confirmation before lifecycle changes.
 - Busy/error states.
+- Heading identifies the active backend (`OpenRC services` or `dinit services`).

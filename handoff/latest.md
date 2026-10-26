@@ -6,6 +6,16 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-26 — dinit services, 0.19.0
+
+**Status**: 0.19.0 review/validation pending; tag in this release.
+
+- Services backend supports OpenRC and dinit. dinit wins when running; gate accepts `openrc` OR `dinit`.
+- dinit: `dinitctl list/start/stop/restart/enable/disable`, `boot.d` enabled state, internal `boot`/`recovery` filtered, idempotent enable/disable.
+- OpenRC capability now requires the runtime (`/run/openrc` or `openrc-init`), not just `rc-service` tooling.
+- GUI heading follows active backend; Home/Services availability accepts either init.
+- Tests: 123 core + 36 GUI; clippy `-D warnings`; fmt. Tag pending.
+
 ## Session 2026-10-26 — init hardening, 0.18.4
 
 **Status**: 0.18.4 review-closed; release pending push/tag.

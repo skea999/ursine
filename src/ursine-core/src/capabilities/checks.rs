@@ -72,9 +72,8 @@ pub fn check_capability(sys: &dyn Sysinfo, cap: Capability) -> bool {
                 || sys.path_exists(Path::new("/run/firewalld"))
         }
         Capability::OpenRc => {
-            sys.cmd_in_path("rc-service")
-                || sys.path_exists(Path::new("/sbin/rc-service"))
-                || sys.read_trimmed(Path::new("/proc/1/comm")).as_deref() == Some("openrc")
+            sys.path_exists(Path::new("/run/openrc"))
+                || sys.read_trimmed(Path::new("/proc/1/comm")).as_deref() == Some("openrc-init")
         }
         Capability::Udisks2 => {
             (sys.cmd_in_path("lsblk") || sys.path_exists(Path::new("/usr/bin/lsblk")))

@@ -18,6 +18,7 @@ Runtime detection of what the machine supports: a `Capabilities` registry built 
 | `accountsservice` | D-Bus name `org.freedesktop.Accounts` reachable |
 | `niri` | `niri` binary AND `$XDG_CONFIG_HOME/niri` or `~/.config/niri` present |
 | `cups` (v2) | D-Bus/IPP reachable |
+| `openrc` | `/run/openrc` exists or PID 1 is `openrc-init` (tooling alone is not enough) |
 | `dinit` | `/proc/1/comm` == `dinit` |
 
 ## Commands

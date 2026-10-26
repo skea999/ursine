@@ -1,4 +1,4 @@
-//! Services screen: `OpenRC` status and lifecycle.
+//! Services screen: init service status and lifecycle (`OpenRC` and dinit).
 
 use cosmic::iced::Length;
 use cosmic::widget::{button, column, row, scrollable, settings, text};
@@ -49,8 +49,15 @@ impl ServicesState {
             items.push(text("Running service action…").into());
         }
 
+        let init = if self.services.iter().any(|service| service.init == "dinit") {
+            "dinit"
+        } else if self.services.iter().any(|service| service.init == "openrc") {
+            "OpenRC"
+        } else {
+            "Services"
+        };
         let mut list =
-            settings::section().title(format!("OpenRC services ({})", self.services.len()));
+            settings::section().title(format!("{init} services ({})", self.services.len()));
         if self.services.is_empty() {
             list = list.add(settings::item("Result", text("No services reported.")));
         }

@@ -1,7 +1,8 @@
 {
   "goal": "Ursine — FeralOS complete control center (Webmin-style): root daemon + libcosmic GUI (v1), full module coverage (v2), OIDC+web (v3, memory-safe stack), Incus UI (v4), ZFS+Pirateus (v5), multi-distro (v6). Intent source of truth: docs/intent/ursine.md.",
-  "status": "v0.18.4-released",
+  "status": "v0.19.0-released",
   "active_goals": [
+    "v0.19.0 DINIT SERVICES (2026-10-26): services module supports OpenRC+dinit (dinitctl list/start/stop/restart/enable/disable, boot.d enabled), gate OpenRC OR dinit, GUI backend label. Feature release; validation pending push.",
     "v0.18.4 INIT HARDENING (2026-10-26): PID1/init detection, root-owned daemon/PAM copies, dinit unit idempotency/stale cleanup, install.sh dinit defaults/restart, CI regression coverage. Review-closed; tag pending in this release commit.",
     "v0.7.0 RELEASED (2026-10-23): users panel + niri baseline; dynamic group tool usermod/addgroup/gpasswd; main CI 39981968110 green; tag CI 39986691808 green; pin 86d90e2; profile 0.7.0. CI optimized (88f3bdc): parallel package, single clippy, no separate GUI build, Nix PR-only, restore-only caches.",
     "v0.7.0 USERS + NIRI BASELINE (2026-10-23): users panel via accountsservice (create/delete/password/groups, uid + self-wheel guards); niri managed sections (layout gaps, animations, touchpad, cursor) with KDL round-trip, validate-before-write, atomic backup, ownership/home guards; GUI panels. Gate: 161 tests, clippy/fmt, static all PASS, docs PASS. Security review closed; staged for orchestrator commit/release.",
@@ -14,6 +15,8 @@
     "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
+    "v0.19.0: push + tag; CI package/publish/verify-pin. Then real FeralOS services smoke and v2 polish.",
+    "0.18.4 released and auto-pinned 568ba15; use as base for 0.19.0.",
     "v0.18.4: push + tag; CI package/publish/verify-pin. Then Services dinit backend+GUI (P0), real FeralOS PAM/dinit smoke, v2 polish.",
     "v0.18.3 superseded by 0.18.4 after review found critical profile-trust and dinit stale-path issues.",
     "ROOT ACTIVATION: `sudo \"$HOME/.nix-profile/bin/ursine-activate\"` then restart ursined; real accountsservice/niri smoke needs root.",

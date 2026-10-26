@@ -1,4 +1,4 @@
-//! Init service views (`OpenRC` today, dinit-ready).
+//! Init service views (`OpenRC` and dinit).
 
 use serde::{Deserialize, Serialize};
 
