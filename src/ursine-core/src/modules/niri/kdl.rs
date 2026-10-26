@@ -3,11 +3,11 @@
 //! Unknown nodes and formatting are preserved by parsing with the `kdl`
 //! document API and serializing the same document.
 
-use kdl::{KdlDocument, KdlNode, KdlValue};
+use kdl::{KdlDocument, KdlEntry, KdlNode, KdlValue};
 use serde_json::Value as JsonValue;
 use ursine_api::{
     ApiError, NiriBindAction, NiriEdgeGesture, NiriEnvVar, NiriGestures, NiriKeybind, NiriOutput,
-    NiriSpawn, NiriStruts, NiriValues,
+    NiriPosition, NiriSpawn, NiriStruts, NiriValues,
 };
 
 pub(super) fn parse_values(doc: &KdlDocument) -> NiriValues {
@@ -808,6 +808,12 @@ fn outputs(doc: &KdlDocument) -> Vec<NiriOutput> {
             let name = node.entries().first()?.value().as_string()?.to_string();
             Some(NiriOutput {
                 name,
+                mode: node
+                    .children()
+                    .and_then(|children| children.get("mode"))
+                    .and_then(|node| node.entries().first())
+                    .and_then(|entry| entry.value().as_string())
+                    .map(str::to_string),
                 scale: node
                     .children()
                     .and_then(|children| children.get("scale"))
@@ -819,6 +825,7 @@ fn outputs(doc: &KdlDocument) -> Vec<NiriOutput> {
                         KdlValue::Integer(value) => u32::try_from(*value).ok(),
                         _ => None,
                     }),
+                position: output_position(node),
                 transform: node
                     .children()
                     .and_then(|children| children.get("transform"))
@@ -839,7 +846,15 @@ fn apply_output(doc: &mut KdlDocument, value: &JsonValue) -> Result<(), ApiError
         .ok_or_else(|| ApiError::invalid("output must be an object"))?;
     reject_unknown(
         object,
-        &["name", "scale", "transform", "variable_refresh_rate"],
+        &[
+            "name",
+            "mode",
+            "scale",
+            "position_x",
+            "position_y",
+            "transform",
+            "variable_refresh_rate",
+        ],
     )?;
     let name = object
         .get("name")
@@ -865,6 +880,29 @@ fn apply_output(doc: &mut KdlDocument, value: &JsonValue) -> Result<(), ApiError
     };
     node.autoformat();
     let children = node.ensure_children();
+    if let Some(mode) = object.get("mode") {
+        let mode = mode
+            .as_str()
+            .filter(|value| {
+                !value.is_empty()
+                    && value.len() <= 128
+                    && value.chars().all(|c| {
+                        c.is_ascii_alphanumeric() || matches!(c, 'x' | '@' | '.' | '+' | '-')
+                    })
+            })
+            .ok_or_else(|| ApiError::invalid("invalid output mode"))?;
+        set_child(children, "mode", KdlValue::String(mode.to_string()));
+    }
+    if let Some(x) = object.get("position_x") {
+        let x = position_coordinate(x, "output x")?;
+        let y = match object.get("position_y") {
+            Some(value) => position_coordinate(value, "output y")?,
+            None => 0,
+        };
+        set_position(children, x, y);
+    } else if object.get("position_y").is_some() {
+        return Err(ApiError::invalid("position_y requires position_x"));
+    }
     if let Some(scale) = object.get("scale") {
         let scale = scale
             .as_u64()
@@ -907,6 +945,50 @@ fn apply_output(doc: &mut KdlDocument, value: &JsonValue) -> Result<(), ApiError
         }
     }
     Ok(())
+}
+
+fn output_position(node: &KdlNode) -> Option<NiriPosition> {
+    let position = node.children()?.get("position")?;
+    let mut x = None;
+    let mut y = None;
+    for entry in position.entries() {
+        match entry.name()?.value() {
+            "x" => {
+                x = entry
+                    .value()
+                    .as_integer()
+                    .and_then(|value| i32::try_from(value).ok());
+            }
+            "y" => {
+                y = entry
+                    .value()
+                    .as_integer()
+                    .and_then(|value| i32::try_from(value).ok());
+            }
+            _ => {}
+        }
+    }
+    Some(NiriPosition { x: x?, y: y? })
+}
+
+fn position_coordinate(value: &JsonValue, label: &str) -> Result<i32, ApiError> {
+    value
+        .as_i64()
+        .and_then(|value| i32::try_from(value).ok())
+        .filter(|value| (-32_768..=32_768).contains(value))
+        .ok_or_else(|| ApiError::invalid(format!("{label} must be -32768..32768")))
+}
+
+fn set_position(doc: &mut KdlDocument, x: i32, y: i32) {
+    if doc.get("position").is_none() {
+        doc.nodes_mut().push(KdlNode::new("position"));
+    }
+    if let Some(node) = doc.get_mut("position") {
+        node.entries_mut().clear();
+        node.push(KdlEntry::new_prop("x", KdlValue::Integer(i128::from(x))));
+        node.push(KdlEntry::new_prop("y", KdlValue::Integer(i128::from(y))));
+        node.autoformat();
+    }
 }
 
 fn set_child(doc: &mut KdlDocument, name: &str, value: KdlValue) {
@@ -1262,7 +1344,9 @@ hotkey-overlay { skip-at-startup; }
     #[test]
     fn parses_and_updates_outputs() {
         let mut doc: KdlDocument = r#"output "eDP-1" {
+    mode "1920x1080@60.000"
     scale 1.5
+    position x=0 y=0
     transform "normal"
     variable-refresh-rate
 }
@@ -1272,17 +1356,24 @@ hotkey-overlay { skip-at-startup; }
         let values = parse_values(&doc);
         assert_eq!(values.outputs.len(), 1);
         assert_eq!(values.outputs[0].name, "eDP-1");
+        assert_eq!(values.outputs[0].mode.as_deref(), Some("1920x1080@60.000"));
         assert_eq!(values.outputs[0].scale, Some(150));
+        assert_eq!(
+            values.outputs[0].position,
+            Some(NiriPosition { x: 0, y: 0 })
+        );
         assert_eq!(values.outputs[0].transform.as_deref(), Some("normal"));
         apply_section(
             &mut doc,
             "outputs",
-            &serde_json::json!({"outputs": [{"name": "DP-2", "scale": 125, "transform": "90"}]}),
+            &serde_json::json!({"outputs": [{"name": "DP-2", "mode": "2560x1440@144.000", "scale": 125, "position_x": 1920, "position_y": 0, "transform": "90"}]}),
         )
         .unwrap();
         let output = doc.to_string();
         assert!(output.contains("output DP-2"));
+        assert!(output.contains("mode \"2560x1440@144.000\""));
         assert!(output.contains("scale 1.25"));
+        assert!(output.contains("position x=1920 y=0"));
         assert!(output.contains("transform \"90\""));
     }
 

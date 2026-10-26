@@ -7,6 +7,7 @@
 mod kdl;
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use ::kdl::KdlDocument;
 use serde_json::json;
@@ -79,10 +80,21 @@ async fn read_view(ctx: &ModuleCtx<'_>) -> Result<NiriConfigView, ApiError> {
     } else {
         NiriValues::default()
     };
+    let version = match niri_path() {
+        Ok(niri) => {
+            exec::run_as_user_argv(ctx.as_user, niri, &["--version"], Duration::from_secs(10))
+                .await
+                .ok()
+                .map(|out| out.stdout.trim().to_string())
+                .filter(|version| !version.is_empty())
+        }
+        Err(_) => None,
+    };
     Ok(NiriConfigView {
         path: path.display().to_string(),
         exists,
         content,
+        version,
         values,
     })
 }

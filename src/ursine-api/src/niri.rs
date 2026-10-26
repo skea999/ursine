@@ -121,11 +121,22 @@ pub struct NiriEnvVar {
 pub struct NiriOutput {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<NiriPosition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transform: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variable_refresh_rate: Option<bool>,
+}
+
+/// Physical position of an output in the layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NiriPosition {
+    pub x: i32,
+    pub y: i32,
 }
 
 /// Logical-pixel struts around the layout.
@@ -147,6 +158,8 @@ pub struct NiriConfigView {
     pub path: String,
     pub exists: bool,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     #[serde(default)]
     pub values: NiriValues,
 }

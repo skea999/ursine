@@ -6,6 +6,13 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-26 — Niri v1 outputs (in progress)
+
+- Added Niri output `mode` and `position` (x/y) through API, KDL read/write, and GUI.
+- Added `niri --version` to the config view and GUI; compatibility gate and field-level validation errors still pending.
+- Plan traceability rule added to AGENTS/workflow: no scope outside intent/inventory/SPEC; scanner config-only; autologin excluded.
+- Next: Niri animation durations/curves + validation mapping, then APK/Flatpak polish.
+
 ## Session 2026-10-26 — dinit services, 0.19.0
 
 **Status**: 0.19.0 review/validation pending; tag in this release.

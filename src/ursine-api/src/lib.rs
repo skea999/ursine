@@ -38,7 +38,7 @@ pub use module::ModuleId;
 pub use network::{NetworkDevice, NetworkView, WifiNetwork};
 pub use niri::{
     NiriBindAction, NiriConfigView, NiriEdgeGesture, NiriEnvVar, NiriGestures, NiriKeybind,
-    NiriOutput, NiriSpawn, NiriStruts, NiriValues,
+    NiriOutput, NiriPosition, NiriSpawn, NiriStruts, NiriValues,
 };
 pub use nix::{
     installable_from_attr, is_safe_installable_atom, normalize_installable, validate_installable,

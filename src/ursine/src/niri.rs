@@ -62,6 +62,8 @@ pub struct NiriState {
     pub screenshot_path: String,
     pub hotkey_overlay_skip: bool,
     pub outputs: Vec<NiriOutput>,
+    pub output_position_x: Vec<String>,
+    pub output_position_y: Vec<String>,
     pub new_output: String,
     pub environment: Vec<NiriEnvVar>,
     pub new_env_name: String,
@@ -160,6 +162,26 @@ impl NiriState {
         self.screenshot_path = values.screenshot_path.clone().unwrap_or_default();
         self.hotkey_overlay_skip = values.hotkey_overlay_skip_at_startup.unwrap_or(false);
         self.outputs.clone_from(&values.outputs);
+        self.output_position_x = self
+            .outputs
+            .iter()
+            .map(|output| {
+                output
+                    .position
+                    .map(|position| position.x.to_string())
+                    .unwrap_or_default()
+            })
+            .collect();
+        self.output_position_y = self
+            .outputs
+            .iter()
+            .map(|output| {
+                output
+                    .position
+                    .map(|position| position.y.to_string())
+                    .unwrap_or_default()
+            })
+            .collect();
         self.environment.clone_from(&values.environment);
         self.spawn_text = values
             .spawn_at_startup
@@ -527,6 +549,14 @@ impl NiriState {
                         }),
                     ))
                     .add(settings::item(
+                        "niri version",
+                        text(
+                            view.version
+                                .clone()
+                                .unwrap_or_else(|| "unknown".to_string()),
+                        ),
+                    ))
+                    .add(settings::item(
                         "Validate current file",
                         button::text("niri validate").on_press_maybe(
                             (!self.action_busy).then_some(Message::ValidateNiriRequested),
@@ -806,6 +836,33 @@ impl NiriState {
         }
         for (index, output) in self.outputs.iter().enumerate() {
             outputs = outputs
+                .add(settings::item(
+                    format!("{} mode", output.name),
+                    text_input("1920x1080@60.000", output.mode.clone().unwrap_or_default())
+                        .on_input(move |value| Message::NiriOutputModeChanged(index, value)),
+                ))
+                .add(settings::item(
+                    format!("{} position X", output.name),
+                    text_input(
+                        "0",
+                        self.output_position_x
+                            .get(index)
+                            .cloned()
+                            .unwrap_or_default(),
+                    )
+                    .on_input(move |value| Message::NiriOutputPositionXChanged(index, value)),
+                ))
+                .add(settings::item(
+                    format!("{} position Y", output.name),
+                    text_input(
+                        "0",
+                        self.output_position_y
+                            .get(index)
+                            .cloned()
+                            .unwrap_or_default(),
+                    )
+                    .on_input(move |value| Message::NiriOutputPositionYChanged(index, value)),
+                ))
                 .add(settings::item(
                     format!("{} scale", output.name),
                     dropdown(
@@ -1210,6 +1267,7 @@ mod tests {
             path: "/home/alice/.config/niri/config.kdl".into(),
             exists: true,
             content: String::new(),
+            version: None,
             values: NiriValues {
                 layout_gaps: Some(16),
                 animations_off: Some(true),

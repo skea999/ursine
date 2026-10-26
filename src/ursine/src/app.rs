@@ -280,6 +280,9 @@ pub enum Message {
     NiriStrutChanged(StrutEdge, String),
     NiriScreenshotPathChanged(String),
     NiriHotkeyOverlayToggled(bool),
+    NiriOutputModeChanged(usize, String),
+    NiriOutputPositionXChanged(usize, String),
+    NiriOutputPositionYChanged(usize, String),
     NiriOutputScale(usize, usize),
     NiriOutputTransform(usize, usize),
     NiriOutputVrr(usize, bool),
@@ -790,6 +793,23 @@ impl cosmic::Application for App {
             },
             Message::NiriScreenshotPathChanged(value) => self.niri.screenshot_path = value,
             Message::NiriHotkeyOverlayToggled(value) => self.niri.hotkey_overlay_skip = value,
+            Message::NiriOutputModeChanged(index, value) => {
+                if let Some(output) = self.niri.outputs.get_mut(index) {
+                    output.mode = (!value.trim().is_empty()).then_some(value);
+                }
+            }
+            Message::NiriOutputPositionXChanged(index, value) => {
+                if let Some(slot) = self.niri.output_position_x.get_mut(index) {
+                    *slot = value;
+                }
+                update_output_position(&mut self.niri, index);
+            }
+            Message::NiriOutputPositionYChanged(index, value) => {
+                if let Some(slot) = self.niri.output_position_y.get_mut(index) {
+                    *slot = value;
+                }
+                update_output_position(&mut self.niri, index);
+            }
             Message::NiriOutputScale(index, value) => {
                 if let Some(output) = self.niri.outputs.get_mut(index) {
                     output.scale = ["", "100", "125", "150", "200"]
@@ -963,10 +983,14 @@ impl cosmic::Application for App {
                 if !name.is_empty() && !self.niri.outputs.iter().any(|output| output.name == name) {
                     self.niri.outputs.push(ursine_api::NiriOutput {
                         name: name.to_string(),
+                        mode: None,
                         scale: None,
+                        position: None,
                         transform: None,
                         variable_refresh_rate: None,
                     });
+                    self.niri.output_position_x.push(String::new());
+                    self.niri.output_position_y.push(String::new());
                     self.niri.new_output.clear();
                 }
             }
@@ -3558,6 +3582,20 @@ fn niri_combo(
 }
 
 /// Turn a daemon error into something a human can act on.
+fn update_output_position(niri: &mut NiriState, index: usize) {
+    let x = niri
+        .output_position_x
+        .get(index)
+        .and_then(|value| value.parse().ok());
+    let y = niri
+        .output_position_y
+        .get(index)
+        .and_then(|value| value.parse().ok());
+    if let Some(output) = niri.outputs.get_mut(index) {
+        output.position = x.zip(y).map(|(x, y)| ursine_api::NiriPosition { x, y });
+    }
+}
+
 fn friendly(error: &ApiError) -> String {
     match error.code {
         ErrorCode::Unauthorized => "Invalid user name or password.".to_string(),

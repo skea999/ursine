@@ -10,7 +10,8 @@
 ### Remaining plan — source `docs/planning/features-v1-v2.md`
 
 **v1.0 closure**
-- [ ] Niri outputs `mode` + `position`; animation durations/curves; `niri --version` schema check; validation errors mapped to field.
+- [x] Niri outputs `mode` + `position` and show `niri --version`.
+- [ ] Niri animation durations/curves; compatibility gate against version; validation errors mapped to field.
 - [ ] APKBUILDs in `feralos-aports`; real FeralOS PAM/activation/module smoke.
 - [ ] v1.0 tag after the above.
 
