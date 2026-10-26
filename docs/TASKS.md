@@ -23,7 +23,8 @@
 - [x] Flatpak: per-app update.
 - [ ] Flatpak: remote dropdown, app/runtime split, update-available list, permissions editor, size/progress, target user.
 - [ ] Printers: paper size, duplex, color mode; job details/progress.
-- [ ] Bluetooth: pairing agent PIN/passkey; battery/connected details.
+- [x] Bluetooth: battery + connected details.
+- [ ] Bluetooth: pairing agent PIN/passkey.
 - [ ] Network: Ethernet, IP/gateway/DNS, DHCP/static IPv4, forget, VPN.
 - [ ] Firewall: enable/disable, zone management, custom services, active rules summary.
 - [ ] Disks: UUID, SMART, usage/free, format/partition behind explicit enablement.

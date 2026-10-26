@@ -79,7 +79,7 @@ impl BluetoothState {
                 let address = device.address.clone();
                 devices = devices.add(settings::item(
                     format!(
-                        "{} ({}){}{}",
+                        "{} ({}){}{}{}",
                         device.name,
                         device.address,
                         if device.connected {
@@ -87,7 +87,11 @@ impl BluetoothState {
                         } else {
                             ""
                         },
-                        if device.paired { " · paired" } else { "" }
+                        if device.paired { " · paired" } else { "" },
+                        device
+                            .battery
+                            .map(|battery| format!(" · {battery}%"))
+                            .unwrap_or_default()
                     ),
                     column(vec![row(vec![
                         button::text("Pair")

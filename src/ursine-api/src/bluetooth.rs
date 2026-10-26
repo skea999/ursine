@@ -19,6 +19,8 @@ pub struct BluetoothDevice {
     pub connected: bool,
     pub paired: bool,
     pub trusted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battery: Option<u8>,
 }
 
 /// Adapter plus known devices.

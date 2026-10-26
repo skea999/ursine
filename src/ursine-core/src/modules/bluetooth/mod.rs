@@ -65,6 +65,7 @@ async fn read_view() -> Result<BluetoothView, ApiError> {
             connected: info.contains("Connected: yes"),
             paired: info.contains("Paired: yes"),
             trusted: info.contains("Trusted: yes"),
+            battery: battery_percentage(&info),
         });
     }
     Ok(BluetoothView {
@@ -92,6 +93,15 @@ fn parse_adapter(output: &str) -> BluetoothAdapter {
         powered: output.contains("Powered: yes"),
         discoverable: output.contains("Discoverable: yes"),
     }
+}
+
+fn battery_percentage(info: &str) -> Option<u8> {
+    let line = info
+        .lines()
+        .find(|line| line.trim().starts_with("Battery Percentage:"))?;
+    let start = line.rfind('(')? + 1;
+    let end = line.rfind(')')?;
+    line.get(start..end)?.trim().parse().ok()
 }
 
 fn valid_address(address: &str) -> bool {
@@ -144,5 +154,10 @@ mod tests {
         assert!(valid_address("AA:BB:CC:DD:EE:FF"));
         assert!(!valid_address("AA:BB:CC:DD:EE"));
         assert!(validate_address("../etc/passwd").is_err());
+        assert_eq!(
+            battery_percentage("Battery Percentage: 0x64 (100)"),
+            Some(100)
+        );
+        assert_eq!(battery_percentage("Connected: yes"), None);
     }
 }
