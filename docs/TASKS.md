@@ -16,7 +16,8 @@
 - [ ] v1.0 tag after the above.
 
 **v2 required detail**
-- [ ] APK: per-package upgrade, update-available list, repository list, dependency/size preview, progress/log, protected-package warnings.
+- [x] APK: per-package upgrade.
+- [ ] APK: update-available list, repository list, dependency/size preview, progress/log, protected-package warnings.
 - [ ] Flatpak: remote dropdown, app/runtime split, update-available + per-app update, permissions editor, size/progress, target user.
 - [ ] Printers: paper size, duplex, color mode; job details/progress.
 - [ ] Bluetooth: pairing agent PIN/passkey; battery/connected details.

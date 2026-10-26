@@ -966,6 +966,20 @@ pub async fn apk_remove(
     .await
 }
 
+pub async fn apk_upgrade_package(
+    token: SessionToken,
+    package: String,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesApk,
+        Action::UpgradeApkPackage { package },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
 pub async fn apk_upgrade(token: SessionToken) -> Result<serde_json::Value, ApiError> {
     call_with_timeout(
         token,

@@ -237,9 +237,16 @@ impl PackagesState {
                             .on_press(Message::PackageInstallDirect(package.name.clone()))
                             .into()
                     } else {
-                        button::text("Remove")
-                            .on_press(Message::PackageRemoveRequested(kind, name.clone(), name))
-                            .into()
+                        row(vec![
+                            button::text("Upgrade")
+                                .on_press(Message::ApkUpgradeRequested(name.clone()))
+                                .into(),
+                            button::text("Remove")
+                                .on_press(Message::PackageRemoveRequested(kind, name.clone(), name))
+                                .into(),
+                        ])
+                        .spacing(8)
+                        .into()
                     };
                     let description = package.description.clone().map_or_else(
                         || text("no description").into(),

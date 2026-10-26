@@ -115,6 +115,10 @@ pub enum Action {
     },
     /// Upgrade every installed APK package.
     UpgradeApk,
+    /// Upgrade one installed APK package.
+    UpgradeApkPackage {
+        package: String,
+    },
 
     // -- packages.flatpak --
     /// Installed Flatpak applications for system or user installation.
