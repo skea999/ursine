@@ -108,7 +108,9 @@ not quote paths consistently and systemd treats `%` as a specifier.
 ## Init systems
 
 The installer detects systemd, OpenRC and dinit from PID 1 and available
-commands. Force the target when cross-building a package:
+commands. PID 1 wins: installed OpenRC or dinit tooling alone does not select
+the backend, so a FeralOS host carrying both packages stays on dinit. Force the
+target when cross-building a package:
 
 ```bash
 # systemd (most distributions)
@@ -127,8 +129,11 @@ The dinit layout follows FeralOS conventions:
 - wrapper: `LIBEXECDIR/dinit/ursined`
 - user config: `/etc/dinit.d/config/ursined.conf`
 
-The service uses `smooth-recovery`, waits for `local.target`, has a soft
-dependency on `dbus`, and starts before `login.target`.
+The service uses `smooth-recovery` and has no dependency on named boot
+targets. Target names differ between dinit distributions (`local.target`,
+`login.target`, `local`, `login`, `dbus`), and a missing target prevents the
+service from loading. Enabled services start from `boot.d`; `ursined` binds its
+socket without requiring D-Bus at startup.
 
 ## Package builds (staging)
 

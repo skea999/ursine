@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.3] — 2026-10-26
+
+### Fixed
+
+- Init detection now trusts PID 1, so FeralOS hosts with both OpenRC and dinit
+  use the running dinit instead of installing OpenRC units.
+- dinit units no longer depend on distribution-specific boot targets; missing
+  `local.target`, `dbus` or `login.target` no longer prevents startup.
+- `ursine-activate` is idempotent when the dinit service is already enabled and
+  reloads a changed unit before restarting. Stale Ursine units from the wrong
+  init are removed.
+- `ursine-deactivate` removes dinit units from both `/lib/dinit.d` and
+  `/etc/dinit.d`.
+
 ## [0.18.2] — 2026-10-24
 
 ### Changed

@@ -377,7 +377,12 @@ OS_ID=$(printf '%s' "$OS_ID" | tr '[:upper:]' '[:lower:]')
 OS_LIKE=$(printf '%s' "$OS_LIKE" | tr '[:upper:]' '[:lower:]')
 
 detect_init() {
-  pid1=$(ps -p 1 -o comm= 2>/dev/null || true)
+  # PID 1 is authoritative: a host can have both OpenRC and dinit installed.
+  pid1=
+  if [ -r /proc/1/comm ]; then
+    pid1=$(tr -d '\n' </proc/1/comm)
+  fi
+  [ -n "$pid1" ] || pid1=$(ps -p 1 -o comm= 2>/dev/null | tr -d '[:space:]' || true)
   case "$pid1" in
   systemd)
     printf systemd

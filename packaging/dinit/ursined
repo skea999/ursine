@@ -4,12 +4,14 @@
 # the command is a small wrapper under /usr/lib/dinit, and user-tunable flags
 # live in /etc/dinit.d/config/ursined.conf. Paths are substituted by
 # install.sh; do not edit the @PLACEHOLDER@ tokens in the repository copy.
+#
+# Do not add depends-on/waits-for/before targets here. dinit distributions use
+# different target names (local.target, login.target, local, login, dbus), and
+# a missing target prevents the service from loading. ursined binds its socket
+# and does not need D-Bus at startup; enabled services start from boot.d.
 type = process
 smooth-recovery = true
 log-type = file
 logfile = @LOCALSTATEDIR@/log/ursine/ursined.log
 command = @LIBEXECDIR@/dinit/ursined
 env-file = @DINIT_CONFIG_DIR@/ursined.conf
-depends-on = local.target
-waits-for = dbus
-before = login.target

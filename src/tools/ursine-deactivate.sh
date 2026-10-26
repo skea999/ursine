@@ -116,16 +116,48 @@ elif [ "$(id -u)" -ne 0 ]; then
   die "must run as root (use --root for staged tests)"
 fi
 
-if [ -z "$INIT" ]; then
-  if [ -d /run/systemd/system ] || command -v systemctl >/dev/null 2>&1; then
-    INIT=systemd
-  elif command -v rc-service >/dev/null 2>&1; then
-    INIT=openrc
-  elif command -v dinitctl >/dev/null 2>&1 || [ -d /etc/dinit.d ]; then
-    INIT=dinit
-  else
-    die "cannot detect init; use --init systemd|openrc|dinit"
+detect_init() {
+  # PID 1 is authoritative. Presence of rc-service or dinitctl only means the
+  # tooling is installed: FeralOS can carry both OpenRC and dinit packages.
+  pid1=
+  if [ -r /proc/1/comm ]; then
+    pid1=$(tr -d '\n' </proc/1/comm)
   fi
+  [ -n "$pid1" ] || pid1=$(ps -p 1 -o comm= 2>/dev/null | tr -d '[:space:]' || true)
+  case "$pid1" in
+  systemd)
+    printf systemd
+    return 0
+    ;;
+  dinit)
+    printf dinit
+    return 0
+    ;;
+  init | openrc-init)
+    if [ -d /run/openrc ] || command -v rc-service >/dev/null 2>&1; then
+      printf openrc
+      return 0
+    fi
+    ;;
+  esac
+  if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    printf systemd
+  elif command -v dinitctl >/dev/null 2>&1 && dinitctl list >/dev/null 2>&1; then
+    printf dinit
+  elif [ -d /run/openrc ] && command -v rc-service >/dev/null 2>&1; then
+    printf openrc
+  elif command -v rc-service >/dev/null 2>&1; then
+    printf openrc
+  elif command -v dinitctl >/dev/null 2>&1; then
+    printf dinit
+  else
+    printf none
+  fi
+}
+
+if [ -z "$INIT" ]; then
+  INIT=$(detect_init)
+  [ "$INIT" != none ] || die "cannot detect init; use --init systemd|openrc|dinit"
 fi
 
 case "$INIT" in
@@ -139,7 +171,8 @@ LIBEXEC="${ROOT}/usr/lib"
 PAM_LINK="$ETC/pam.d/ursine"
 SYSTEMD_UNIT="$ETC/systemd/system/ursined.service"
 OPENRC_INIT="$ETC/init.d/ursined"
-DINIT_UNIT="${ROOT}/lib/dinit.d/ursined"
+DINIT_UNIT_LIB="${ROOT}/lib/dinit.d/ursined"
+DINIT_UNIT_ETC="${ROOT}/etc/dinit.d/ursined"
 DINIT_WRAPPER="$LIBEXEC/dinit/ursined"
 DINIT_CONFIG="$ETC/dinit.d/config/ursined.conf"
 
@@ -173,7 +206,8 @@ if [ "$DRY_RUN" -eq 0 ] && [ -z "$ROOT" ]; then
     command -v dinitctl >/dev/null 2>&1 || die "dinitctl not found"
     dinitctl stop ursined 2>/dev/null || true
     dinitctl disable ursined 2>/dev/null || true
-    remove_file "$DINIT_UNIT"
+    remove_file "$DINIT_UNIT_LIB"
+    remove_file "$DINIT_UNIT_ETC"
     remove_file "$DINIT_WRAPPER"
     remove_file "$DINIT_CONFIG"
     ;;
@@ -183,7 +217,8 @@ else
   systemd) remove_file "$SYSTEMD_UNIT" ;;
   openrc) remove_file "$OPENRC_INIT" ;;
   dinit)
-    remove_file "$DINIT_UNIT"
+    remove_file "$DINIT_UNIT_LIB"
+    remove_file "$DINIT_UNIT_ETC"
     remove_file "$DINIT_WRAPPER"
     remove_file "$DINIT_CONFIG"
     ;;

@@ -128,16 +128,48 @@ fi
 
 [ "$DRY_RUN" -eq 1 ] && START=0
 
-if [ -z "$INIT" ]; then
-  if [ -d /run/systemd/system ] || command -v systemctl >/dev/null 2>&1; then
-    INIT=systemd
-  elif command -v rc-service >/dev/null 2>&1; then
-    INIT=openrc
-  elif command -v dinitctl >/dev/null 2>&1 || [ -d /etc/dinit.d ]; then
-    INIT=dinit
-  else
-    die "cannot detect init; use --init systemd|openrc|dinit"
+detect_init() {
+  # PID 1 is authoritative. Presence of rc-service or dinitctl only means the
+  # tooling is installed: FeralOS can carry both OpenRC and dinit packages.
+  pid1=
+  if [ -r /proc/1/comm ]; then
+    pid1=$(tr -d '\n' </proc/1/comm)
   fi
+  [ -n "$pid1" ] || pid1=$(ps -p 1 -o comm= 2>/dev/null | tr -d '[:space:]' || true)
+  case "$pid1" in
+  systemd)
+    printf systemd
+    return 0
+    ;;
+  dinit)
+    printf dinit
+    return 0
+    ;;
+  init | openrc-init)
+    if [ -d /run/openrc ] || command -v rc-service >/dev/null 2>&1; then
+      printf openrc
+      return 0
+    fi
+    ;;
+  esac
+  if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    printf systemd
+  elif command -v dinitctl >/dev/null 2>&1 && dinitctl list >/dev/null 2>&1; then
+    printf dinit
+  elif [ -d /run/openrc ] && command -v rc-service >/dev/null 2>&1; then
+    printf openrc
+  elif command -v rc-service >/dev/null 2>&1; then
+    printf openrc
+  elif command -v dinitctl >/dev/null 2>&1; then
+    printf dinit
+  else
+    printf none
+  fi
+}
+
+if [ -z "$INIT" ]; then
+  INIT=$(detect_init)
+  [ "$INIT" != none ] || die "cannot detect init; use --init systemd|openrc|dinit"
 fi
 
 case "$INIT" in
@@ -152,7 +184,30 @@ PAM_LINK="$ETC/pam.d/ursine"
 PAM_TARGET="$PROFILE/packaging/pam.d/ursine"
 SYSTEMD_UNIT="$ETC/systemd/system/ursined.service"
 OPENRC_INIT="$ETC/init.d/ursined"
-DINIT_UNIT="${ROOT}/lib/dinit.d/ursined"
+DINIT_UNIT_DIR=${URSINE_DINIT_UNIT_DIR:-}
+if [ -z "$DINIT_UNIT_DIR" ]; then
+  # FeralOS uses /lib/dinit.d. Prefer an existing unit wherever it lives so a
+  # stale /etc copy cannot shadow the refreshed /lib service (or vice versa).
+  if [ -f "${ROOT}/etc/dinit.d/ursined" ]; then
+    DINIT_UNIT_DIR=/etc/dinit.d
+  elif [ -f "${ROOT}/lib/dinit.d/ursined" ]; then
+    DINIT_UNIT_DIR=/lib/dinit.d
+  elif [ -d "${ROOT}/lib/dinit.d" ] || [ ! -d "${ROOT}/etc/dinit.d" ]; then
+    DINIT_UNIT_DIR=/lib/dinit.d
+  else
+    DINIT_UNIT_DIR=/etc/dinit.d
+  fi
+fi
+case "$DINIT_UNIT_DIR" in
+/*) ;;
+*) die "URSINE_DINIT_UNIT_DIR must be absolute" ;;
+esac
+DINIT_UNIT="${ROOT}${DINIT_UNIT_DIR}/ursined"
+if [ "$DINIT_UNIT_DIR" = /lib/dinit.d ]; then
+  DINIT_STALE_UNIT="${ROOT}/etc/dinit.d/ursined"
+else
+  DINIT_STALE_UNIT="${ROOT}/lib/dinit.d/ursined"
+fi
 DINIT_WRAPPER="$LIBEXEC/dinit/ursined"
 DINIT_CONFIG="$ETC/dinit.d/config/ursined.conf"
 
@@ -205,6 +260,18 @@ render_file() {
   fi
 }
 
+remove_stale_unit() {
+  path=$1
+  [ -f "$path" ] || return 0
+  grep -q 'Ursine control daemon' "$path" 2>/dev/null || return 0
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "would remove stale $path"
+  else
+    rm -f "$path"
+    CHANGED=1
+  fi
+}
+
 install_pam_symlink() {
   ensure_dir "$(dirname "$PAM_LINK")"
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -241,6 +308,11 @@ dinit)
   render_file "$PROFILE/packaging/dinit/ursined" "$DINIT_UNIT" 0644
   render_file "$PROFILE/packaging/dinit/ursined.wrapper" "$DINIT_WRAPPER" 0755
   install_file "$PROFILE/packaging/dinit/ursined.conf" "$DINIT_CONFIG" 0644
+  # Older activators could pick OpenRC just because rc-service existed. Remove
+  # that stale Ursine unit so a later OpenRC command cannot manage it.
+  remove_stale_unit "$OPENRC_INIT"
+  remove_stale_unit "$SYSTEMD_UNIT"
+  remove_stale_unit "$DINIT_STALE_UNIT"
   ;;
 esac
 
@@ -260,8 +332,19 @@ if [ "$START" -eq 1 ]; then
     ;;
   dinit)
     command -v dinitctl >/dev/null 2>&1 || die "dinitctl not found"
-    dinitctl enable ursined 2>/dev/null || true
-    dinitctl restart ursined 2>/dev/null || dinitctl start ursined
+    # dinitctl returns non-zero when the service is already enabled. Treat that
+    # as success so activation remains idempotent on every upgrade.
+    enable_out=$(dinitctl enable ursined 2>&1) || {
+      case "$enable_out" in
+      *"already enabled"*) ;;
+      *) die "dinitctl enable ursined failed: $enable_out" ;;
+      esac
+    }
+    # A running dinit keeps the old description cached. Reload it first so a
+    # changed service file is used by the restart.
+    dinitctl reload ursined >/dev/null 2>&1 || true
+    dinitctl restart ursined 2>/dev/null || dinitctl start ursined ||
+      die "dinitctl start ursined failed"
     ;;
   esac
 fi
