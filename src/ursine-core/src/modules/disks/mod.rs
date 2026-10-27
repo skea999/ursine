@@ -12,6 +12,7 @@ use crate::modules::packages_nix::exec;
 
 const LSBLK: [&str; 2] = ["/usr/bin/lsblk", "/bin/lsblk"];
 const UDISKSCTL: [&str; 2] = ["/usr/bin/udisksctl", "/bin/udisksctl"];
+const SMARTCTL: [&str; 3] = ["/usr/sbin/smartctl", "/usr/bin/smartctl", "/sbin/smartctl"];
 const TIMEOUT: Duration = Duration::from_secs(60);
 
 pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
@@ -51,6 +52,11 @@ async fn list() -> Result<Vec<Disk>, ApiError> {
     let mut disks = Vec::new();
     for device in parsed.blockdevices {
         flatten(device, &mut disks);
+    }
+    for disk in &mut disks {
+        if disk.kind == "disk" {
+            disk.smart = smart_health(&disk.path).await;
+        }
     }
     Ok(disks)
 }
@@ -98,6 +104,7 @@ fn flatten(block: Block, disks: &mut Vec<Disk>) {
         label: block.label,
         uuid: block.uuid,
         use_percent: block.use_percent,
+        smart: None,
         mountpoint: block.mountpoint,
         removable: block.rm,
         read_only: block.ro,
@@ -105,6 +112,20 @@ fn flatten(block: Block, disks: &mut Vec<Disk>) {
     });
     for child in block.children {
         flatten(child, disks);
+    }
+}
+
+async fn smart_health(path: &str) -> Option<String> {
+    let program = SMARTCTL.iter().find(|path| Path::new(path).is_file())?;
+    let output = exec::run_root_program(program, &["-H", path], TIMEOUT)
+        .await
+        .ok()?;
+    if output.stdout.contains("PASSED") {
+        Some("PASSED".to_string())
+    } else if output.stdout.contains("FAILED") {
+        Some("FAILED".to_string())
+    } else {
+        None
     }
 }
 

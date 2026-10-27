@@ -80,6 +80,11 @@ impl DisksState {
                             |uuid| format!("UUID: {uuid}"),
                         ))
                         .into(),
+                        text(disk.smart.as_ref().map_or_else(
+                            || "SMART: unknown".to_string(),
+                            |smart| format!("SMART: {smart}"),
+                        ))
+                        .into(),
                         button::text(if mounted { "Unmount" } else { "Mount" })
                             .on_press(Message::DiskAction(device, !mounted))
                             .into(),
