@@ -30,7 +30,8 @@
 - [ ] Printers: job details/progress.
 - [x] Bluetooth: battery + connected details.
 - [ ] Bluetooth: pairing agent PIN/passkey.
-- [ ] Network: Ethernet, IP/gateway/DNS, DHCP/static IPv4, forget, VPN.
+- [x] Network: IP/gateway/DNS details.
+- [ ] Network: Ethernet connect, DHCP/static IPv4, forget, VPN.
 - [ ] Firewall: enable/disable, zone management, custom services, active rules summary.
 - [x] Disks: UUID, usage/free percent, SMART health when `smartctl` exists.
 - [ ] Disks: format/partition behind explicit enablement.

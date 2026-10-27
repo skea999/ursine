@@ -104,16 +104,45 @@ impl NetworkState {
                 let name = device.device.clone();
                 devices = devices.add(settings::item(
                     format!(
-                        "{} · {}{}",
+                        "{} · {}{}{}{}",
                         device.device,
                         device.state,
                         device
                             .connection
                             .as_ref()
                             .map(|connection| format!(" · {connection}"))
+                            .unwrap_or_default(),
+                        device
+                            .ip4
+                            .first()
+                            .map(|address| format!(" · {address}"))
+                            .unwrap_or_default(),
+                        device
+                            .gateway
+                            .as_ref()
+                            .map(|gateway| format!(" · gw {gateway}"))
                             .unwrap_or_default()
                     ),
-                    button::text("Disconnect").on_press(Message::DisconnectNetwork(name)),
+                    column(vec![
+                        text(format!(
+                            "IP: {}{}",
+                            if device.ip4.is_empty() {
+                                "none".to_string()
+                            } else {
+                                device.ip4.join(", ")
+                            },
+                            if device.dns.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" · DNS {}", device.dns.join(", "))
+                            }
+                        ))
+                        .into(),
+                        button::text("Disconnect")
+                            .on_press(Message::DisconnectNetwork(name))
+                            .into(),
+                    ])
+                    .spacing(4),
                 ));
             }
             items.push(devices.into());

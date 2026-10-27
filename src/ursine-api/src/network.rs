@@ -10,6 +10,12 @@ pub struct NetworkDevice {
     pub state: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection: Option<String>,
+    #[serde(default)]
+    pub ip4: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway: Option<String>,
+    #[serde(default)]
+    pub dns: Vec<String>,
 }
 
 /// One visible Wi-Fi network.

@@ -66,9 +66,26 @@ async fn read_view() -> Result<NetworkView, ApiError> {
         "list",
     ])
     .await?;
+    let mut devices = parse_devices(&devices);
+    for device in &mut devices {
+        if let Ok(output) = run(&[
+            "--escape",
+            "no",
+            "-t",
+            "-f",
+            "IP4.ADDRESS,IP4.GATEWAY,IP4.DNS",
+            "device",
+            "show",
+            &device.device,
+        ])
+        .await
+        {
+            enrich_device(device, &output);
+        }
+    }
     Ok(NetworkView {
         wifi_enabled: radio.trim() == "enabled",
-        devices: parse_devices(&devices),
+        devices,
         wifi: parse_wifi(&wifi),
     })
 }
@@ -90,9 +107,28 @@ fn parse_devices(output: &str) -> Vec<NetworkDevice> {
                 kind,
                 state,
                 connection,
+                ip4: Vec::new(),
+                gateway: None,
+                dns: Vec::new(),
             })
         })
         .collect()
+}
+
+fn enrich_device(device: &mut NetworkDevice, output: &str) {
+    for line in output.lines() {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        if key.starts_with("IP4.ADDRESS") && !value.is_empty() {
+            device.ip4.push(value.to_string());
+        } else if key == "IP4.GATEWAY" && !value.is_empty() {
+            device.gateway = Some(value.to_string());
+        } else if key.starts_with("IP4.DNS") && !value.is_empty() {
+            device.dns.push(value.to_string());
+        }
+    }
 }
 
 fn parse_wifi(output: &str) -> Vec<WifiNetwork> {
