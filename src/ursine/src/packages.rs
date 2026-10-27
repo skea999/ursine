@@ -291,6 +291,14 @@ impl PackagesState {
                                 (!self.action_busy).then_some(Message::PackageInstallRequested),
                             )
                             .into(),
+                        button::text("Preview APK")
+                            .on_press_maybe(
+                                (kind == PackageKind::Apk
+                                    && !self.install.trim().is_empty()
+                                    && !self.action_busy)
+                                    .then_some(Message::ApkPreviewRequested),
+                            )
+                            .into(),
                     ])
                     .spacing(8),
                 ))

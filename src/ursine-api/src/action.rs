@@ -111,6 +111,10 @@ pub enum Action {
     InstallApk {
         package: String,
     },
+    /// Simulate an APK install and return the dependency/size plan.
+    PreviewApkInstall {
+        package: String,
+    },
     /// Remove an APK package.
     RemoveApk {
         package: String,

@@ -22,6 +22,10 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
         Action::SearchApk { query } => Ok(json!({"packages": search(query).await?})),
         Action::RefreshApk => Ok(json!({"output": run(&["update"]).await?})),
         Action::ListApkRepositories => Ok(json!({"repositories": repositories()?})),
+        Action::PreviewApkInstall { package } => {
+            validate_package(package)?;
+            Ok(json!({"output": run(&["add", "--simulate", "--no-progress", package]).await?}))
+        }
         Action::InstallApk { package } | Action::UpgradeApkPackage { package } => {
             validate_package(package)?;
             Ok(json!({"output": run(&["add", "--no-progress", package]).await?}))

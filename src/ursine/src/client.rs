@@ -972,6 +972,22 @@ pub async fn apk_updates(token: SessionToken) -> Result<Vec<ApkUpdate>, ApiError
         .map_err(|e| ApiError::internal(format!("cannot read apk updates: {e}")))
 }
 
+pub async fn apk_preview(token: SessionToken, package: String) -> Result<String, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesApk,
+        Action::PreviewApkInstall { package },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    Ok(value
+        .get("output")
+        .and_then(|value| value.as_str())
+        .unwrap_or("no preview")
+        .to_string())
+}
+
 pub async fn apk_install(
     token: SessionToken,
     package: String,

@@ -213,6 +213,7 @@ pub enum Message {
     PackageRefreshIndexes,
     PackageUpdateRequested,
     ApkUpgradeRequested(String),
+    ApkPreviewRequested,
     FlatpakUpgradeRequested(String),
     PackageUpdateConfirmed,
     PackageUpdateCancelled,
@@ -225,6 +226,7 @@ pub enum Message {
     PackageApkLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
     PackageApkUpdatesLoaded(u64, Result<Vec<ApkUpdate>, ApiError>),
     PackageApkRepositoriesLoaded(u64, Result<Vec<String>, ApiError>),
+    PackagePreviewFinished(u64, Result<String, ApiError>),
     PackageFlatpakLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
     PackageFlatpakRemotesLoaded(u64, Result<Vec<ursine_api::FlatpakRemote>, ApiError>),
     PackageApkSearchLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
@@ -674,6 +676,7 @@ impl cosmic::Application for App {
             Message::PackageRemoveConfirmed => return self.confirm_package_remove(),
             Message::PackageRemoveCancelled => self.packages.pending_remove = None,
             Message::ApkUpgradeRequested(package) => return self.upgrade_apk_package(package),
+            Message::ApkPreviewRequested => return self.preview_apk_package(),
             Message::FlatpakUpgradeRequested(app_id) => {
                 return self.upgrade_flatpak_package(app_id)
             }
@@ -683,6 +686,25 @@ impl cosmic::Application for App {
             }
             Message::PackageApkRepositoriesLoaded(epoch, result) => {
                 return self.finish_apk_repositories(epoch, result)
+            }
+            Message::PackagePreviewFinished(epoch, result) => {
+                if epoch != self.epoch {
+                    return Task::none();
+                }
+                self.packages.action_busy = false;
+                match result {
+                    Ok(output) => {
+                        self.packages.message =
+                            Some(output.lines().take(8).collect::<Vec<_>>().join("\n"));
+                    }
+                    Err(error) => {
+                        if self.handle_session_error(&error) {
+                            return Task::none();
+                        }
+                        self.packages.error = Some(friendly(&error));
+                    }
+                }
+                return Task::none();
             }
             Message::PackageFlatpakLoaded(epoch, result) => {
                 return self.finish_flatpak(epoch, result)
@@ -2157,6 +2179,24 @@ impl App {
                 "refresh_indexes".into(),
                 client::apk_refresh(token).await,
             )
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn preview_apk_package(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let package = self.packages.install.trim().to_string();
+        if package.is_empty() || self.packages.action_busy {
+            return Task::none();
+        }
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.error = None;
+        Task::future(async move {
+            Message::PackagePreviewFinished(epoch, client::apk_preview(token, package).await)
         })
         .map(cosmic::Action::App)
     }
