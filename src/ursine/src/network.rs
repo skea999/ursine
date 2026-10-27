@@ -138,9 +138,17 @@ impl NetworkState {
                             }
                         ))
                         .into(),
-                        button::text("Disconnect")
-                            .on_press(Message::DisconnectNetwork(name))
-                            .into(),
+                        button::text(if device.state.contains("connected") {
+                            "Disconnect"
+                        } else {
+                            "Connect"
+                        })
+                        .on_press(if device.state.contains("connected") {
+                            Message::DisconnectNetwork(name)
+                        } else {
+                            Message::ConnectNetwork(name)
+                        })
+                        .into(),
                     ])
                     .spacing(4),
                 ));

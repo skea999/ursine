@@ -136,6 +136,7 @@ pub enum Message {
     WifiSsidChanged(String),
     WifiPasswordChanged(String),
     WifiConnect,
+    ConnectNetwork(String),
     DisconnectNetwork(String),
     NetworkActionFinished(u64, String, Result<ursine_api::NetworkView, ApiError>),
     RefreshBluetooth,
@@ -493,6 +494,10 @@ impl cosmic::Application for App {
                         self.network.password.clone(),
                     ),
                 )
+            }
+            Message::ConnectNetwork(device) => {
+                return self
+                    .network_action("connect", client::connect_network(self.token(), device))
             }
             Message::DisconnectNetwork(device) => {
                 return self.network_action(

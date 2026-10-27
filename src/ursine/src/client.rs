@@ -1697,6 +1697,19 @@ pub async fn connect_wifi(
         .map_err(|e| ApiError::internal(format!("cannot read network: {e}")))
 }
 
+pub async fn connect_network(token: SessionToken, device: String) -> Result<NetworkView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Network,
+        Action::ConnectNetwork { device },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read network: {e}")))
+}
+
 pub async fn disconnect_network(
     token: SessionToken,
     device: String,

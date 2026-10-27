@@ -32,7 +32,8 @@
 - [x] Bluetooth: battery + connected details.
 - [ ] Bluetooth: pairing agent PIN/passkey.
 - [x] Network: IP/gateway/DNS details.
-- [ ] Network: Ethernet connect, DHCP/static IPv4, forget, VPN.
+- [x] Network: Ethernet connect/disconnect.
+- [ ] Network: DHCP/static IPv4, forget, VPN.
 - [ ] Firewall: enable/disable, zone management, custom services, active rules summary.
 - [x] Disks: UUID, usage/free percent, SMART health when `smartctl` exists.
 - [ ] Disks: format/partition behind explicit enablement.

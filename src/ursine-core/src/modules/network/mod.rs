@@ -34,6 +34,11 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             .await?;
             Ok(json!(read_view().await?))
         }
+        Action::ConnectNetwork { device } => {
+            validate_device(device)?;
+            run(&["device", "connect", device]).await?;
+            Ok(json!(read_view().await?))
+        }
         Action::DisconnectNetwork { device } => {
             validate_device(device)?;
             run(&["device", "disconnect", device]).await?;

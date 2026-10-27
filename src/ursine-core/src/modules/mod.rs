@@ -210,6 +210,7 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::GetNetwork => "get_network",
         Action::SetWifiEnabled { .. } => "set_wifi_enabled",
         Action::ConnectWifi { .. } => "connect_wifi",
+        Action::ConnectNetwork { .. } => "connect_network",
         Action::DisconnectNetwork { .. } => "disconnect_network",
     }
 }

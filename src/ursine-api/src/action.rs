@@ -243,6 +243,10 @@ pub enum Action {
         ssid: String,
         password: String,
     },
+    /// Connect one network device.
+    ConnectNetwork {
+        device: String,
+    },
     /// Disconnect one network device.
     DisconnectNetwork {
         device: String,
