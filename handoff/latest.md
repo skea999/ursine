@@ -8,7 +8,7 @@ See `AGENTS.md` for project context and milestone history.
 
 ## Session 2026-10-27 — package progress implemented + review-closed (0.20.0 ready)
 
-**Status**: Tier-2 review closed (4 lenses: requirements/code/security/ux); every confirmed finding fixed; gate green (210 tests: 135 core / 37 GUI / 32 API / 6 integration; clippy `-D warnings`; fmt); version bumped to 0.20.0. Commit + tag next for user's VM smoke.
+**Status**: DONE — Tier-2 review closed (4 lenses: requirements/code/security/ux), every confirmed finding fixed; gate green (210 tests: 135 core / 37 GUI / 32 API / 6 integration; clippy `-D warnings`; fmt; static PASS; docs PASS); version 0.20.0; commit `611f263`; tag `v0.20.0` (not pushed).
 
 - Package progress (P0, binding rule) implemented backend + GUI: `ursine-api` job types + `Action::JobOutput` + protocol v3; `ursine-core` `jobs.rs` registry (RAM, `/run/ursine/jobs/<id>.log`, 1 MiB cap + truncated, TTL/lost sweep, audit on start/complete, poll not audited); APK/Flatpak/Nix mutations return `{"job_id":...}` and run via job log (apk `--no-progress` removed, `RefreshApk` stays sync, previews/dry-run/empty stay sync).
 - GUI: `client::job_output` + poll chain (`JobPolled(epoch, job_id, …)`, 400 ms delay, snap-to-bottom) + terminal box `job_panel` (monospace 16 KiB tail, Close on done/detached, busy held until completion, reload on done, epoch/sign-out guard).

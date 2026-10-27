@@ -1,8 +1,8 @@
 {
   "goal": "Ursine — FeralOS complete control center (Webmin-style): root daemon + libcosmic GUI (v1), full module coverage (v2), OIDC+web (v3, memory-safe stack), Incus UI (v4), ZFS+Pirateus (v5), multi-distro (v6). Intent source of truth: docs/intent/ursine.md.",
-  "status": "v0.20.0 package progress ready to commit + tag (review-closed)",
+  "status": "v0.20.0 tagged (611f263 lineage), not pushed; VM smoke next",
   "active_goals": [
-    "RELEASE 0.20.0 (2026-10-27): package progress (daemon job log + job_output polling + GUI terminal box), review-closed, gate green; commit + tag pending for VM smoke.",
+    "RELEASE 0.20.0 (2026-10-27): package progress (daemon job log + job_output polling + GUI terminal box), review-closed, gate green; tagged locally for VM smoke. Push + CI pending user action.",
     "v0.18.4 INIT HARDENING (2026-10-26): PID1/init detection, root-owned daemon/PAM copies, dinit unit idempotency/stale cleanup, install.sh dinit defaults/restart, CI regression coverage. Review-closed; tag pending in this release commit.",
     "v0.7.0 RELEASED (2026-10-23): users panel + niri baseline; dynamic group tool usermod/addgroup/gpasswd; main CI 39981968110 green; tag CI 39986691808 green; pin 86d90e2; profile 0.7.0. CI optimized (88f3bdc): parallel package, single clippy, no separate GUI build, Nix PR-only, restore-only caches.",
     "v0.7.0 USERS + NIRI BASELINE (2026-10-23): users panel via accountsservice (create/delete/password/groups, uid + self-wheel guards); niri managed sections (layout gaps, animations, touchpad, cursor) with KDL round-trip, validate-before-write, atomic backup, ownership/home guards; GUI panels. Gate: 161 tests, clippy/fmt, static all PASS, docs PASS. Security review closed; staged for orchestrator commit/release.",
@@ -15,7 +15,7 @@
     "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
-    "RELEASE 0.20.0: commit package progress + review fixes, tag v0.20.0, VM smoke on user's VM (daemon + GUI job output + Close).",
+    "USER: build/tag smoke on VM (daemon + GUI job output + Close), then push main + v0.20.0 (CI auto-pins nix/binary.nix).",
     "Remaining v1/v2: Niri compatibility range/field errors; Flatpak remote dropdown/runtime split/permissions; Network static/forget/VPN; Firewall; Disks format/partition; Bluetooth pairing agent; printer live progress."
   ],
   "key_decisions": [
