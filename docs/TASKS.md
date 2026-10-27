@@ -12,7 +12,8 @@
 #### v1.0 closure
 
 - [x] Niri outputs `mode` + `position` and show `niri --version`.
-- [ ] Niri compatibility gate against version; validation errors mapped to field.
+- [x] Niri version detection gates validate/save.
+- [ ] Niri compatibility range and field-level validation errors.
 - [x] Niri animations: slowdown, window-open/close duration + curve.
 - [ ] APKBUILDs in `feralos-aports`; real FeralOS PAM/activation/module smoke.
 - [ ] v1.0 tag after the above.

@@ -571,6 +571,11 @@ impl NiriState {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
+        let version_ok = self.view.as_ref().is_some_and(|view| {
+            view.version
+                .as_deref()
+                .is_some_and(|version| !version.is_empty())
+        });
         let mut items: Vec<Element<'_, Message>> = vec![row(vec![
             text::title2("Niri desktop").into(),
             text("").width(Length::Fill).into(),
@@ -587,6 +592,9 @@ impl NiriState {
         }
         if let Some(message) = &self.message {
             items.push(text(message.clone()).into());
+        }
+        if !version_ok {
+            items.push(text("niri --version is unavailable; validate/save are disabled.").into());
         }
         if self.busy {
             items.push(text("Reading niri config…").into());
@@ -618,7 +626,8 @@ impl NiriState {
                     .add(settings::item(
                         "Validate current file",
                         button::text("niri validate").on_press_maybe(
-                            (!self.action_busy).then_some(Message::ValidateNiriRequested),
+                            (!self.action_busy && version_ok)
+                                .then_some(Message::ValidateNiriRequested),
                         ),
                     ))
                     .into(),
@@ -1213,8 +1222,9 @@ impl NiriState {
                 .title("Apply")
                 .add(settings::item(
                     "The daemon validates the complete config before replacing it.",
-                    button::suggested("Validate and save")
-                        .on_press_maybe((!self.action_busy).then_some(Message::SaveNiriRequested)),
+                    button::suggested("Validate and save").on_press_maybe(
+                        (!self.action_busy && version_ok).then_some(Message::SaveNiriRequested),
+                    ),
                 ))
                 .into(),
         );
