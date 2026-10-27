@@ -3,7 +3,7 @@
 use cosmic::iced::Length;
 use cosmic::widget::{button, column, dropdown, row, scrollable, settings, text, text_input};
 use cosmic::Element;
-use ursine_api::{ApkPackage, ApkUpdate, FlatpakPackage};
+use ursine_api::{ApkPackage, ApkUpdate, FlatpakPackage, FlatpakRemote};
 
 use crate::app::Message;
 use crate::package_row::package_row;
@@ -36,6 +36,7 @@ pub struct PackagesState {
     pub apk_updates: Vec<ApkUpdate>,
     pub apk_repositories: Vec<String>,
     pub flatpak: Vec<FlatpakPackage>,
+    pub flatpak_remotes: Vec<FlatpakRemote>,
     pub system: bool,
     pub query: String,
     pub install: String,
@@ -57,6 +58,7 @@ impl Default for PackagesState {
             apk_updates: Vec::new(),
             apk_repositories: Vec::new(),
             flatpak: Vec::new(),
+            flatpak_remotes: Vec::new(),
             system: true,
             query: String::new(),
             install: String::new(),
@@ -87,6 +89,7 @@ impl PackagesState {
         self.apk_updates.clear();
         self.apk_repositories.clear();
         self.flatpak.clear();
+        self.flatpak_remotes.clear();
         self.searching = false;
         self.error = None;
         self.message = None;
@@ -107,6 +110,10 @@ impl PackagesState {
 
     pub fn apply_apk_repositories(&mut self, repositories: Vec<String>) {
         self.apk_repositories = repositories;
+    }
+
+    pub fn apply_flatpak_remotes(&mut self, remotes: Vec<FlatpakRemote>) {
+        self.flatpak_remotes = remotes;
     }
 
     pub fn apply_flatpak(&mut self, packages: Vec<FlatpakPackage>) {
@@ -228,6 +235,26 @@ impl PackagesState {
             ));
         }
         items.push(upgrade.into());
+
+        if kind == PackageKind::Flatpak && !self.flatpak_remotes.is_empty() {
+            items.push(
+                settings::section()
+                    .title("Remotes")
+                    .add(settings::item(
+                        "Configured Flatpak remotes",
+                        column(
+                            self.flatpak_remotes
+                                .iter()
+                                .map(|remote| {
+                                    text(format!("{} — {}", remote.name, remote.url)).into()
+                                })
+                                .collect::<Vec<Element<'_, Message>>>(),
+                        )
+                        .spacing(2),
+                    ))
+                    .into(),
+            );
+        }
 
         items.push(
             settings::section()

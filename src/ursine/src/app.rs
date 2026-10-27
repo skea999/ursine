@@ -226,6 +226,7 @@ pub enum Message {
     PackageApkUpdatesLoaded(u64, Result<Vec<ApkUpdate>, ApiError>),
     PackageApkRepositoriesLoaded(u64, Result<Vec<String>, ApiError>),
     PackageFlatpakLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
+    PackageFlatpakRemotesLoaded(u64, Result<Vec<ursine_api::FlatpakRemote>, ApiError>),
     PackageApkSearchLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
     PackageFlatpakSearchLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
     PackageActionFinished(u64, String, Result<serde_json::Value, ApiError>),
@@ -685,6 +686,9 @@ impl cosmic::Application for App {
             }
             Message::PackageFlatpakLoaded(epoch, result) => {
                 return self.finish_flatpak(epoch, result)
+            }
+            Message::PackageFlatpakRemotesLoaded(epoch, result) => {
+                return self.finish_flatpak_remotes(epoch, result)
             }
             Message::PackageApkSearchLoaded(epoch, result) => {
                 return self.finish_apk_search(epoch, result)
@@ -1899,10 +1903,19 @@ impl App {
             .map(cosmic::Action::App);
             Task::batch(vec![list, updates, repositories])
         } else {
-            Task::future(async move {
+            let remotes_token = token.clone();
+            let list = Task::future(async move {
                 Message::PackageFlatpakLoaded(epoch, client::flatpak_list(token, system).await)
             })
-            .map(cosmic::Action::App)
+            .map(cosmic::Action::App);
+            let remotes = Task::future(async move {
+                Message::PackageFlatpakRemotesLoaded(
+                    epoch,
+                    client::flatpak_remotes(remotes_token).await,
+                )
+            })
+            .map(cosmic::Action::App);
+            Task::batch(vec![list, remotes])
         }
     }
 
@@ -1960,6 +1973,26 @@ impl App {
         }
         match result {
             Ok(updates) => self.packages.apply_apk_updates(updates),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.packages.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn finish_flatpak_remotes(
+        &mut self,
+        epoch: u64,
+        result: Result<Vec<ursine_api::FlatpakRemote>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        match result {
+            Ok(remotes) => self.packages.apply_flatpak_remotes(remotes),
             Err(error) => {
                 if self.handle_session_error(&error) {
                     return Task::none();

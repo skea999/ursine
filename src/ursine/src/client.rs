@@ -13,9 +13,10 @@ use std::time::{Duration, Instant};
 use ursine_api::{
     installable_from_attr, timeouts, Action, ApiError, ApkPackage, ApkUpdate, BluetoothOp,
     BluetoothView, BtrbkConfigView, BtrbkSettings, Disk, FirewallStatus, FlatpakPackage,
-    InstalledPackage, ModuleId, ModulesConfig, NetworkView, NiriConfigView, PrintJob, Printer,
-    Request, RequestBody, Response, ResponseBody, ScannerConfigView, SearchResult, Service,
-    ServiceOp, SessionToken, Snapshot, SnapshotStats, TriState, UserSummary, PROTOCOL_VERSION,
+    FlatpakRemote, InstalledPackage, ModuleId, ModulesConfig, NetworkView, NiriConfigView,
+    PrintJob, Printer, Request, RequestBody, Response, ResponseBody, ScannerConfigView,
+    SearchResult, Service, ServiceOp, SessionToken, Snapshot, SnapshotStats, TriState, UserSummary,
+    PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
@@ -1043,6 +1044,23 @@ pub async fn flatpak_list(
     system: bool,
 ) -> Result<Vec<FlatpakPackage>, ApiError> {
     flatpak_packages(token, Action::ListFlatpak { system }, MUTATE_TIMEOUT).await
+}
+
+pub async fn flatpak_remotes(token: SessionToken) -> Result<Vec<FlatpakRemote>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::ListFlatpakRemotes,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let remotes = value
+        .get("remotes")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon flatpak remotes response has no remotes"))?;
+    serde_json::from_value(remotes)
+        .map_err(|e| ApiError::internal(format!("cannot read flatpak remotes: {e}")))
 }
 
 pub async fn flatpak_search(

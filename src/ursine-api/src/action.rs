@@ -129,6 +129,8 @@ pub enum Action {
     ListFlatpak {
         system: bool,
     },
+    /// Configured Flatpak remotes.
+    ListFlatpakRemotes,
     /// Search the configured Flatpak remotes.
     SearchFlatpak {
         query: String,

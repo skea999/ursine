@@ -23,6 +23,13 @@ pub struct ApkUpdate {
     pub available: String,
 }
 
+/// One configured Flatpak remote.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlatpakRemote {
+    pub name: String,
+    pub url: String,
+}
+
 /// One Flatpak application row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlatpakPackage {

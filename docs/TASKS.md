@@ -24,6 +24,7 @@
 - [x] APK: protected-package warning (world file, remove disabled).
 - [ ] APK: dependency/size preview, progress/log.
 - [x] Flatpak: per-app update.
+- [x] Flatpak: configured remotes list.
 - [ ] Flatpak: remote dropdown, app/runtime split, update-available list, permissions editor, size/progress, target user.
 - [x] Printers: paper/duplex/color via CUPS `-o` options.
 - [ ] Printers: job details/progress.

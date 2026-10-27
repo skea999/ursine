@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use serde_json::json;
-use ursine_api::{Action, ApiError, FlatpakPackage};
+use ursine_api::{Action, ApiError, FlatpakPackage, FlatpakRemote};
 
 use super::ModuleCtx;
 use crate::modules::packages_nix::exec;
@@ -25,6 +25,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         Action::ListFlatpak { system } => {
             Ok(json!({"packages": list(*system, ctx.as_user).await?}))
         }
+        Action::ListFlatpakRemotes => Ok(json!({"remotes": remotes().await?})),
         Action::SearchFlatpak { query, system } => Ok(json!({
             "packages": search(query, *system, ctx.as_user).await?,
         })),
@@ -91,6 +92,20 @@ async fn list(system: bool, user: &str) -> Result<Vec<FlatpakPackage>, ApiError>
     ];
     let output = run(system, user, &args).await?;
     Ok(parse_list(&output, system))
+}
+
+async fn remotes() -> Result<Vec<FlatpakRemote>, ApiError> {
+    let output = run(true, "root", &["remotes", "--columns=name,url"]).await?;
+    Ok(output
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\t');
+            Some(FlatpakRemote {
+                name: fields.next()?.to_string(),
+                url: fields.next()?.to_string(),
+            })
+        })
+        .collect())
 }
 
 async fn search(query: &str, system: bool, user: &str) -> Result<Vec<FlatpakPackage>, ApiError> {
