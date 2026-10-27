@@ -14,6 +14,11 @@ pub(super) fn parse_values(doc: &KdlDocument) -> NiriValues {
     NiriValues {
         layout_gaps: integer(doc, &["layout", "gaps"]),
         animations_off: flag(doc, &["animations", "off"]),
+        animations_slowdown: animations_slowdown(doc),
+        animations_window_open_ms: animation_integer(doc, "window-open", "duration-ms"),
+        animations_window_open_curve: animation_string(doc, "window-open", "curve"),
+        animations_window_close_ms: animation_integer(doc, "window-close", "duration-ms"),
+        animations_window_close_curve: animation_string(doc, "window-close", "curve"),
         touchpad_tap: flag(doc, &["input", "touchpad", "tap"]),
         touchpad_natural_scroll: flag(doc, &["input", "touchpad", "natural-scroll"]),
         touchpad_dwt: flag(doc, &["input", "touchpad", "dwt"]),
@@ -173,13 +178,65 @@ pub(super) fn apply_section(
             }
         }
         "animations" => {
-            reject_unknown(object, &["off"])?;
+            reject_unknown(
+                object,
+                &[
+                    "off",
+                    "slowdown",
+                    "window_open_ms",
+                    "window_open_curve",
+                    "window_close_ms",
+                    "window_close_curve",
+                ],
+            )?;
             if let Some(off) = object.get("off") {
                 let off = off
                     .as_bool()
                     .ok_or_else(|| ApiError::invalid("animations off must be a boolean"))?;
                 set_flag(doc, "animations", "off", off);
                 applied = true;
+            }
+            if let Some(value) = object.get("slowdown") {
+                let value = value
+                    .as_str()
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .filter(|value| (0.0..=10.0).contains(value))
+                    .ok_or_else(|| ApiError::invalid("animations slowdown must be 0..10"))?;
+                set_animation_float(doc, "animations", "slowdown", value);
+                applied = true;
+            }
+            for (duration_key, curve_key, animation) in [
+                ("window_open_ms", "window_open_curve", "window-open"),
+                ("window_close_ms", "window_close_curve", "window-close"),
+            ] {
+                if let Some(value) = object.get(duration_key) {
+                    let value = number(value, "animation duration", 60_000)?;
+                    set_animation_child(
+                        doc,
+                        animation,
+                        "duration-ms",
+                        KdlValue::Integer(i128::from(value)),
+                    );
+                    applied = true;
+                }
+                if let Some(value) = object.get(curve_key) {
+                    let curve = value
+                        .as_str()
+                        .filter(|curve| {
+                            matches!(
+                                *curve,
+                                "ease-out-quad" | "ease-out-cubic" | "ease-out-expo" | "linear"
+                            )
+                        })
+                        .ok_or_else(|| ApiError::invalid("unsupported animation curve"))?;
+                    set_animation_child(
+                        doc,
+                        animation,
+                        "curve",
+                        KdlValue::String(curve.to_string()),
+                    );
+                    applied = true;
+                }
             }
         }
         "input.touchpad" => {
@@ -945,6 +1002,54 @@ fn apply_output(doc: &mut KdlDocument, value: &JsonValue) -> Result<(), ApiError
         }
     }
     Ok(())
+}
+
+fn animations_slowdown(doc: &KdlDocument) -> Option<String> {
+    let node = child_node(doc, "animations", "slowdown")?;
+    match node.entries().first()?.value() {
+        KdlValue::Float(value) => Some(value.to_string()),
+        KdlValue::Integer(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+fn animation_integer(doc: &KdlDocument, animation: &str, key: &str) -> Option<u32> {
+    let animations = doc.get("animations")?.children()?;
+    integer_child(animations.get(animation)?.children()?, key)
+}
+
+fn animation_string(doc: &KdlDocument, animation: &str, key: &str) -> Option<String> {
+    let animations = doc.get("animations")?.children()?;
+    animations
+        .get(animation)?
+        .children()?
+        .get(key)?
+        .entries()
+        .first()?
+        .value()
+        .as_string()
+        .map(str::to_string)
+}
+
+fn set_animation_child(doc: &mut KdlDocument, animation: &str, key: &str, value: KdlValue) {
+    let animations = ensure_node(doc, "animations").ensure_children();
+    if animations.get(animation).is_none() {
+        animations.nodes_mut().push(KdlNode::new(animation));
+    }
+    if let Some(node) = animations.get_mut(animation) {
+        let children = node.ensure_children();
+        set_child(children, key, value);
+    }
+}
+
+fn set_animation_float(doc: &mut KdlDocument, section: &str, key: &str, value: f64) {
+    let children = ensure_node(doc, section).ensure_children();
+    if children.get(key).is_none() {
+        children.nodes_mut().push(KdlNode::new(key));
+    }
+    if let Some(node) = children.get_mut(key) {
+        set_arg(node, KdlValue::Float(value));
+    }
 }
 
 fn output_position(node: &KdlNode) -> Option<NiriPosition> {

@@ -38,6 +38,11 @@ pub struct NiriState {
     pub message: Option<String>,
     pub gaps: String,
     pub animations_off: bool,
+    pub animations_slowdown: String,
+    pub animations_window_open_ms: String,
+    pub animations_window_open_curve: String,
+    pub animations_window_close_ms: String,
+    pub animations_window_close_curve: String,
     pub tap: bool,
     pub natural_scroll: bool,
     pub dwt: bool,
@@ -101,6 +106,23 @@ impl NiriState {
             .map(|value| value.to_string())
             .unwrap_or_default();
         self.animations_off = values.animations_off.unwrap_or(false);
+        self.animations_slowdown = values.animations_slowdown.clone().unwrap_or_default();
+        self.animations_window_open_ms = values
+            .animations_window_open_ms
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        self.animations_window_open_curve = values
+            .animations_window_open_curve
+            .clone()
+            .unwrap_or_default();
+        self.animations_window_close_ms = values
+            .animations_window_close_ms
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        self.animations_window_close_curve = values
+            .animations_window_close_curve
+            .clone()
+            .unwrap_or_default();
         self.tap = values.touchpad_tap.unwrap_or(false);
         self.natural_scroll = values.touchpad_natural_scroll.unwrap_or(false);
         self.dwt = values.touchpad_dwt.unwrap_or(false);
@@ -415,9 +437,46 @@ impl NiriState {
             }
             sections.push(("gestures".to_string(), serde_json::Value::Object(gestures)));
         }
+        let mut animations = serde_json::Map::new();
+        animations.insert("off".into(), json!(self.animations_off));
+        if !self.animations_slowdown.trim().is_empty() {
+            animations.insert("slowdown".into(), json!(self.animations_slowdown.trim()));
+        }
+        if !self.animations_window_open_ms.trim().is_empty() {
+            animations.insert(
+                "window_open_ms".into(),
+                json!(parse_number(
+                    &self.animations_window_open_ms,
+                    "window open duration",
+                    60_000
+                )?),
+            );
+        }
+        if !self.animations_window_open_curve.is_empty() {
+            animations.insert(
+                "window_open_curve".into(),
+                json!(self.animations_window_open_curve),
+            );
+        }
+        if !self.animations_window_close_ms.trim().is_empty() {
+            animations.insert(
+                "window_close_ms".into(),
+                json!(parse_number(
+                    &self.animations_window_close_ms,
+                    "window close duration",
+                    60_000
+                )?),
+            );
+        }
+        if !self.animations_window_close_curve.is_empty() {
+            animations.insert(
+                "window_close_curve".into(),
+                json!(self.animations_window_close_curve),
+            );
+        }
         sections.push((
             "animations".to_string(),
-            json!({"off": self.animations_off}),
+            serde_json::Value::Object(animations),
         ));
         let mut touchpad = serde_json::Map::new();
         touchpad.insert("tap".into(), json!(self.tap));
@@ -661,6 +720,65 @@ impl NiriState {
                 .add(settings::item(
                     "Disable animations",
                     toggler(self.animations_off).on_toggle(Message::NiriAnimationsToggled),
+                ))
+                .add(settings::item(
+                    "Slowdown 0..10 (empty = default)",
+                    text_input("1.0", self.animations_slowdown.clone())
+                        .on_input(Message::NiriAnimationsSlowdownChanged),
+                ))
+                .add(settings::item(
+                    "Window open duration ms",
+                    text_input("150", self.animations_window_open_ms.clone())
+                        .on_input(Message::NiriAnimationsOpenMsChanged),
+                ))
+                .add(settings::item(
+                    "Window open curve",
+                    dropdown(
+                        vec![
+                            "unchanged",
+                            "ease-out-quad",
+                            "ease-out-cubic",
+                            "ease-out-expo",
+                            "linear",
+                        ],
+                        [
+                            "",
+                            "ease-out-quad",
+                            "ease-out-cubic",
+                            "ease-out-expo",
+                            "linear",
+                        ]
+                        .iter()
+                        .position(|value| *value == self.animations_window_open_curve),
+                        Message::NiriAnimationsOpenCurveChanged,
+                    ),
+                ))
+                .add(settings::item(
+                    "Window close duration ms",
+                    text_input("150", self.animations_window_close_ms.clone())
+                        .on_input(Message::NiriAnimationsCloseMsChanged),
+                ))
+                .add(settings::item(
+                    "Window close curve",
+                    dropdown(
+                        vec![
+                            "unchanged",
+                            "ease-out-quad",
+                            "ease-out-cubic",
+                            "ease-out-expo",
+                            "linear",
+                        ],
+                        [
+                            "",
+                            "ease-out-quad",
+                            "ease-out-cubic",
+                            "ease-out-expo",
+                            "linear",
+                        ]
+                        .iter()
+                        .position(|value| *value == self.animations_window_close_curve),
+                        Message::NiriAnimationsCloseCurveChanged,
+                    ),
                 ))
                 .into(),
         );

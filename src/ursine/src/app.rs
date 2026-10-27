@@ -319,6 +319,11 @@ pub enum Message {
     NiriHotCornersOffToggled(bool),
     NiriEdgeChanged(GestureEdge, EdgeField, String),
     NiriAnimationsToggled(bool),
+    NiriAnimationsSlowdownChanged(String),
+    NiriAnimationsOpenMsChanged(String),
+    NiriAnimationsOpenCurveChanged(usize),
+    NiriAnimationsCloseMsChanged(String),
+    NiriAnimationsCloseCurveChanged(usize),
     NiriTapToggled(bool),
     NiriNaturalScrollToggled(bool),
     NiriDwtToggled(bool),
@@ -1011,6 +1016,39 @@ impl cosmic::Application for App {
                 }
             }
             Message::NiriAnimationsToggled(value) => self.niri.animations_off = value,
+            Message::NiriAnimationsSlowdownChanged(value) => {
+                self.niri.animations_slowdown = value;
+            }
+            Message::NiriAnimationsOpenMsChanged(value) => {
+                self.niri.animations_window_open_ms = value;
+            }
+            Message::NiriAnimationsOpenCurveChanged(value) => {
+                self.niri.animations_window_open_curve = [
+                    "",
+                    "ease-out-quad",
+                    "ease-out-cubic",
+                    "ease-out-expo",
+                    "linear",
+                ]
+                .get(value)
+                .unwrap_or(&"")
+                .to_string();
+            }
+            Message::NiriAnimationsCloseMsChanged(value) => {
+                self.niri.animations_window_close_ms = value;
+            }
+            Message::NiriAnimationsCloseCurveChanged(value) => {
+                self.niri.animations_window_close_curve = [
+                    "",
+                    "ease-out-quad",
+                    "ease-out-cubic",
+                    "ease-out-expo",
+                    "linear",
+                ]
+                .get(value)
+                .unwrap_or(&"")
+                .to_string();
+            }
             Message::NiriTapToggled(value) => self.niri.tap = value,
             Message::NiriNaturalScrollToggled(value) => self.niri.natural_scroll = value,
             Message::NiriDwtToggled(value) => self.niri.dwt = value,

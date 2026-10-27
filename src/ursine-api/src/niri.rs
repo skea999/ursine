@@ -10,6 +10,16 @@ pub struct NiriValues {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub animations_off: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animations_slowdown: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animations_window_open_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animations_window_open_curve: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animations_window_close_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animations_window_close_curve: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub touchpad_tap: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub touchpad_natural_scroll: Option<bool>,
