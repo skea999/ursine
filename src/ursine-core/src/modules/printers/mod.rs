@@ -100,6 +100,18 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             validate_name(name)?;
             Ok(json!({"output": run(&LPADMIN, &["-d", name]).await?}))
         }
+        Action::SetPrinterOptions { name, options } => {
+            validate_name(name)?;
+            if options.is_empty() {
+                return Err(ApiError::invalid("at least one printer option is required"));
+            }
+            let mut args = vec!["-p", name];
+            for option in options {
+                validate_option(option)?;
+                args.extend(["-o", option]);
+            }
+            Ok(json!({"output": run_quoted(&LPADMIN, &args).await?}))
+        }
         Action::PausePrinter { name, pause } => {
             validate_name(name)?;
             let program = if *pause { CUPSDISABLE } else { CUPSENABLE };

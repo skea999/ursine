@@ -188,6 +188,11 @@ pub enum Action {
     SetDefaultPrinter {
         name: String,
     },
+    /// Set CUPS printer options (`key=value`, e.g. media, Duplex, `ColorModel`).
+    SetPrinterOptions {
+        name: String,
+        options: Vec<String>,
+    },
     /// Pause or resume a printer.
     PausePrinter {
         name: String,

@@ -148,6 +148,7 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::AddPrinterManual { .. } => "add_printer_manual",
         Action::RemovePrinter { .. } => "remove_printer",
         Action::SetDefaultPrinter { .. } => "set_default_printer",
+        Action::SetPrinterOptions { .. } => "set_printer_options",
         Action::PausePrinter { .. } => "pause_printer",
         Action::CancelPrinterJobs { .. } => "cancel_printer_jobs",
         Action::SearchFlatpak { .. } => "search_flatpak",

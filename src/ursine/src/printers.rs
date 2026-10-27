@@ -22,6 +22,8 @@ pub struct PrintersState {
     pub manual_driver: String,
     pub manual_ppd: String,
     pub manual_options: String,
+    pub options_name: String,
+    pub options_text: String,
     pub pending_remove: Option<String>,
     pub pending_cancel: bool,
 }
@@ -110,6 +112,28 @@ impl PrintersState {
             ));
         }
         items.push(printers.into());
+
+        items.push(
+            settings::section()
+                .title("Printer options")
+                .add(settings::item(
+                    "Printer",
+                    text_input("Office", self.options_name.clone())
+                        .on_input(Message::PrinterOptionsNameChanged),
+                ))
+                .add(settings::item(
+                    "Options, one per line key=value",
+                    text_input("media=A4", self.options_text.clone())
+                        .on_input(Message::PrinterOptionsChanged),
+                ))
+                .add(settings::item(
+                    "Paper, duplex, color: media=A4, Duplex=DuplexNoTumble, ColorModel=Gray",
+                    button::text("Apply options").on_press_maybe(
+                        (!self.action_busy).then_some(Message::PrinterOptionsRequested),
+                    ),
+                ))
+                .into(),
+        );
 
         items.push(
             settings::section()

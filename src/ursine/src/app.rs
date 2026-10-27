@@ -192,6 +192,9 @@ pub enum Message {
     PrinterManualPpdChanged(String),
     PrinterManualOptionsChanged(String),
     PrinterSetDefault(String),
+    PrinterOptionsNameChanged(String),
+    PrinterOptionsChanged(String),
+    PrinterOptionsRequested,
     PrinterPause(String, bool),
     PrinterRemoveRequested(String),
     PrinterRemoveConfirmed,
@@ -603,6 +606,9 @@ impl cosmic::Application for App {
             Message::PrinterManualDriverChanged(value) => self.printers.manual_driver = value,
             Message::PrinterManualPpdChanged(value) => self.printers.manual_ppd = value,
             Message::PrinterManualOptionsChanged(value) => self.printers.manual_options = value,
+            Message::PrinterOptionsNameChanged(value) => self.printers.options_name = value,
+            Message::PrinterOptionsChanged(value) => self.printers.options_text = value,
+            Message::PrinterOptionsRequested => return self.set_printer_options(),
             Message::PrinterSetDefault(name) => {
                 return self
                     .printer_action("default", client::set_default_printer(self.token(), name))
@@ -2409,6 +2415,27 @@ impl App {
             Message::PrinterActionFinished(epoch, "add_manual".into(), result)
         })
         .map(cosmic::Action::App)
+    }
+
+    fn set_printer_options(&mut self) -> Task<cosmic::Action<Message>> {
+        let name = self.printers.options_name.trim().to_string();
+        let options: Vec<String> = self
+            .printers
+            .options_text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect();
+        if name.is_empty() || options.is_empty() {
+            self.printers.error = Some("Printer name and at least one option are required.".into());
+            return Task::none();
+        }
+        let token = self.token();
+        self.printer_action(
+            "set printer options",
+            client::set_printer_options(token, name, options),
+        )
     }
 
     fn printer_action(

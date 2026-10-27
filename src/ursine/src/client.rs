@@ -1241,6 +1241,21 @@ pub async fn set_default_printer(
     .await
 }
 
+pub async fn set_printer_options(
+    token: SessionToken,
+    name: String,
+    options: Vec<String>,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::Printers,
+        Action::SetPrinterOptions { name, options },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
 pub async fn pause_printer(
     token: SessionToken,
     name: String,
