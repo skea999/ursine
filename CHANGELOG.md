@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-10-27
+
 ### Added
 
 - Niri output mode/position, animation slowdown and window-open/close timing, and version-gated save.
@@ -9,10 +11,10 @@
 - Flatpak per-app update and remotes list.
 - Network IP/gateway/DNS details and Ethernet connect/disconnect.
 - CUPS printer options and job state; disk UUID/usage/SMART; Bluetooth battery.
-
-### Planned
-
-- Package job-output polling for APK, Flatpak and Nix: terminal text, no percentage, Close after completion.
+- Package job-output polling for APK, Flatpak and Nix mutations: daemon job
+  log at `/run/ursine/jobs/<id>.log`, live exact terminal output in the GUI,
+  no percentage bar, Close button only after completion. Protocol bumped to v3
+  (mutation replies return `job_id` instead of `output`).
 
 ## [0.19.0] — 2026-10-26
 

@@ -4,19 +4,21 @@
 //! only. The GUI never parses shell output; it receives typed rows.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
-use ursine_api::{Action, ApiError, ApkPackage, ApkUpdate};
+use ursine_api::{Action, ApiError, ApkPackage, ApkUpdate, ModuleId};
 
 use super::ModuleCtx;
+use crate::jobs::JobSink;
 use crate::modules::packages_nix::exec;
 
 const APK_CANDIDATES: [&str; 3] = ["/sbin/apk", "/usr/sbin/apk", "/usr/bin/apk"];
 const TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_ROWS: usize = 300;
 
-pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
+pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
     match action {
         Action::ListApk => Ok(json!({"packages": installed().await?})),
         Action::SearchApk { query } => Ok(json!({"packages": search(query).await?})),
@@ -24,22 +26,49 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
         Action::ListApkRepositories => Ok(json!({"repositories": repositories()?})),
         Action::PreviewApkInstall { package } => {
             validate_package(package)?;
-            Ok(json!({"output": run(&["add", "--simulate", "--no-progress", package]).await?}))
+            Ok(json!({"output": run(&["add", "--simulate", package]).await?}))
         }
-        Action::InstallApk { package } | Action::UpgradeApkPackage { package } => {
+        Action::InstallApk { package } => {
             validate_package(package)?;
-            Ok(json!({"output": run(&["add", "--no-progress", package]).await?}))
+            start_job(ctx, "install_apk", &["add", package])
+        }
+        Action::UpgradeApkPackage { package } => {
+            validate_package(package)?;
+            start_job(ctx, "upgrade_apk_package", &["add", package])
         }
         Action::RemoveApk { package } => {
             validate_package(package)?;
-            Ok(json!({"output": run(&["del", package]).await?}))
+            start_job(ctx, "remove_apk", &["del", package])
         }
-        Action::UpgradeApk => Ok(json!({"output": run(&["upgrade", "--no-progress"]).await?})),
+        Action::UpgradeApk => start_job(ctx, "upgrade_apk", &["upgrade"]),
         Action::ListApkUpdates => Ok(json!({"updates": updates().await?})),
         _ => Err(ApiError::invalid(
             "action is not valid for module packages_apk",
         )),
     }
+}
+
+/// Start a background `apk` job; args are validated by the caller. The job
+/// streams the exact terminal output into the job log (no `--no-progress`:
+/// progress text is what the user asked to see).
+fn start_job(
+    ctx: &ModuleCtx<'_>,
+    action: &'static str,
+    args: &[&str],
+) -> Result<serde_json::Value, ApiError> {
+    let program = apk_path()?;
+    let args: Vec<String> = args.iter().copied().map(str::to_string).collect();
+    let started = ctx.jobs.start(
+        ModuleId::PackagesApk,
+        action,
+        ctx.principal,
+        None,
+        move |sink: Arc<JobSink>| async move {
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            exec::run_root_program_log(program, &refs, TIMEOUT, sink).await
+        },
+    )?;
+    Ok(json!(started))
 }
 
 fn repositories() -> Result<Vec<String>, ApiError> {
@@ -202,14 +231,18 @@ fn validate_package(package: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-async fn run(args: &[&str]) -> Result<String, ApiError> {
-    let program = APK_CANDIDATES
+fn apk_path() -> Result<&'static str, ApiError> {
+    APK_CANDIDATES
         .iter()
         .find(|path| Path::new(path).is_file())
         .copied()
         .ok_or_else(|| {
             ApiError::unavailable("apk is not available", "boot a FeralOS/Alpine system")
-        })?;
+        })
+}
+
+async fn run(args: &[&str]) -> Result<String, ApiError> {
+    let program = apk_path()?;
     exec::run_root_program(program, args, TIMEOUT)
         .await
         .map(|outcome| outcome.stdout)

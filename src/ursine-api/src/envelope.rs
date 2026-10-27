@@ -11,7 +11,9 @@ use crate::module::ModuleId;
 use crate::token::SessionToken;
 
 /// Current protocol version. Bump on breaking wire changes.
-pub const PROTOCOL_VERSION: u16 = 2;
+/// v3: package mutations return `job_id` (poll `job_output`); no more inline
+/// mutation output.
+pub const PROTOCOL_VERSION: u16 = 3;
 
 const fn wire_version() -> u16 {
     PROTOCOL_VERSION

@@ -4,12 +4,14 @@
 //! target user through `su`. No shell is involved.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
-use ursine_api::{Action, ApiError, FlatpakPackage, FlatpakRemote};
+use ursine_api::{Action, ApiError, FlatpakPackage, FlatpakRemote, ModuleId};
 
 use super::ModuleCtx;
+use crate::jobs::JobSink;
 use crate::modules::packages_nix::exec;
 
 const FLATPAK_CANDIDATES: [&str; 3] = [
@@ -40,39 +42,64 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                 "flathub",
                 app_id,
             ];
-            let output = run(*system, ctx.as_user, &args).await?;
-            Ok(json!({"output": output}))
+            start_job(ctx, "install_flatpak", *system, &args)
         }
         Action::RemoveFlatpak { app_id, system } => {
             validate_app_id(app_id)?;
             let scope = scope(*system);
             let args = ["uninstall", "-y", "--noninteractive", scope, app_id];
-            let output = run(*system, ctx.as_user, &args).await?;
-            Ok(json!({"output": output}))
+            start_job(ctx, "remove_flatpak", *system, &args)
         }
         Action::RemoveFlatpakOrphans { system } => {
             let scope = scope(*system);
             let args = ["uninstall", "--unused", "-y", "--noninteractive", scope];
-            let output = run(*system, ctx.as_user, &args).await?;
-            Ok(json!({"output": output}))
+            start_job(ctx, "remove_flatpak_orphans", *system, &args)
         }
         Action::UpdateFlatpak { system } => {
             let scope = scope(*system);
             let args = ["update", "-y", "--noninteractive", scope];
-            let output = run(*system, ctx.as_user, &args).await?;
-            Ok(json!({"output": output}))
+            start_job(ctx, "update_flatpak", *system, &args)
         }
         Action::UpdateFlatpakApp { app_id, system } => {
             validate_app_id(app_id)?;
             let scope = scope(*system);
             let args = ["update", "-y", "--noninteractive", scope, app_id];
-            let output = run(*system, ctx.as_user, &args).await?;
-            Ok(json!({"output": output}))
+            start_job(ctx, "update_flatpak_app", *system, &args)
         }
         _ => Err(ApiError::invalid(
             "action is not valid for module packages_flatpak",
         )),
     }
+}
+
+/// Start a background flatpak job; args are validated by the caller. System
+/// operations run as root, user operations as the target user.
+fn start_job(
+    ctx: &ModuleCtx<'_>,
+    action: &'static str,
+    system: bool,
+    args: &[&str],
+) -> Result<serde_json::Value, ApiError> {
+    let program = flatpak_path()?;
+    let user = ctx.as_user.to_string();
+    let args: Vec<String> = args.iter().copied().map(str::to_string).collect();
+    let started = ctx.jobs.start(
+        ModuleId::PackagesFlatpak,
+        action,
+        ctx.principal,
+        // System scope runs as root: never record a target user the action
+        // did not honor (mirrors apk).
+        (!system).then_some(ctx.as_user),
+        move |sink: Arc<JobSink>| async move {
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            if system {
+                exec::run_root_program_log(program, &refs, TIMEOUT, sink).await
+            } else {
+                exec::run_as_user_argv_log(&user, program, &refs, TIMEOUT, sink).await
+            }
+        },
+    )?;
+    Ok(json!(started))
 }
 
 const fn scope(system: bool) -> &'static str {

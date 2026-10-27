@@ -6,6 +6,27 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-27 — package progress implemented + review-closed (0.20.0 ready)
+
+**Status**: Tier-2 review closed (4 lenses: requirements/code/security/ux); every confirmed finding fixed; gate green (210 tests: 135 core / 37 GUI / 32 API / 6 integration; clippy `-D warnings`; fmt); version bumped to 0.20.0. Commit + tag next for user's VM smoke.
+
+- Package progress (P0, binding rule) implemented backend + GUI: `ursine-api` job types + `Action::JobOutput` + protocol v3; `ursine-core` `jobs.rs` registry (RAM, `/run/ursine/jobs/<id>.log`, 1 MiB cap + truncated, TTL/lost sweep, audit on start/complete, poll not audited); APK/Flatpak/Nix mutations return `{"job_id":...}` and run via job log (apk `--no-progress` removed, `RefreshApk` stays sync, previews/dry-run/empty stay sync).
+- GUI: `client::job_output` + poll chain (`JobPolled(epoch, job_id, …)`, 400 ms delay, snap-to-bottom) + terminal box `job_panel` (monospace 16 KiB tail, Close on done/detached, busy held until completion, reload on done, epoch/sign-out guard).
+- Review fixes (all confirmed findings, 4 lenses): single tracked job across both panels (dispatch guards + `track_job` fallback + stale-poll drop by job id); drain full 64 KiB pages after done (tail loss); JoinHandle monitor closes panicking workers immediately; completion audit + sweep file IO moved outside the jobs lock; startup purge of stale job logs; prune job re-validates profile at execution; `JobOutput` principal binding (origin+user, Forbidden on mismatch); flatpak system jobs audit `as_user=None`; poll failure keeps the log box detached with Close; specs fixed (`--no-progress` rows, job-log design supersedes `progress.rs`); fail-closed registry documented.
+- Rejected as enhancements (not defects): global cross-screen job indicator; keyboard-focus verification of Close; Close-on-owning-tab duplicate feedback (owning panel keeps the outcome message).
+- Docs/state: AGENTS package-progress rule (implemented), SPECs, TASKS, CHANGELOG → `0.20.0 — 2026-10-27`, session-state key_decisions (incl. RefreshApk sync approval), memory saved.
+- Next: final static + docs gates, commit, tag `v0.20.0`, then user VM smoke (daemon + GUI live output + Close).
+
+## Session 2026-10-27 — package progress implemented (uncommitted)
+
+**Status**: Tier-1 gate green (207 tests: 132 core / 37 GUI / 32 API / 6 integration; clippy `-D warnings`; fmt); static-check PASS in `ursine-static:1`; docs pending check; no commit (orchestrator Pre-Commit Review Gate next).
+
+- Package progress (P0, binding rule) implemented backend + GUI: `ursine-api` job types + `Action::JobOutput` + protocol v3; `ursine-core` `jobs.rs` registry (RAM, `/run/ursine/jobs/<id>.log`, 1 MiB cap + truncated, TTL/lost sweep, audit on start/complete, poll not audited); APK/Flatpak/Nix mutations return `{"job_id":...}` and run via job log (apk `--no-progress` removed, `RefreshApk` stays sync, previews/dry-run/empty stay sync).
+- GUI: `client::job_output` + poll chain (`JobPolled`, 400 ms delay) + terminal box `job_panel` (scrollable exact text, Close only when `done`, busy flag held until completion, reload on done, epoch/sign-out guard).
+- Added dispatch test: invalid/unknown `job_id` rejected, polls absent from audit log.
+- Docs updated: AGENTS package-progress rule (implemented), SPEC-packages-nix, TASKS, CHANGELOG; state/session-state.json refreshed.
+- Next: Tier-2 review lenses on the frozen diff, fix findings, commit; then remaining v1/v2 details.
+
 ## Session 2026-10-27 — post-0.19.0 v1/v2 work
 
 **Status**: CI green `40537405247`; changes on main, no new tag.

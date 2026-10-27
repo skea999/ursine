@@ -12,6 +12,7 @@ pub mod clock;
 pub mod config;
 pub mod dispatch;
 pub mod error;
+pub mod jobs;
 pub mod modules;
 pub mod ratelimit;
 pub mod session;

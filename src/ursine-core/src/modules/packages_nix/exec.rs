@@ -8,11 +8,14 @@
 
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use ursine_api::{is_safe_installable_atom, ApiError, CommandOutcome};
+
+use crate::jobs::JobSink;
 
 /// Max stderr/stdout retained in an error or result (keeps responses sane).
 const MAX_OUTPUT: usize = 64 * 1024;
@@ -176,13 +179,15 @@ pub(super) fn validate_target_user(user: &str) -> Result<(), ApiError> {
 /// parse. Allow a bounded but complete document instead.
 const MAX_SEARCH_OUTPUT: usize = 32 * 1024 * 1024;
 
-/// How stdout is bounded while the command runs.
-#[derive(Clone, Copy)]
+/// How stdout/stderr are bounded while the command runs.
+#[derive(Clone)]
 enum OutputPolicy {
     /// Keep the first `MAX_OUTPUT` bytes (human-readable commands).
     Truncate,
     /// Reject output larger than the limit; never truncate JSON.
     Complete(usize),
+    /// Stream both pipes into a job log; nothing is retained in RAM.
+    Stream(Arc<JobSink>),
 }
 
 #[derive(Debug)]
@@ -256,16 +261,19 @@ async fn run_command(
                 if n == 0 {
                     break;
                 }
-                match policy {
+                match &policy {
+                    OutputPolicy::Stream(sink) => {
+                        sink.append(out_buf.get(..n).unwrap_or_default());
+                    }
                     OutputPolicy::Truncate => {
                         let room = MAX_OUTPUT.saturating_sub(out.len());
                         out.extend_from_slice(out_buf.get(..room.min(n)).unwrap_or_default());
                     }
                     OutputPolicy::Complete(limit) => {
-                        if out.len() + n > limit {
+                        if out.len() + n > *limit {
                             return Err(ApiError::invalid(format!(
                                 "command output exceeds {} MiB; narrow the request",
-                                limit / (1024 * 1024)
+                                *limit / (1024 * 1024)
                             )));
                         }
                         out.extend_from_slice(out_buf.get(..n).unwrap_or_default());
@@ -283,8 +291,12 @@ async fn run_command(
                 if n == 0 {
                     break;
                 }
-                let room = MAX_OUTPUT.saturating_sub(err.len());
-                err.extend_from_slice(err_buf.get(..room.min(n)).unwrap_or_default());
+                if let OutputPolicy::Stream(sink) = &policy {
+                    sink.append(err_buf.get(..n).unwrap_or_default());
+                } else {
+                    let room = MAX_OUTPUT.saturating_sub(err.len());
+                    err.extend_from_slice(err_buf.get(..room.min(n)).unwrap_or_default());
+                }
             }
             Ok::<(), ApiError>(())
         };
@@ -414,26 +426,7 @@ pub async fn run_as_user_argv(
     argv: &[&str],
     timeout: Duration,
 ) -> Result<CommandOutcome, ApiError> {
-    validate_target_user(user)?;
-    if !is_safe_atom(program) {
-        return Err(ApiError::invalid("invalid program"));
-    }
-    let mut cmdline = String::from(program);
-    for arg in argv {
-        if !is_safe_quoted_value(arg) {
-            return Err(ApiError::invalid("invalid command argument"));
-        }
-        cmdline.push_str(" '");
-        cmdline.push_str(arg);
-        cmdline.push('\'');
-    }
-    let mut cmd = Command::new(su_path()?);
-    cmd.arg("-l")
-        .arg("-s")
-        .arg("/bin/sh")
-        .arg(user)
-        .arg("-c")
-        .arg(&cmdline);
+    let cmd = su_argv_command(user, program, argv)?;
     let output = run_command(cmd, timeout, OutputPolicy::Truncate, None).await?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -588,35 +581,7 @@ async fn run_as_user_limited(
     timeout: Duration,
     stdout_policy: OutputPolicy,
 ) -> Result<CommandOutcome, ApiError> {
-    validate_target_user(user)?;
-    if !is_safe_atom(program) {
-        return Err(ApiError::invalid("invalid program"));
-    }
-
-    // Build the command line: flags are atoms, values are single-quoted
-    // (defense in depth; regex patterns and spaces stay literal).
-    let mut nix_cmd = String::from(program);
-    for (flag, value) in args {
-        if !is_safe_atom(flag) || (!value.is_empty() && !is_safe_quoted_value(value)) {
-            return Err(ApiError::invalid("invalid command argument"));
-        }
-        nix_cmd.push(' ');
-        nix_cmd.push_str(flag);
-        if !value.is_empty() {
-            nix_cmd.push_str(" '");
-            nix_cmd.push_str(value);
-            nix_cmd.push('\'');
-        }
-    }
-
-    let mut cmd = Command::new(su_path()?);
-    cmd.arg("-l")
-        .arg("-s")
-        .arg("/bin/sh")
-        .arg(user)
-        .arg("-c")
-        .arg(&nix_cmd);
-
+    let cmd = su_pairs_command(user, program, args)?;
     let output = run_command(cmd, timeout, stdout_policy, None).await?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -634,6 +599,95 @@ async fn run_as_user_limited(
             format!("nix command failed: {detail}"),
         ))
     }
+}
+
+/// Build `su -l -s /bin/sh <user> -c '<program flag 'value' …>'`.
+/// Flags are atoms; values are single-quoted (regex patterns and paths with
+/// spaces stay literal, shell metacharacters never reach the shell).
+fn su_pairs_command(user: &str, program: &str, args: &[(&str, &str)]) -> Result<Command, ApiError> {
+    validate_target_user(user)?;
+    if !is_safe_atom(program) {
+        return Err(ApiError::invalid("invalid program"));
+    }
+    let mut cmdline = String::from(program);
+    for (flag, value) in args {
+        if !is_safe_atom(flag) || (!value.is_empty() && !is_safe_quoted_value(value)) {
+            return Err(ApiError::invalid("invalid command argument"));
+        }
+        cmdline.push(' ');
+        cmdline.push_str(flag);
+        if !value.is_empty() {
+            cmdline.push_str(" '");
+            cmdline.push_str(value);
+            cmdline.push('\'');
+        }
+    }
+    let mut cmd = Command::new(su_path()?);
+    cmd.arg("-l")
+        .arg("-s")
+        .arg("/bin/sh")
+        .arg(user)
+        .arg("-c")
+        .arg(&cmdline);
+    Ok(cmd)
+}
+
+/// Build `su -l -s /bin/sh <user> -c '<program 'arg' …>'` for an explicit
+/// argv; every element is single-quoted, so flags and names are literal.
+fn su_argv_command(user: &str, program: &str, argv: &[&str]) -> Result<Command, ApiError> {
+    validate_target_user(user)?;
+    if !is_safe_atom(program) {
+        return Err(ApiError::invalid("invalid program"));
+    }
+    let mut cmdline = String::from(program);
+    for arg in argv {
+        if !is_safe_quoted_value(arg) {
+            return Err(ApiError::invalid("invalid command argument"));
+        }
+        cmdline.push_str(" '");
+        cmdline.push_str(arg);
+        cmdline.push('\'');
+    }
+    let mut cmd = Command::new(su_path()?);
+    cmd.arg("-l")
+        .arg("-s")
+        .arg("/bin/sh")
+        .arg(user)
+        .arg("-c")
+        .arg(&cmdline);
+    Ok(cmd)
+}
+
+/// Exit code reported to a job: `-1` when the process died on a signal.
+fn job_exit_code(output: &CapturedOutput) -> i32 {
+    output.status.code().unwrap_or(-1)
+}
+
+/// Run `nix <args…>` as `user`, streaming terminal output into a job log.
+/// Non-zero exits are returned as codes, not errors: the log carries detail.
+pub async fn run_as_user_nix_log(
+    user: &str,
+    args: &[(&str, &str)],
+    timeout: Duration,
+    sink: Arc<JobSink>,
+) -> Result<i32, ApiError> {
+    let cmd = su_pairs_command(user, "nix", args)?;
+    let output = run_command(cmd, timeout, OutputPolicy::Stream(sink), None).await?;
+    Ok(job_exit_code(&output))
+}
+
+/// Run an explicit argv as `user`, streaming into a job log; returns the
+/// exit code (`-1` on signal kill).
+pub async fn run_as_user_argv_log(
+    user: &str,
+    program: &str,
+    argv: &[&str],
+    timeout: Duration,
+    sink: Arc<JobSink>,
+) -> Result<i32, ApiError> {
+    let cmd = su_argv_command(user, program, argv)?;
+    let output = run_command(cmd, timeout, OutputPolicy::Stream(sink), None).await?;
+    Ok(job_exit_code(&output))
 }
 
 /// Run a trusted program as root with literal args and stdin input.
@@ -715,6 +769,23 @@ pub async fn run_root_program_quoted(
     }
 }
 
+/// Build a root argv command (no shell). Every element is an atom; a
+/// comma-separated list (`usermod -G`) is still atom-only per element.
+fn root_command(program: &str, args: &[&str]) -> Result<Command, ApiError> {
+    if !is_safe_atom(program) {
+        return Err(ApiError::invalid("invalid program"));
+    }
+    let mut cmd = Command::new(program);
+    for arg in args {
+        let safe = arg.is_empty() || arg.split(',').all(is_safe_atom);
+        if !safe {
+            return Err(ApiError::invalid("invalid command argument"));
+        }
+        cmd.arg(arg);
+    }
+    Ok(cmd)
+}
+
 /// Run a validated argv as ROOT (no shell is involved). Used for store-wide
 /// operations and for profile commands users cannot lock themselves.
 pub async fn run_root_program(
@@ -722,20 +793,7 @@ pub async fn run_root_program(
     args: &[&str],
     timeout: Duration,
 ) -> Result<CommandOutcome, ApiError> {
-    if !is_safe_atom(program) {
-        return Err(ApiError::invalid("invalid program"));
-    }
-    let mut cmd = Command::new(program);
-    for arg in args {
-        // Some helpers take a comma-separated list (`usermod -G`). Every
-        // element is still an atom, so no shell metacharacter can enter.
-        let safe = arg.is_empty() || arg.split(',').all(is_safe_atom);
-        if !safe {
-            return Err(ApiError::invalid("invalid command argument"));
-        }
-        cmd.arg(arg);
-    }
-
+    let cmd = root_command(program, args)?;
     let output = run_command(cmd, timeout, OutputPolicy::Truncate, None).await?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -753,6 +811,19 @@ pub async fn run_root_program(
             format!("command failed: {detail}"),
         ))
     }
+}
+
+/// Run a validated argv as ROOT, streaming terminal output into a job log.
+/// Returns the exit code (`-1` on signal kill); non-zero is not an error.
+pub async fn run_root_program_log(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+    sink: Arc<JobSink>,
+) -> Result<i32, ApiError> {
+    let cmd = root_command(program, args)?;
+    let output = run_command(cmd, timeout, OutputPolicy::Stream(sink), None).await?;
+    Ok(job_exit_code(&output))
 }
 
 #[cfg(test)]

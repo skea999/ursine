@@ -3,7 +3,7 @@
 //! `ensure_available` first, so gating is exercised end to end).
 
 use serde_json::json;
-use ursine_api::{Action, ApiError, Capability, ModuleId, Response, UrsineConfig};
+use ursine_api::{Action, ApiError, Capability, ModuleId, Principal, Response, UrsineConfig};
 
 pub mod bluetooth;
 pub mod disks;
@@ -20,6 +20,7 @@ pub mod snapshots;
 pub mod users;
 
 use crate::capabilities::{module_switch, Registry};
+use crate::jobs::JobRegistry;
 
 /// Everything a handler may touch (no daemon internals).
 #[derive(Debug)]
@@ -29,6 +30,10 @@ pub struct ModuleCtx<'a> {
     pub config: UrsineConfig,
     /// Resolved target user (defaults to the principal).
     pub as_user: &'a str,
+    /// Job registry for package mutations that start a background job.
+    pub jobs: &'a JobRegistry,
+    /// Authenticated caller (recorded on job start and completion).
+    pub principal: &'a Principal,
 }
 
 /// Gating requirements per module.
@@ -79,6 +84,13 @@ pub async fn handle(
             "protocol_version": ursine_api::PROTOCOL_VERSION,
             "auth": if cfg!(feature = "pam") { "pam" } else { "stub" },
         })),
+        // Poll a job log; the registry validates the id, the principal
+        // binding and bounds the read.
+        (ModuleId::System, Action::JobOutput { job_id, offset }) => {
+            let out = ctx.jobs.output(ctx.principal, job_id, *offset)?;
+            serde_json::to_value(out)
+                .map_err(|e| ApiError::internal(format!("encode job output: {e}")))
+        }
         (ModuleId::Capabilities, Action::List) => Ok(json!(ctx.caps.reports())),
         (ModuleId::Capabilities, Action::Refresh) => {
             ctx.caps.refresh();
@@ -123,6 +135,7 @@ pub fn action_name(action: &Action) -> &'static str {
     match action {
         Action::Status => "status",
         Action::Init => "init",
+        Action::JobOutput { .. } => "job_output",
         Action::GetConfig => "get_config",
         Action::SetModuleSwitch { .. } => "set_module_switch",
         Action::List => "list",
@@ -222,6 +235,7 @@ pub fn ok(id: Option<u64>, value: serde_json::Value) -> Response {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)] // tests use the host temp dir
     use super::*;
     use crate::capabilities::checks::Sysinfo;
     use std::path::{Path, PathBuf};
@@ -248,13 +262,37 @@ mod tests {
         )
     }
 
+    /// Per-test job registry + principal so handlers get a full `ModuleCtx`.
+    struct TestEnv {
+        jobs: JobRegistry,
+        principal: Principal,
+    }
+
+    fn test_env(name: &str) -> TestEnv {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let seq = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let dir =
+            std::env::temp_dir().join(format!("ursine-ctx-{name}-{}-{seq}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let clock = crate::clock::ManualClock::new(0);
+        let audit = crate::audit::AuditLog::open(dir.join("audit.jsonl"), clock.clone()).unwrap();
+        let jobs = JobRegistry::new(dir.join("jobs"), Arc::new(audit), clock.clone()).unwrap();
+        TestEnv {
+            jobs,
+            principal: Principal::local("skea999", Vec::new()),
+        }
+    }
+
     #[tokio::test]
     async fn system_status_reports_stub_auth_in_dev() {
         let (caps, cfg, _path) = ctx_with(AllMissing);
+        let env = test_env("ctx");
         let ctx = ModuleCtx {
             caps: &caps,
             config: cfg.clone(),
             as_user: "u",
+            jobs: &env.jobs,
+            principal: &env.principal,
         };
         let v = handle(ModuleId::System, &Action::Status, &ctx)
             .await
@@ -269,10 +307,13 @@ mod tests {
     #[tokio::test]
     async fn capabilities_list_returns_all_fifteen() {
         let (caps, cfg, _path) = ctx_with(AllMissing);
+        let env = test_env("ctx");
         let ctx = ModuleCtx {
             caps: &caps,
             config: cfg.clone(),
             as_user: "u",
+            jobs: &env.jobs,
+            principal: &env.principal,
         };
         let v = handle(ModuleId::Capabilities, &Action::List, &ctx)
             .await
@@ -283,10 +324,13 @@ mod tests {
     #[tokio::test]
     async fn package_actions_gated_before_notimplemented() {
         let (caps, cfg, _path) = ctx_with(AllMissing);
+        let env = test_env("ctx");
         let ctx = ModuleCtx {
             caps: &caps,
             config: cfg.clone(),
             as_user: "u",
+            jobs: &env.jobs,
+            principal: &env.principal,
         };
         let err = handle(ModuleId::PackagesNix, &Action::ListInstalled, &ctx)
             .await
@@ -300,10 +344,13 @@ mod tests {
     async fn disabled_module_is_unavailable_even_if_forced_off() {
         let (caps, mut cfg, _path) = ctx_with(AllMissing);
         cfg.modules.packages_nix = ursine_api::TriState::Off;
+        let env = test_env("ctx");
         let ctx = ModuleCtx {
             caps: &caps,
             config: cfg.clone(),
             as_user: "u",
+            jobs: &env.jobs,
+            principal: &env.principal,
         };
         let err = handle(
             ModuleId::PackagesNix,
@@ -320,10 +367,13 @@ mod tests {
     #[tokio::test]
     async fn invalid_module_action_combo_is_rejected() {
         let (caps, cfg, _path) = ctx_with(AllMissing);
+        let env = test_env("ctx");
         let ctx = ModuleCtx {
             caps: &caps,
             config: cfg.clone(),
             as_user: "u",
+            jobs: &env.jobs,
+            principal: &env.principal,
         };
         let err = handle(
             ModuleId::System,

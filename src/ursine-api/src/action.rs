@@ -32,6 +32,14 @@ pub enum Action {
     /// Re-run detection now.
     Refresh,
 
+    // -- jobs --
+    /// Poll a background job log from byte `offset` (package progress).
+    JobOutput {
+        job_id: String,
+        #[serde(default)]
+        offset: u64,
+    },
+
     // -- packages.nix --
     /// List installed packages in the target user's profile.
     ListInstalled,
@@ -483,6 +491,29 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<Action>(json).unwrap(),
             with_preview
+        );
+    }
+
+    #[test]
+    fn job_output_action_roundtrips() {
+        let a = Action::JobOutput {
+            job_id: "deadbeef".into(),
+            offset: 42,
+        };
+        let s = serde_json::to_string(&a).unwrap();
+        assert!(s.contains("\"action\":\"job_output\""));
+        assert_eq!(serde_json::from_str::<Action>(&s).unwrap(), a);
+        let parsed: Action = serde_json::from_value(serde_json::json!({
+            "action": "job_output",
+            "job_id": "deadbeef",
+        }))
+        .unwrap();
+        assert_eq!(
+            parsed,
+            Action::JobOutput {
+                job_id: "deadbeef".into(),
+                offset: 0,
+            }
         );
     }
 

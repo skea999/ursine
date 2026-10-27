@@ -24,7 +24,7 @@
 - [x] APK: repository list.
 - [x] APK: protected-package warning (world file, remove disabled).
 - [x] APK: dependency/size preview (`apk add --simulate`).
-- [ ] APK: operation progress/log.
+- [x] APK: operation progress/log (job log + `job_output` polling, terminal text, Close after completion).
 - [x] Flatpak: per-app update.
 - [x] Flatpak: configured remotes list.
 - [ ] Flatpak: remote dropdown, app/runtime split, update-available list, permissions editor, size/progress, target user.

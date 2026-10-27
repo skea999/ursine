@@ -8,15 +8,17 @@ pub mod exec;
 mod generations;
 mod parse;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
 use ursine_api::{
     normalize_installable, timeouts, validate_installable, Action, ApiError, CommandOutcome,
-    ErrorCode, InstalledPackage,
+    ErrorCode, InstalledPackage, ModuleId,
 };
 
 use super::ModuleCtx;
+use crate::jobs::JobSink;
 
 const LIST_TIMEOUT: Duration = Duration::from_secs(timeouts::PROFILE_SECS);
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(timeouts::SEARCH_SECS);
@@ -114,6 +116,69 @@ fn prune_apply_payload(
     })
 }
 
+/// Copy borrowed flag/value pairs into owned form for a job closure.
+fn pairs(args: &[(&str, &str)]) -> Vec<(String, String)> {
+    args.iter()
+        .map(|(flag, value)| ((*flag).to_string(), (*value).to_string()))
+        .collect()
+}
+
+/// Start a profile job that runs `nix <flag/value pairs>` as the target user.
+fn start_profile_job(
+    ctx: &ModuleCtx<'_>,
+    action: &'static str,
+    args: Vec<(String, String)>,
+    timeout: Duration,
+) -> Result<serde_json::Value, ApiError> {
+    let user = ctx.as_user.to_string();
+    let started = ctx.jobs.start(
+        ModuleId::PackagesNix,
+        action,
+        ctx.principal,
+        Some(ctx.as_user),
+        move |sink: Arc<JobSink>| async move {
+            let refs: Vec<(String, String)> = args;
+            let borrowed: Vec<(&str, &str)> = refs
+                .iter()
+                .map(|(flag, value)| (flag.as_str(), value.as_str()))
+                .collect();
+            exec::run_as_user_nix_log(&user, &borrowed, timeout, sink).await
+        },
+    )?;
+    Ok(json!(started))
+}
+
+/// Start a profile job that runs an explicit argv as the target user.
+fn start_argv_job(
+    ctx: &ModuleCtx<'_>,
+    action: &'static str,
+    program: &'static str,
+    argv: Vec<String>,
+    timeout: Duration,
+) -> Result<serde_json::Value, ApiError> {
+    let user = ctx.as_user.to_string();
+    let started = ctx.jobs.start(
+        ModuleId::PackagesNix,
+        action,
+        ctx.principal,
+        Some(ctx.as_user),
+        move |sink: Arc<JobSink>| async move {
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            exec::run_as_user_argv_log(&user, program, &refs, timeout, sink).await
+        },
+    )?;
+    Ok(json!(started))
+}
+
+/// True when the profile symlink no longer points at `generation` (a
+/// concurrent rollback raced the job).
+fn profile_changed(profile_link: &std::path::Path, generation: u32) -> bool {
+    std::fs::read_link(profile_link)
+        .ok()
+        .and_then(|link| generations::parse_generation_link(&link.to_string_lossy()))
+        .is_some_and(|now| now != generation)
+}
+
 /// Handle a packages.nix action.
 pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
     let user = ctx.as_user;
@@ -144,33 +209,28 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         }
         Action::Install { package } => {
             let installable = normalize_installable(package)?;
-            let out = exec::run_as_user(
-                user,
-                &[("profile", ""), ("add", ""), (&installable, "")],
+            start_profile_job(
+                ctx,
+                "install",
+                pairs(&[("profile", ""), ("add", ""), (installable.as_str(), "")]),
                 MUTATE_TIMEOUT,
             )
-            .await?;
-            Ok(json!(out))
         }
         Action::Remove { package } => {
             validate_installable(package)?;
-            let out = exec::run_as_user(
-                user,
-                &[("profile", ""), ("remove", ""), (package, "")],
+            start_profile_job(
+                ctx,
+                "remove",
+                pairs(&[("profile", ""), ("remove", ""), (package, "")]),
                 MUTATE_TIMEOUT,
             )
-            .await?;
-            Ok(json!(out))
         }
-        Action::RemoveAll => {
-            let out = exec::run_as_user(
-                user,
-                &[("profile", ""), ("remove", ""), ("--all", "")],
-                MUTATE_TIMEOUT,
-            )
-            .await?;
-            Ok(json!(out))
-        }
+        Action::RemoveAll => start_profile_job(
+            ctx,
+            "remove_all",
+            pairs(&[("profile", ""), ("remove", ""), ("--all", "")]),
+            MUTATE_TIMEOUT,
+        ),
         Action::RemoveRegex { pattern, dry_run } => {
             let names = regex_matches(user, pattern).await?;
             if *dry_run {
@@ -185,32 +245,30 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                     stderr: String::new(),
                 }));
             }
-            let mut argv: Vec<&str> = vec!["profile", "remove"];
-            argv.extend(names.iter().map(String::as_str));
-            let out = exec::run_as_user_argv(user, "nix", &argv, MUTATE_TIMEOUT).await?;
-            Ok(json!(out))
+            let mut argv: Vec<String> = vec!["profile".into(), "remove".into()];
+            argv.extend(names);
+            start_argv_job(ctx, "remove_regex", "nix", argv, MUTATE_TIMEOUT)
         }
         Action::Upgrade { package, all } => {
-            let out = if *all {
-                exec::run_as_user(
-                    user,
-                    &[("profile", ""), ("upgrade", ""), ("--all", "")],
+            if *all {
+                start_profile_job(
+                    ctx,
+                    "upgrade",
+                    pairs(&[("profile", ""), ("upgrade", ""), ("--all", "")]),
                     MUTATE_TIMEOUT,
                 )
-                .await?
             } else {
                 let package = package
                     .as_deref()
                     .ok_or_else(|| ApiError::invalid("package required when all=false"))?;
                 validate_installable(package)?;
-                exec::run_as_user(
-                    user,
-                    &[("profile", ""), ("upgrade", ""), (package, "")],
+                start_profile_job(
+                    ctx,
+                    "upgrade",
+                    pairs(&[("profile", ""), ("upgrade", ""), (package, "")]),
                     MUTATE_TIMEOUT,
                 )
-                .await?
-            };
-            Ok(json!(out))
+            }
         }
         Action::UpgradeRegex { pattern, dry_run } => {
             let names = regex_matches(user, pattern).await?;
@@ -226,10 +284,9 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                     stderr: String::new(),
                 }));
             }
-            let mut argv: Vec<&str> = vec!["profile", "upgrade"];
-            argv.extend(names.iter().map(String::as_str));
-            let out = exec::run_as_user_argv(user, "nix", &argv, MUTATE_TIMEOUT).await?;
-            Ok(json!(out))
+            let mut argv: Vec<String> = vec!["profile".into(), "upgrade".into()];
+            argv.extend(names);
+            start_argv_job(ctx, "upgrade_regex", "nix", argv, MUTATE_TIMEOUT)
         }
         Action::Generations => {
             let out = exec::run_as_user(user, &[("profile", ""), ("history", "")], HISTORY_TIMEOUT)
@@ -239,11 +296,10 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         Action::Rollback { generation } => {
             let gen_str = generation.map(|g| g.to_string());
             let mut args: Vec<(&str, &str)> = vec![("profile", ""), ("rollback", "")];
-            if let Some(g) = gen_str.as_deref() {
-                args.push(("--to", g));
+            if let Some(gen) = gen_str.as_deref() {
+                args.push(("--to", gen));
             }
-            let out = exec::run_as_user(user, &args, MUTATE_TIMEOUT).await?;
-            Ok(json!(out))
+            start_profile_job(ctx, "rollback", pairs(&args), MUTATE_TIMEOUT)
         }
         Action::WipeHistory {
             older_than,
@@ -256,9 +312,10 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             }
             if *dry_run {
                 args.push(("--dry-run", ""));
+                let out = exec::run_as_user(user, &args, MUTATE_TIMEOUT).await?;
+                return Ok(json!(out));
             }
-            let out = exec::run_as_user(user, &args, MUTATE_TIMEOUT).await?;
-            Ok(json!(out))
+            start_profile_job(ctx, "wipe_history", pairs(&args), MUTATE_TIMEOUT)
         }
         Action::DiffClosures { generation } => {
             let gen_str = generation.map(|g| g.to_string());
@@ -272,8 +329,16 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         Action::StoreGc => {
             // Store-wide GC: unreachable paths only; runs as root via the daemon.
             let program = exec::nix_path()?;
-            let out = exec::run_root_program(program, &["store", "gc"], GC_TIMEOUT).await?;
-            Ok(json!(out))
+            let started = ctx.jobs.start(
+                ModuleId::PackagesNix,
+                "store_gc",
+                ctx.principal,
+                None,
+                move |sink: Arc<JobSink>| async move {
+                    exec::run_root_program_log(program, &["store", "gc"], GC_TIMEOUT, sink).await
+                },
+            )?;
+            Ok(json!(started))
         }
         Action::PruneGenerations {
             keep,
@@ -357,34 +422,46 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             let mut argv: Vec<String> =
                 vec!["-p".into(), profile.clone(), "--delete-generations".into()];
             argv.extend(plan.iter().map(u32::to_string));
-            let argv_refs: Vec<&str> = argv.iter().map(String::as_str).collect();
-            let out =
-                match exec::run_as_user_argv(user, "nix-env", &argv_refs, MUTATE_TIMEOUT).await {
-                    Ok(out) => out,
-                    Err(error) => {
-                        // Classify a concurrent rollback from the fresh link, not
-                        // from nix-env wording.
-                        let changed = std::fs::read_link(profile_ref)
-                            .ok()
-                            .and_then(|link| {
-                                generations::parse_generation_link(&link.to_string_lossy())
-                            })
-                            .is_some_and(|now| now != fresh_current);
-                        if changed {
-                            return Err(ApiError::new(
-                                ErrorCode::Conflict,
-                                "profile changed while pruning; retry",
-                            ));
-                        }
-                        return Err(error);
+            let owner = user.to_string();
+            let link = profile_ref.to_path_buf();
+            let started = ctx.jobs.start(
+                ModuleId::PackagesNix,
+                "prune_generations",
+                ctx.principal,
+                Some(ctx.as_user),
+                move |sink: Arc<JobSink>| async move {
+                    // Re-validate at execution time: the profile may have
+                    // moved between dispatch-time validation and this job.
+                    if profile_changed(&link, fresh_current) {
+                        return Err(ApiError::new(
+                            ErrorCode::Conflict,
+                            "profile changed while pruning; retry",
+                        ));
                     }
-                };
-            Ok(prune_apply_payload(
-                Some(fresh_current),
-                &plan,
-                &out.stdout,
-                &out.stderr,
-            ))
+                    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+                    let result =
+                        exec::run_as_user_argv_log(&owner, "nix-env", &refs, MUTATE_TIMEOUT, sink)
+                            .await;
+                    // Classify a concurrent rollback from the fresh link, not
+                    // from nix-env wording.
+                    let conflict =
+                        ApiError::new(ErrorCode::Conflict, "profile changed while pruning; retry");
+                    match result {
+                        Ok(0) => Ok(0),
+                        Ok(code) => Err(if profile_changed(&link, fresh_current) {
+                            conflict
+                        } else {
+                            ApiError::internal(format!("nix-env exited {code}"))
+                        }),
+                        Err(error) => Err(if profile_changed(&link, fresh_current) {
+                            conflict
+                        } else {
+                            error
+                        }),
+                    }
+                },
+            )?;
+            Ok(json!(started))
         }
         _ => Err(ApiError::invalid(
             "action is not valid for module packages_nix",

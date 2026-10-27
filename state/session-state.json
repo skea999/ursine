@@ -1,8 +1,8 @@
 {
   "goal": "Ursine — FeralOS complete control center (Webmin-style): root daemon + libcosmic GUI (v1), full module coverage (v2), OIDC+web (v3, memory-safe stack), Incus UI (v4), ZFS+Pirateus (v5), multi-distro (v6). Intent source of truth: docs/intent/ursine.md.",
-  "status": "v0.19.0-released + post-release v1/v2 work on main",
+  "status": "v0.20.0 package progress ready to commit + tag (review-closed)",
   "active_goals": [
-    "POST-0.19.0 v1/v2 COMPLETION (2026-10-27): Niri output/animation/version gate; APK upgrade/update/repos/preview/protected; Flatpak per-app/remotes; network IP/DNS+Ethernet; printers options/job state; disks UUID/usage/SMART; bluetooth battery. CI green 40537405247.",
+    "RELEASE 0.20.0 (2026-10-27): package progress (daemon job log + job_output polling + GUI terminal box), review-closed, gate green; commit + tag pending for VM smoke.",
     "v0.18.4 INIT HARDENING (2026-10-26): PID1/init detection, root-owned daemon/PAM copies, dinit unit idempotency/stale cleanup, install.sh dinit defaults/restart, CI regression coverage. Review-closed; tag pending in this release commit.",
     "v0.7.0 RELEASED (2026-10-23): users panel + niri baseline; dynamic group tool usermod/addgroup/gpasswd; main CI 39981968110 green; tag CI 39986691808 green; pin 86d90e2; profile 0.7.0. CI optimized (88f3bdc): parallel package, single clippy, no separate GUI build, Nix PR-only, restore-only caches.",
     "v0.7.0 USERS + NIRI BASELINE (2026-10-23): users panel via accountsservice (create/delete/password/groups, uid + self-wheel guards); niri managed sections (layout gaps, animations, touchpad, cursor) with KDL round-trip, validate-before-write, atomic backup, ownership/home guards; GUI panels. Gate: 161 tests, clippy/fmt, static all PASS, docs PASS. Security review closed; staged for orchestrator commit/release.",
@@ -15,12 +15,13 @@
     "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
-    "PACKAGE PROGRESS (P0): daemon RAM job registry + /run/ursine/jobs/<id>.log; job_output polling; live terminal output for APK/Flatpak/Nix; Close only after completion.",
-    "Remaining v1/v2: Niri compatibility range/field errors; APK progress; Flatpak remote dropdown/runtime split/permissions; Network static/forget/VPN; Firewall; Disks format/partition; Bluetooth pairing agent; printer live progress.",
-    "Release: bump version, Tier 2 review gate, CI, tag, update nix/binary.nix."
+    "RELEASE 0.20.0: commit package progress + review fixes, tag v0.20.0, VM smoke on user's VM (daemon + GUI job output + Close).",
+    "Remaining v1/v2: Niri compatibility range/field errors; Flatpak remote dropdown/runtime split/permissions; Network static/forget/VPN; Firewall; Disks format/partition; Bluetooth pairing agent; printer live progress."
   ],
   "key_decisions": [
-    "PACKAGE PROGRESS (2026-10-27): apk/flatpak/nix mutations use a daemon job log + job_output polling. UI shows exact terminal output, no percentage bar, and a Close button only after completion. Not implemented yet.",
+    "REFRESH APK STAYS SYNC (2026-10-27, user decision): read-only index refresh runs synchronously and shows its output on completion; only mutations (install/remove/upgrade) use the job path. Previews/dry-run/search also stay sync.",
+    "REVIEW FIXES 0.20.0 (2026-10-27): single tracked job enforced across package+store panels (guard at dispatch + track_job fallback + job id on JobPolled to drop stale polls); poll keeps draining full 64 KiB pages after done; job worker panic monitored via JoinHandle (closed immediately, no 2h slot burn); completion audit written outside the jobs lock; stale /run/ursine/jobs logs purged at startup; prune job re-validates the profile at execution time; JobOutput bound to principal (origin+user); flatpak system jobs audit as_user=None; poll failure keeps the log box (detached + Close) instead of dropping it; job box renders 16 KiB tail with monospace + snap-to-bottom, sits below tabs; specs updated (--no-progress removal, job-log progress design supersedes progress.rs).",
+    "PACKAGE PROGRESS (2026-10-27, implemented): apk/flatpak/nix mutations use a daemon job log + job_output polling (RAM registry, /run/ursine/jobs/<id>.log, 1 MiB cap, TTL sweep). UI shows exact terminal output, no percentage bar, and a Close button only after completion. Protocol v3: mutation replies return job_id; polls not audited.",
     "PLAN TRACEABILITY (2026-10-26, binding): read intent/ROADMAP/features inventory/module SPEC before proposing or coding; every item must map to an explicit plan line; classify required vs optional/deferred; never invent scope; user decisions override docs and update plan/spec before code.",
     "SCOPE DECISIONS (2026-10-26): scanners are configuration-only (SPEC-scanners; no image scan); autologin is out of scope; Services supports OpenRC+dinit.",
     "REVIEW CLOSURE (2026-10-21, binding): fix every confirmed finding — blocker, high, medium and low — before commit. Zero known defects at commit time. A deferral needs explicit user approval recorded in state/session-state.json with owner and rationale. A fix cycle revalidates the full gate; new findings count as new defects.",

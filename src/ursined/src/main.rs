@@ -15,6 +15,7 @@ use ursine_core::auth::Authenticator;
 use ursine_core::capabilities::Registry;
 use ursine_core::clock::{Clock, SystemClock};
 use ursine_core::dispatch::Daemon;
+use ursine_core::jobs::JobRegistry;
 use ursine_core::ratelimit::RateLimiter;
 use ursine_core::session::TokenStore;
 use ursine_core::socket;
@@ -92,13 +93,25 @@ async fn async_main(config_path: PathBuf) -> std::process::ExitCode {
     let socket_path = config.socket_path.clone();
     let token_ttl_min = config.token_ttl_min;
     let audit = match AuditLog::open(config.audit_path.clone(), clock.clone()) {
-        Ok(a) => a,
+        Ok(a) => Arc::new(a),
         Err(e) => {
             tracing::error!(error = %e, "cannot open audit log");
             return std::process::ExitCode::FAILURE;
         }
     };
     tracing::info!(path = %audit.path().display(), "audit log ready");
+
+    let jobs_dir = PathBuf::from("/run/ursine/jobs");
+    // Fail closed on purpose: protocol v3 mutation replies return `job_id`,
+    // so a daemon without the registry would answer every mutation wrong.
+    let jobs = match JobRegistry::new(jobs_dir.clone(), audit.clone(), clock.clone()) {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::error!(error = %e, "cannot open job registry");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    tracing::info!(dir = %jobs_dir.display(), "job registry ready");
 
     let auth: Arc<dyn Authenticator> = build_authenticator();
 
@@ -114,6 +127,7 @@ async fn async_main(config_path: PathBuf) -> std::process::ExitCode {
             ursine_core::dispatch::MAX_INFLIGHT_AUTH,
         )),
         audit,
+        jobs,
         auth,
         config: tokio::sync::RwLock::new(config),
     });

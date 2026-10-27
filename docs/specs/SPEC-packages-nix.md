@@ -45,7 +45,7 @@ GUI can preview it before running. Verified against nix 2.31.5: `history` emits
 ANSI escapes and has no `(current)` marker; `--delete-generations +N` needs root.
 
 - `asUser` defaults to the authenticated principal; daemon verifies target user exists and is a normal user (uid >= 1000) before exec
-- Long ops (install/upgrade) stream progress lines over the socket (JSON progress events, same connection)
+- Long ops (install/upgrade) run as daemon jobs: exact output streams to `/run/ursine/jobs/<id>.log` and frontends poll `job_output` (supersedes the earlier same-connection JSON progress-event design; see Package progress)
 
 ## Commands
 
@@ -59,16 +59,19 @@ cargo test -p ursine-core packages_nix
 src/ursine-core/src/modules/packages_nix/
 ├─ mod.rs        action handlers
 ├─ exec.rs       asUser exec helper (su -l, env sanitization, timeout, output capture)
-├─ parse.rs      `nix profile list --json` / `nix search` parsers
-└─ progress.rs   subprocess stdout -> JSON progress events
+└─ parse.rs      `nix profile list --json` / `nix search` parsers
 ```
+
+Progress is not parsed: mutations stream raw terminal bytes into the shared
+job log (`src/ursine-core/src/jobs.rs`); the frontend polls `job_output`.
 
 ## Code Style
 
 ```rust
-let mut cmd = Exec::as_user(user, ["nix", "profile", "install", &flake_ref])?;
-cmd.timeout(Duration::from_secs(600));
-let events = cmd.stream(|line| progress_tx.send(parse_line(line))).await?;
+// Mutations return a job id; the shared registry streams exact output.
+let started = ctx.jobs.start(ModuleId::PackagesNix, "install", ctx.principal, Some(ctx.as_user), move |sink| async move {
+    exec::run_as_user_nix_log(&user, &borrowed, MUTATE_TIMEOUT, sink).await
+})?;
 ```
 
 - Environment sanitized for su: `PATH`, `HOME`, `USER`, `LOGNAME`, `NIX_PROFILE` set explicitly; daemon env never leaks into user shells
@@ -96,7 +99,7 @@ let events = cmd.stream(|line| progress_tx.send(parse_line(line))).await?;
 
 - Search index latency: `nix search` is slow (evaluates nixpkgs). v1 = accept slowness + progress indicator; v2 option = prebuilt search index cache. Accepted?
 
-## Package progress (planned, binding)
+## Package progress (binding, implemented 2026-10-27)
 
 Mutations must stream the exact process output as terminal text, not a
 percentage bar. The daemon owns a RAM job registry and writes stdout/stderr to

@@ -11,6 +11,7 @@ use ursine_api::{
 use crate::audit::{AuditLog, Outcome};
 use crate::auth::{AuthError, Authenticator, PeerInfo};
 use crate::capabilities::Registry;
+use crate::jobs::JobRegistry;
 use crate::modules;
 use crate::ratelimit::RateLimiter;
 use crate::session::TokenStore;
@@ -38,7 +39,9 @@ pub struct Daemon {
     pub sessions: TokenStore,
     pub ratelimit: RateLimiter,
     pub auth_permits: Arc<tokio::sync::Semaphore>,
-    pub audit: AuditLog,
+    pub audit: Arc<AuditLog>,
+    /// Package job registry (shared with module handlers).
+    pub jobs: JobRegistry,
 }
 
 impl std::fmt::Debug for Daemon {
@@ -356,6 +359,8 @@ impl Daemon {
             caps: &self.caps,
             config,
             as_user: &target_user,
+            jobs: &self.jobs,
+            principal: &principal,
         };
 
         let result = match as_user_error {
@@ -369,14 +374,19 @@ impl Daemon {
             },
         };
 
-        let outcome = Outcome::from_result(&result);
-        self.audit.record(
-            &principal,
-            Some(module),
-            &action_name,
-            audited_as_user,
-            outcome,
-        );
+        // `job_output` polls are read-only and frequent; auditing them would
+        // flood the log. Start and completion are audited (completion by the
+        // registry when the worker exits).
+        if !matches!(&action, Action::JobOutput { .. }) {
+            let outcome = Outcome::from_result(&result);
+            self.audit.record(
+                &principal,
+                Some(module),
+                &action_name,
+                audited_as_user,
+                outcome,
+            );
+        }
 
         match result {
             Ok(value) => Response::ok(id, value),
@@ -424,7 +434,8 @@ mod tests {
             login_rate_limit_per_min: 5,
             modules: ursine_api::ModulesConfig::default(),
         };
-        let audit = AuditLog::open(cfg.audit_path.clone(), clock.clone()).unwrap();
+        let audit = Arc::new(AuditLog::open(cfg.audit_path.clone(), clock.clone()).unwrap());
+        let jobs = JobRegistry::new(dir.join("jobs"), audit.clone(), clock.clone()).unwrap();
         let d = Daemon {
             caps: Registry::system(),
             config_path: dir.join("config.toml"),
@@ -433,6 +444,7 @@ mod tests {
             ratelimit: RateLimiter::new(cfg.login_rate_limit_per_min, clock.clone()),
             auth_permits: Arc::new(tokio::sync::Semaphore::new(MAX_INFLIGHT_AUTH)),
             audit,
+            jobs,
             config: tokio::sync::RwLock::new(cfg),
         };
         (clock, d)
@@ -503,6 +515,41 @@ mod tests {
             }
             other => panic!("want ok, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn job_output_poll_validates_id_and_is_not_audited() {
+        let (_clock, d) = daemon(&tmp_dir("job-output"));
+        let token = token(&d).await;
+        for (job_id, want) in [
+            ("../oops", ErrorCode::Invalid),
+            ("0000000000000000", ErrorCode::NotFound),
+        ] {
+            let call = Request {
+                v: PROTOCOL_VERSION,
+                id: Some(3),
+                token: Some(token.clone()),
+                body: RequestBody::Call {
+                    module: ModuleId::System,
+                    action: Action::JobOutput {
+                        job_id: job_id.into(),
+                        offset: 0,
+                    },
+                    as_user: None,
+                },
+            };
+            let resp = d.handle(call, &peer()).await;
+            match resp.body {
+                ResponseBody::Err { error } => assert_eq!(error.code, want, "{job_id}"),
+                other => panic!("want err, got {other:?}"),
+            }
+        }
+        // Polls are read-only and frequent: they must not reach the audit log.
+        let audit = std::fs::read_to_string(d.audit.path()).unwrap_or_default();
+        assert!(
+            !audit.contains("job_output"),
+            "poll leaked into audit:\n{audit}"
+        );
     }
 
     #[tokio::test]

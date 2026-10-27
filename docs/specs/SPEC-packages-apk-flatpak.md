@@ -12,9 +12,9 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `list_apk` | `apk info -v` + `apk info` (name/version pairing) |
 | `search_apk` | `apk search -v <query>` |
 | `refresh_apk` | `apk update` |
-| `install_apk` | `apk add --no-progress <package>` |
+| `install_apk` | `apk add <package>` (progress via job log) |
 | `remove_apk` | `apk del <package>` |
-| `upgrade_apk` | `apk upgrade --no-progress` |
+| `upgrade_apk` | `apk upgrade` (progress via job log) |
 | `list_flatpak` | `flatpak list --columns=... --system/--user` |
 | `search_flatpak` | `flatpak search --columns=... --system/--user <query>` |
 | `install_flatpak` | `flatpak install -y --noninteractive <scope> flathub <app>` |
@@ -55,7 +55,7 @@ screen.
 - Manual: install/remove a harmless package on Alpine and Flatpak; verify
   capability-gated states when binaries are absent.
 
-## Package progress (planned, binding)
+## Package progress (implemented 2026-10-27)
 
 Mutations must stream the exact process output as terminal text, not a
 percentage bar. The daemon owns a RAM job registry and writes stdout/stderr to

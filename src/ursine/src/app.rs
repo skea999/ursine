@@ -4,7 +4,7 @@ use cosmic::iced::Length;
 use cosmic::{Element, Task};
 use ursine_api::{
     validate_installable, Action, ApiError, ApkPackage, ApkUpdate, Capability, CapabilityReport,
-    ErrorCode, FlatpakPackage, ModuleId, SessionToken, TriState,
+    ErrorCode, FlatpakPackage, JobOutput, JobStatus, ModuleId, SessionToken, TriState,
 };
 
 use crate::bluetooth::BluetoothState;
@@ -28,6 +28,43 @@ use crate::users::UsersState;
 struct Session {
     token: SessionToken,
     expires_in_secs: u64,
+}
+
+/// One `job_output` poll page (mirrors the daemon's poll cap).
+const JOB_POLL_PAGE_BYTES: u64 = 64 * 1024;
+/// Scrollable id for the job output box (snap-to-bottom on new lines).
+const JOB_SCROLL_ID: &str = "ursine-job-output";
+/// Bytes of terminal text shaped per redraw in the job box (tail only).
+const JOB_PANEL_TAIL_BYTES: usize = 16 * 1024;
+
+/// Which panel owns a tracked job (it releases the panel's busy flag when
+/// the job completes).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobOrigin {
+    Packages,
+    Store,
+}
+
+/// A background package job being polled: exact terminal bytes plus its
+/// lifecycle. The output box shows Close only once `status` is `done`.
+#[derive(Clone, Debug)]
+pub struct JobView {
+    pub id: String,
+    /// Human label from the action that started the job.
+    pub label: String,
+    pub origin: JobOrigin,
+    /// Reload the owning panel's list when the job completes.
+    pub reload: bool,
+    /// Next byte offset for the following `job_output` poll.
+    pub offset: u64,
+    /// Terminal text accumulated so far (append-only).
+    pub buffer: String,
+    pub status: JobStatus,
+    pub exit_code: Option<i32>,
+    pub truncated: bool,
+    /// Polling stopped on an error: keep the captured output on screen and
+    /// offer Close, but never chain another poll (offset cannot resync).
+    pub detached: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -101,6 +138,8 @@ pub struct App {
     /// Bumped on sign-in/sign-out so late async results cannot repopulate a
     /// different session's screens.
     epoch: u64,
+    /// Package job currently polled (`job_output`); None when idle.
+    job: Option<JobView>,
 }
 
 #[derive(Debug, Clone)]
@@ -368,6 +407,10 @@ pub enum Message {
     StoreWipeApply,
     /// Redraw tick while a long daemon action is running.
     StoreTick,
+    /// One `job_output` poll of the tracked package job (epoch, job id).
+    JobPolled(u64, String, Result<JobOutput, ApiError>),
+    /// Close a finished job's output box.
+    JobClose,
     SignOut,
 }
 
@@ -411,6 +454,7 @@ impl cosmic::Application for App {
             screen: Screen::Home,
             session: None,
             epoch: 0,
+            job: None,
         };
         (app, Task::none())
     }
@@ -1163,6 +1207,12 @@ impl cosmic::Application for App {
             Message::StoreWipePreview => return self.request_wipe(true),
             Message::StoreWipeApply => return self.request_wipe(false),
             Message::StoreTick => {}
+            Message::JobPolled(epoch, job_id, result) => {
+                return self.job_polled(epoch, &job_id, result);
+            }
+            Message::JobClose => {
+                self.job = None;
+            }
             Message::SignOut => self.sign_out(),
         }
         Task::none()
@@ -1893,6 +1943,13 @@ impl App {
             PackageTab::Nix => self.store.view(),
             PackageTab::Apk | PackageTab::Flatpak => self.packages.view(),
         };
+        if let Some(job) = &self.job {
+            // Below the tabs so the tab row never jumps; shared by all three
+            // package tabs (a job may span a tab switch).
+            let column_items: Vec<Element<'_, Message>> =
+                vec![tabs.into(), job_panel(job), content];
+            return column(column_items).spacing(12).into();
+        }
         column(vec![tabs.into(), content]).spacing(12).into()
     }
 
@@ -2147,7 +2204,7 @@ impl App {
         let Some(session) = &self.session else {
             return Task::none();
         };
-        if self.packages.action_busy {
+        if self.packages.action_busy || self.job.is_some() {
             return Task::none();
         }
         let kind = self.packages.kind.unwrap_or(PackageKind::Apk);
@@ -2155,6 +2212,7 @@ impl App {
         let token = session.token.clone();
         let epoch = self.epoch;
         self.packages.action_busy = true;
+        self.packages.message = None;
         self.packages.error = None;
         self.packages.pending_remove = None;
         Task::future(async move {
@@ -2171,12 +2229,13 @@ impl App {
         let Some(session) = &self.session else {
             return Task::none();
         };
-        if self.packages.action_busy {
+        if self.packages.action_busy || self.job.is_some() {
             return Task::none();
         }
         let token = session.token.clone();
         let epoch = self.epoch;
         self.packages.action_busy = true;
+        self.packages.message = None;
         self.packages.error = None;
         Task::future(async move {
             Message::PackageActionFinished(
@@ -2199,6 +2258,7 @@ impl App {
         let token = session.token.clone();
         let epoch = self.epoch;
         self.packages.action_busy = true;
+        self.packages.message = None;
         self.packages.error = None;
         Task::future(async move {
             Message::PackagePreviewFinished(epoch, client::apk_preview(token, package).await)
@@ -2210,12 +2270,13 @@ impl App {
         let Some(session) = &self.session else {
             return Task::none();
         };
-        if self.packages.action_busy {
+        if self.packages.action_busy || self.job.is_some() {
             return Task::none();
         }
         let token = session.token.clone();
         let epoch = self.epoch;
         self.packages.action_busy = true;
+        self.packages.message = None;
         self.packages.error = None;
         Task::future(async move {
             Message::PackageActionFinished(
@@ -2231,13 +2292,14 @@ impl App {
         let Some(session) = &self.session else {
             return Task::none();
         };
-        if self.packages.action_busy {
+        if self.packages.action_busy || self.job.is_some() {
             return Task::none();
         }
         let system = self.packages.system;
         let token = session.token.clone();
         let epoch = self.epoch;
         self.packages.action_busy = true;
+        self.packages.message = None;
         self.packages.error = None;
         Task::future(async move {
             Message::PackageActionFinished(
@@ -2256,13 +2318,14 @@ impl App {
         let Some(kind) = self.packages.pending_update.take() else {
             return Task::none();
         };
-        if self.packages.action_busy {
+        if self.packages.action_busy || self.job.is_some() {
             return Task::none();
         }
         let system = self.packages.system;
         let token = session.token.clone();
         let epoch = self.epoch;
         self.packages.action_busy = true;
+        self.packages.message = None;
         self.packages.error = None;
         Task::future(async move {
             let result = match kind {
@@ -2281,13 +2344,14 @@ impl App {
         let Some((kind, _name, id)) = self.packages.pending_remove.take() else {
             return Task::none();
         };
-        if self.packages.action_busy {
+        if self.packages.action_busy || self.job.is_some() {
             return Task::none();
         }
         let system = self.packages.system;
         let token = session.token.clone();
         let epoch = self.epoch;
         self.packages.action_busy = true;
+        self.packages.message = None;
         self.packages.error = None;
         Task::future(async move {
             let result = match kind {
@@ -2303,19 +2367,193 @@ impl App {
         let Some(session) = &self.session else {
             return Task::none();
         };
-        if self.packages.action_busy {
+        if self.packages.action_busy || self.job.is_some() {
             return Task::none();
         }
         let system = self.packages.system;
         let token = session.token.clone();
         let epoch = self.epoch;
         self.packages.action_busy = true;
+        self.packages.message = None;
         self.packages.error = None;
         Task::future(async move {
             let result = client::flatpak_remove_orphans(token, system).await;
             Message::PackageActionFinished(epoch, "orphans".into(), result)
         })
         .map(cosmic::Action::App)
+    }
+
+    /// One-line completion summary shown in the panel and the box header.
+    fn job_summary(job: &JobView) -> String {
+        let outcome = match (job.status, job.exit_code) {
+            (JobStatus::Running, _) => "running".to_string(),
+            (JobStatus::Done, Some(0)) => "completed".into(),
+            (JobStatus::Done, Some(code)) => format!("failed (exit {code})"),
+            (JobStatus::Done, None) => "failed".into(),
+        };
+        if job.truncated {
+            format!("{} — {outcome} (output truncated)", job.label)
+        } else {
+            format!("{} — {outcome}", job.label)
+        }
+    }
+
+    /// Start polling a background job. The owning panel's busy flag stays
+    /// set until the job reports `done`, so no second mutation can start.
+    /// One job is tracked at a time: never hijack a running poll chain.
+    fn track_job(
+        &mut self,
+        origin: JobOrigin,
+        job_id: String,
+        label: String,
+        reload: bool,
+    ) -> Task<cosmic::Action<Message>> {
+        if self.job.is_some() {
+            self.release_job(
+                origin,
+                "Wait for the running package operation to finish.".into(),
+            );
+            return Task::none();
+        }
+        self.job = Some(JobView {
+            id: job_id,
+            label,
+            origin,
+            reload,
+            offset: 0,
+            buffer: String::new(),
+            status: JobStatus::Running,
+            exit_code: None,
+            truncated: false,
+            detached: false,
+        });
+        self.poll_job()
+    }
+
+    /// Chain one `job_output` poll; completion stops the chain by itself.
+    fn poll_job(&self) -> Task<cosmic::Action<Message>> {
+        let Some(job) = &self.job else {
+            return Task::none();
+        };
+        if job.status == JobStatus::Done || job.detached {
+            return Task::none();
+        }
+        let token = self.token();
+        let epoch = self.epoch;
+        let job_id = job.id.clone();
+        let offset = job.offset;
+        Task::future(async move {
+            // Small delay: chained polls must not flood the socket.
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            let result = client::job_output(token, job_id.clone(), offset).await;
+            Message::JobPolled(epoch, job_id, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    /// Snap the job output box to the bottom so appended lines stay visible.
+    fn snap_job_bottom() -> Task<cosmic::Action<Message>> {
+        cosmic::iced::widget::scrollable::snap_to(
+            cosmic::iced::core::widget::Id::new(JOB_SCROLL_ID),
+            cosmic::iced::widget::scrollable::RelativeOffset {
+                x: None,
+                y: Some(1.0),
+            },
+        )
+    }
+
+    /// Release a panel's busy flag and record the job outcome in its message.
+    fn release_job(&mut self, origin: JobOrigin, message: String) {
+        match origin {
+            JobOrigin::Packages => {
+                self.packages.action_busy = false;
+                self.packages.message = Some(message);
+            }
+            JobOrigin::Store => {
+                self.store.action_busy = false;
+                self.store.action_label = None;
+                self.store.action_started = None;
+                self.store.action_message = Some(message);
+            }
+        }
+    }
+
+    fn job_polled(
+        &mut self,
+        epoch: u64,
+        job_id: &str,
+        result: Result<JobOutput, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            self.job = None;
+            return Task::none();
+        }
+        // Drop a poll that belongs to a job this panel no longer tracks.
+        if self.job.as_ref().is_none_or(|job| job.id != job_id) {
+            return Task::none();
+        }
+        let out = match result {
+            Ok(out) => out,
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    self.job = None;
+                    return Task::none();
+                }
+                // Poll failed (daemon restart, socket error): freeze the box
+                // with everything captured so far and stop the chain.
+                if let Some(job) = self.job.as_mut() {
+                    job.detached = true;
+                    let origin = job.origin;
+                    self.release_job(origin, friendly(&error));
+                }
+                return Task::none();
+            }
+        };
+        let prev_offset = self.job.as_ref().map_or(0, |job| job.offset);
+        let appended = !out.lines.is_empty();
+        let advanced = out.offset.saturating_sub(prev_offset);
+        let status = {
+            let Some(job) = self.job.as_mut() else {
+                return Task::none();
+            };
+            job.buffer.push_str(&out.lines);
+            job.offset = out.offset;
+            job.status = out.status;
+            job.exit_code = out.exit_code;
+            job.truncated = out.truncated;
+            job.status
+        };
+        // Keep pulling while running, and after `done` while the last poll
+        // filled a whole page — the tail beyond 64 KiB would be lost.
+        let more_pages = advanced >= JOB_POLL_PAGE_BYTES - 4;
+        if status != JobStatus::Done || more_pages {
+            let mut chain = self.poll_job();
+            if appended {
+                chain = Task::batch([chain, Self::snap_job_bottom()]);
+            }
+            return chain;
+        }
+        let Some(job) = self.job.as_ref() else {
+            return Task::none();
+        };
+        let origin = job.origin;
+        let reload = job.reload;
+        let summary = Self::job_summary(job);
+        self.release_job(origin, summary);
+        let chain = if reload {
+            match origin {
+                JobOrigin::Packages => {
+                    self.load_packages(self.packages.kind.unwrap_or(PackageKind::Apk))
+                }
+                JobOrigin::Store => self.load_store(),
+            }
+        } else {
+            Task::none()
+        };
+        if appended {
+            return Task::batch([chain, Self::snap_job_bottom()]);
+        }
+        chain
     }
 
     fn finish_package_action(
@@ -2327,19 +2565,29 @@ impl App {
         if epoch != self.epoch {
             return Task::none();
         }
-        self.packages.action_busy = false;
         match result {
             Ok(value) => {
                 self.packages.error = None;
+                self.packages.searching = false;
+                if let Some(job_id) = value
+                    .get("job_id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+                {
+                    // Busy stays on until the tracked job reports done.
+                    self.packages.message = Some(format!("{label}: started"));
+                    return self.track_job(JobOrigin::Packages, job_id, label.to_string(), true);
+                }
+                self.packages.action_busy = false;
                 let detail = value
                     .get("output")
                     .and_then(|value| value.as_str())
                     .unwrap_or(label);
                 self.packages.message = Some(detail.lines().next().unwrap_or(label).to_string());
-                self.packages.searching = false;
                 return self.load_packages(self.packages.kind.unwrap_or(PackageKind::Apk));
             }
             Err(error) => {
+                self.packages.action_busy = false;
                 if self.handle_session_error(&error) {
                     return Task::none();
                 }
@@ -3576,6 +3824,11 @@ impl App {
             self.store.error = Some("Wait for the current operation to finish.".into());
             return Task::none();
         }
+        if self.job.is_some() {
+            // One tracked job at a time across all package tabs.
+            self.store.error = Some("Wait for the running package operation to finish.".into());
+            return Task::none();
+        }
         if action.uses_profile() && !scope.matches(self.store.target_user().as_deref()) {
             self.store.error = Some("Target user changed. Refresh and try again.".into());
             return Task::none();
@@ -3615,13 +3868,13 @@ impl App {
         if epoch != self.epoch {
             return Task::none();
         }
-        self.store.action_busy = false;
-        self.store.action_label = None;
-        self.store.action_started = None;
         let scope_changed =
             action.uses_profile() && !scope.matches(self.store.target_user().as_deref());
         let is_preview = matches!(action, StoreAction::PruneGenerations { dry_run: true, .. });
         if scope_changed {
+            self.store.action_busy = false;
+            self.store.action_label = None;
+            self.store.action_started = None;
             // Never write state derived from another profile. Drop the stale
             // preview and any message the user could mistake for current.
             self.store.prune_preview = None;
@@ -3631,6 +3884,27 @@ impl App {
         }
         match result {
             Ok(value) => {
+                if let Some(job_id) = value
+                    .get("job_id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+                {
+                    // Busy stays on until the tracked job reports done.
+                    if !is_preview {
+                        self.store.prune_preview = None;
+                    }
+                    let label = action.target_label(scope);
+                    self.store.action_message = Some(format!("{label}: started"));
+                    return self.track_job(
+                        JobOrigin::Store,
+                        job_id,
+                        label,
+                        action.reloads_profile(),
+                    );
+                }
+                self.store.action_busy = false;
+                self.store.action_label = None;
+                self.store.action_started = None;
                 if let StoreAction::PruneGenerations {
                     keep,
                     dry_run: true,
@@ -3669,6 +3943,9 @@ impl App {
                 }
             }
             Err(error) => {
+                self.store.action_busy = false;
+                self.store.action_label = None;
+                self.store.action_started = None;
                 if self.handle_session_error(&error) {
                     return Task::none();
                 }
@@ -3772,6 +4049,7 @@ impl App {
     fn sign_out(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
         self.session = None;
+        self.job = None;
         self.home = HomeState::default();
         self.settings = SettingsState::default();
         self.store = StoreState::default();
@@ -3851,6 +4129,64 @@ fn update_output_position(niri: &mut NiriState, index: usize) {
     if let Some(output) = niri.outputs.get_mut(index) {
         output.position = x.zip(y).map(|(x, y)| ursine_api::NiriPosition { x, y });
     }
+}
+
+/// Terminal-style output box for a tracked job. Close appears only after the
+/// job completes (or the poll chain was lost): progress is exact terminal
+/// text, never a percentage.
+fn job_panel(job: &JobView) -> Element<'_, Message> {
+    use cosmic::widget::text::monotext;
+    use cosmic::widget::{button, column, container, row, scrollable, text};
+    let title = if job.detached {
+        format!("{} — connection lost", job.label)
+    } else {
+        App::job_summary(job)
+    };
+    let mut items: Vec<Element<'_, Message>> = vec![text(title).into()];
+    if job.status == JobStatus::Running && !job.detached {
+        items.push(text("Live output — Close appears when the job finishes.").into());
+    }
+    if job.detached {
+        items.push(
+            text("Lost connection to job output; the daemon may still be running it.").into(),
+        );
+    }
+    // Shape only a tail: the full log reaches 1 MiB and would stall layout.
+    let mut start = job.buffer.len().saturating_sub(JOB_PANEL_TAIL_BYTES);
+    while start < job.buffer.len() && !job.buffer.is_char_boundary(start) {
+        start += 1;
+    }
+    let shown = job.buffer.get(start..).unwrap_or_default();
+    let body = if job.buffer.is_empty() {
+        monotext("waiting for output…")
+    } else if start > 0 {
+        monotext(format!("… (earlier output not shown)\n{shown}"))
+    } else {
+        monotext(shown)
+    };
+    items.push(
+        container(
+            scrollable(container(body).padding(8))
+                .height(Length::Fixed(220.0))
+                .id(cosmic::iced::core::widget::Id::new(JOB_SCROLL_ID)),
+        )
+        .class(cosmic::theme::Container::Background)
+        .padding(4)
+        .into(),
+    );
+    if job.truncated {
+        items.push(text("Output truncated at the 1 MiB job log limit.").into());
+    }
+    if job.status == JobStatus::Done || job.detached {
+        items.push(
+            row(vec![button::suggested("Close")
+                .on_press(Message::JobClose)
+                .into()])
+            .spacing(8)
+            .into(),
+        );
+    }
+    column(items).spacing(8).into()
 }
 
 fn friendly(error: &ApiError) -> String {

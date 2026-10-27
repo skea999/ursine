@@ -13,10 +13,10 @@ use std::time::{Duration, Instant};
 use ursine_api::{
     installable_from_attr, timeouts, Action, ApiError, ApkPackage, ApkUpdate, BluetoothOp,
     BluetoothView, BtrbkConfigView, BtrbkSettings, Disk, FirewallStatus, FlatpakPackage,
-    FlatpakRemote, InstalledPackage, ModuleId, ModulesConfig, NetworkView, NiriConfigView,
-    PrintJob, Printer, Request, RequestBody, Response, ResponseBody, ScannerConfigView,
-    SearchResult, Service, ServiceOp, SessionToken, Snapshot, SnapshotStats, TriState, UserSummary,
-    PROTOCOL_VERSION,
+    FlatpakRemote, InstalledPackage, JobOutput, ModuleId, ModulesConfig, NetworkView,
+    NiriConfigView, PrintJob, Printer, Request, RequestBody, Response, ResponseBody,
+    ScannerConfigView, SearchResult, Service, ServiceOp, SessionToken, Snapshot, SnapshotStats,
+    TriState, UserSummary, PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
@@ -382,6 +382,24 @@ pub async fn package_call(
     timeout: Duration,
 ) -> Result<serde_json::Value, ApiError> {
     call_with_timeout(token, ModuleId::PackagesNix, action, as_user, timeout).await
+}
+
+/// Poll a background job log from `offset` (package progress). Exact terminal
+/// bytes, capped per poll; call until `status` is `done`.
+pub async fn job_output(
+    token: SessionToken,
+    job_id: String,
+    offset: u64,
+) -> Result<JobOutput, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::System,
+        Action::JobOutput { job_id, offset },
+        None,
+        TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value).map_err(|e| ApiError::internal(format!("decode job output: {e}")))
 }
 
 /// Installed packages and generation history for the target user's profile.
