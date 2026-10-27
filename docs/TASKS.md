@@ -28,7 +28,8 @@
 - [x] Flatpak: configured remotes list.
 - [ ] Flatpak: remote dropdown, app/runtime split, update-available list, permissions editor, size/progress, target user.
 - [x] Printers: paper/duplex/color via CUPS `-o` options.
-- [ ] Printers: job details/progress.
+- [x] Printers: job state/size/submitted details.
+- [ ] Printers: live job progress.
 - [x] Bluetooth: battery + connected details.
 - [ ] Bluetooth: pairing agent PIN/passkey.
 - [x] Network: IP/gateway/DNS details.

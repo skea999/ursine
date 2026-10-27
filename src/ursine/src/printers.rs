@@ -276,12 +276,15 @@ impl JobDetail for PrintJob {
     fn domain(&self) -> String {
         format!(
             "{}{}{}",
-            self.size.as_deref().unwrap_or("unknown size"),
+            self.state.as_deref().unwrap_or("unknown state"),
             self.submitted
                 .as_ref()
                 .map(|submitted| format!(" · {submitted}"))
                 .unwrap_or_default(),
-            ""
+            self.size
+                .as_ref()
+                .map(|size| format!(" · {size}"))
+                .unwrap_or_default()
         )
     }
 }

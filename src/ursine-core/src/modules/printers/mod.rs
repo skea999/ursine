@@ -205,12 +205,20 @@ fn parse_jobs(output: &str, printer: Option<&str>) -> Vec<PrintJob> {
                 .map(str::to_string)
                 .or_else(|| id.rsplit_once('-').map(|(printer, _)| printer.to_string()))
                 .unwrap_or_default();
+            let state = if line.contains("processing") {
+                Some("processing".to_string())
+            } else if line.contains("held") {
+                Some("held".to_string())
+            } else {
+                Some("queued".to_string())
+            };
             Some(PrintJob {
                 id,
                 printer: name,
                 user,
                 size,
                 submitted,
+                state,
             })
         })
         .collect()

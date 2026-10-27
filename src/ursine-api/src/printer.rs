@@ -27,4 +27,6 @@ pub struct PrintJob {
     pub size: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submitted: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
 }
