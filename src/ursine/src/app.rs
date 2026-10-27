@@ -224,6 +224,7 @@ pub enum Message {
     PackageRemoveCancelled,
     PackageApkLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
     PackageApkUpdatesLoaded(u64, Result<Vec<ApkUpdate>, ApiError>),
+    PackageApkRepositoriesLoaded(u64, Result<Vec<String>, ApiError>),
     PackageFlatpakLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
     PackageApkSearchLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
     PackageFlatpakSearchLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
@@ -678,6 +679,9 @@ impl cosmic::Application for App {
             Message::PackageApkLoaded(epoch, result) => return self.finish_apk(epoch, result),
             Message::PackageApkUpdatesLoaded(epoch, result) => {
                 return self.finish_apk_updates(epoch, result)
+            }
+            Message::PackageApkRepositoriesLoaded(epoch, result) => {
+                return self.finish_apk_repositories(epoch, result)
             }
             Message::PackageFlatpakLoaded(epoch, result) => {
                 return self.finish_flatpak(epoch, result)
@@ -1876,7 +1880,8 @@ impl App {
         let system = self.packages.system;
         if kind == PackageKind::Apk {
             let list_token = token.clone();
-            let updates_token = token;
+            let updates_token = token.clone();
+            let repositories_token = token;
             let list = Task::future(async move {
                 Message::PackageApkLoaded(epoch, client::apk_list(list_token).await)
             })
@@ -1885,7 +1890,14 @@ impl App {
                 Message::PackageApkUpdatesLoaded(epoch, client::apk_updates(updates_token).await)
             })
             .map(cosmic::Action::App);
-            Task::batch(vec![list, updates])
+            let repositories = Task::future(async move {
+                Message::PackageApkRepositoriesLoaded(
+                    epoch,
+                    client::apk_repositories(repositories_token).await,
+                )
+            })
+            .map(cosmic::Action::App);
+            Task::batch(vec![list, updates, repositories])
         } else {
             Task::future(async move {
                 Message::PackageFlatpakLoaded(epoch, client::flatpak_list(token, system).await)
@@ -1908,6 +1920,26 @@ impl App {
                 self.packages.apply_apk(packages);
                 self.packages.searching = false;
             }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.packages.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn finish_apk_repositories(
+        &mut self,
+        epoch: u64,
+        result: Result<Vec<String>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        match result {
+            Ok(repositories) => self.packages.apply_apk_repositories(repositories),
             Err(error) => {
                 if self.handle_session_error(&error) {
                     return Task::none();

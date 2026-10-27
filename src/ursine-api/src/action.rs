@@ -105,6 +105,8 @@ pub enum Action {
     },
     /// Refresh APK repository indexes.
     RefreshApk,
+    /// Configured APK repositories.
+    ListApkRepositories,
     /// Install an APK package.
     InstallApk {
         package: String,

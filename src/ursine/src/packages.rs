@@ -34,6 +34,7 @@ pub struct PackagesState {
     pub kind: Option<PackageKind>,
     pub apk: Vec<ApkPackage>,
     pub apk_updates: Vec<ApkUpdate>,
+    pub apk_repositories: Vec<String>,
     pub flatpak: Vec<FlatpakPackage>,
     pub system: bool,
     pub query: String,
@@ -54,6 +55,7 @@ impl Default for PackagesState {
             kind: None,
             apk: Vec::new(),
             apk_updates: Vec::new(),
+            apk_repositories: Vec::new(),
             flatpak: Vec::new(),
             system: true,
             query: String::new(),
@@ -83,6 +85,7 @@ impl PackagesState {
     fn apache_clear(&mut self) {
         self.apk.clear();
         self.apk_updates.clear();
+        self.apk_repositories.clear();
         self.flatpak.clear();
         self.searching = false;
         self.error = None;
@@ -100,6 +103,10 @@ impl PackagesState {
 
     pub fn apply_apk_updates(&mut self, updates: Vec<ApkUpdate>) {
         self.apk_updates = updates;
+    }
+
+    pub fn apply_apk_repositories(&mut self, repositories: Vec<String>) {
+        self.apk_repositories = repositories;
     }
 
     pub fn apply_flatpak(&mut self, packages: Vec<FlatpakPackage>) {
@@ -182,6 +189,18 @@ impl PackagesState {
             button::suggested("Upgrade all")
                 .on_press_maybe((!self.action_busy).then_some(Message::PackageUpdateRequested)),
         ));
+        if kind == PackageKind::Apk && !self.apk_repositories.is_empty() {
+            upgrade = upgrade.add(settings::item(
+                "Repositories",
+                column(
+                    self.apk_repositories
+                        .iter()
+                        .map(|repository| text(repository.clone()).into())
+                        .collect::<Vec<Element<'_, Message>>>(),
+                )
+                .spacing(2),
+            ));
+        }
         if kind == PackageKind::Apk && !self.apk_updates.is_empty() {
             upgrade = upgrade.add(settings::item(
                 format!("Available updates ({})", self.apk_updates.len()),

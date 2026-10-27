@@ -938,6 +938,22 @@ pub async fn apk_refresh(token: SessionToken) -> Result<serde_json::Value, ApiEr
     .await
 }
 
+pub async fn apk_repositories(token: SessionToken) -> Result<Vec<String>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesApk,
+        Action::ListApkRepositories,
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let repositories = value.get("repositories").cloned().ok_or_else(|| {
+        ApiError::internal("daemon apk repositories response has no repositories")
+    })?;
+    serde_json::from_value(repositories)
+        .map_err(|e| ApiError::internal(format!("cannot read apk repositories: {e}")))
+}
+
 pub async fn apk_updates(token: SessionToken) -> Result<Vec<ApkUpdate>, ApiError> {
     let value = call_with_timeout(
         token,

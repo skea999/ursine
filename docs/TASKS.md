@@ -20,7 +20,8 @@
 #### v2 required detail
 
 - [x] APK: per-package upgrade and update-available list.
-- [ ] APK: repository list, dependency/size preview, progress/log, protected-package warnings.
+- [x] APK: repository list.
+- [ ] APK: dependency/size preview, progress/log, protected-package warnings.
 - [x] Flatpak: per-app update.
 - [ ] Flatpak: remote dropdown, app/runtime split, update-available list, permissions editor, size/progress, target user.
 - [x] Printers: paper/duplex/color via CUPS `-o` options.

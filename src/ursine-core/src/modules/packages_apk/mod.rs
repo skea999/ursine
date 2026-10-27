@@ -21,6 +21,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
         Action::ListApk => Ok(json!({"packages": installed().await?})),
         Action::SearchApk { query } => Ok(json!({"packages": search(query).await?})),
         Action::RefreshApk => Ok(json!({"output": run(&["update"]).await?})),
+        Action::ListApkRepositories => Ok(json!({"repositories": repositories()?})),
         Action::InstallApk { package } | Action::UpgradeApkPackage { package } => {
             validate_package(package)?;
             Ok(json!({"output": run(&["add", "--no-progress", package]).await?}))
@@ -35,6 +36,18 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             "action is not valid for module packages_apk",
         )),
     }
+}
+
+fn repositories() -> Result<Vec<String>, ApiError> {
+    let content = std::fs::read_to_string("/etc/apk/repositories")
+        .map_err(|e| ApiError::internal(format!("read /etc/apk/repositories: {e}")))?;
+    Ok(content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .take(64)
+        .map(str::to_string)
+        .collect())
 }
 
 async fn installed() -> Result<Vec<ApkPackage>, ApiError> {
