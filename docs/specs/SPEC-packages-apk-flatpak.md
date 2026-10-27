@@ -54,3 +54,10 @@ screen.
 - `cargo test --workspace --all-features`.
 - Manual: install/remove a harmless package on Alpine and Flatpak; verify
   capability-gated states when binaries are absent.
+
+## Package progress (planned, binding)
+
+Mutations must stream the exact process output as terminal text, not a
+percentage bar. The daemon owns a RAM job registry and writes stdout/stderr to
+`/run/ursine/jobs/<id>.log`; frontends poll `job_output`. A **Close** button is
+shown only after the job completes. This applies to APK, Flatpak and Nix.

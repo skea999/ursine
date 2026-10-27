@@ -6,6 +6,16 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-27 — post-0.19.0 v1/v2 work
+
+**Status**: CI green `40537405247`; changes on main, no new tag.
+
+- Niri: output mode/position, animation slowdown + window-open/close duration/curve, version gate.
+- APK: per-package upgrade, update-available list, repositories, install preview, protected warnings.
+- Flatpak: per-app update, configured remotes list. Bluetooth battery. Disks UUID/usage/SMART. Printers CUPS options + job state. Network IP/gateway/DNS + Ethernet.
+- Package progress decision recorded: job log + `job_output` polling, terminal text, no percentage, Close after completion. Not implemented.
+- Next: implement package progress, then remaining v2 details, review/release.
+
 ## Session 2026-10-26 — Niri v1 outputs (in progress)
 
 - Added Niri output `mode` and `position` (x/y) through API, KDL read/write, and GUI.

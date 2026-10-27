@@ -95,3 +95,10 @@ let events = cmd.stream(|line| progress_tx.send(parse_line(line))).await?;
 ## Open Questions
 
 - Search index latency: `nix search` is slow (evaluates nixpkgs). v1 = accept slowness + progress indicator; v2 option = prebuilt search index cache. Accepted?
+
+## Package progress (planned, binding)
+
+Mutations must stream the exact process output as terminal text, not a
+percentage bar. The daemon owns a RAM job registry and writes stdout/stderr to
+`/run/ursine/jobs/<id>.log`; frontends poll `job_output`. A **Close** button is
+shown only after the job completes. This applies to APK, Flatpak and Nix.

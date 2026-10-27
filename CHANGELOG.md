@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Niri output mode/position, animation slowdown and window-open/close timing, and version-gated save.
+- APK per-package upgrade, update list, repositories, install preview, protected-package markers.
+- Flatpak per-app update and remotes list.
+- Network IP/gateway/DNS details and Ethernet connect/disconnect.
+- CUPS printer options and job state; disk UUID/usage/SMART; Bluetooth battery.
+
+### Planned
+
+- Package job-output polling for APK, Flatpak and Nix: terminal text, no percentage, Close after completion.
+
 ## [0.19.0] — 2026-10-26
 
 ### Added
