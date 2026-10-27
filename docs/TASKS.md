@@ -21,7 +21,8 @@
 
 - [x] APK: per-package upgrade and update-available list.
 - [x] APK: repository list.
-- [ ] APK: dependency/size preview, progress/log, protected-package warnings.
+- [x] APK: protected-package warning (world file, remove disabled).
+- [ ] APK: dependency/size preview, progress/log.
 - [x] Flatpak: per-app update.
 - [ ] Flatpak: remote dropdown, app/runtime split, update-available list, permissions editor, size/progress, target user.
 - [x] Printers: paper/duplex/color via CUPS `-o` options.

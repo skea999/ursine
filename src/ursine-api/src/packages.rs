@@ -11,6 +11,8 @@ pub struct ApkPackage {
     pub version: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default)]
+    pub protected: bool,
 }
 
 /// One pending APK update.

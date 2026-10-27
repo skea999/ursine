@@ -283,6 +283,8 @@ impl PackagesState {
                         button::text("Install")
                             .on_press(Message::PackageInstallDirect(package.name.clone()))
                             .into()
+                    } else if package.protected {
+                        text("protected").into()
                     } else {
                         row(vec![
                             button::text("Upgrade")

@@ -53,10 +53,26 @@ fn repositories() -> Result<Vec<String>, ApiError> {
 async fn installed() -> Result<Vec<ApkPackage>, ApiError> {
     let versioned = run(&["info", "-v"]).await?;
     let names = run(&["info"]).await?;
-    Ok(parse_installed(&versioned, &names))
+    Ok(parse_installed(&versioned, &names, &protected_names()?))
 }
 
-fn parse_installed(versioned: &str, names: &str) -> Vec<ApkPackage> {
+fn protected_names() -> Result<Vec<String>, ApiError> {
+    let content = std::fs::read_to_string("/etc/apk/world")
+        .map_err(|e| ApiError::internal(format!("read /etc/apk/world: {e}")))?;
+    Ok(content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            line.split(['=', '<', '>', '~'])
+                .next()
+                .unwrap_or(line)
+                .to_string()
+        })
+        .collect())
+}
+
+fn parse_installed(versioned: &str, names: &str, protected: &[String]) -> Vec<ApkPackage> {
     let names: Vec<&str> = names.lines().filter(|line| !line.is_empty()).collect();
     let mut rows = Vec::new();
     for line in versioned
@@ -80,6 +96,7 @@ fn parse_installed(versioned: &str, names: &str) -> Vec<ApkPackage> {
             name: name.to_string(),
             version,
             description: None,
+            protected: protected.iter().any(|entry| entry == name),
         });
     }
     rows
@@ -144,6 +161,7 @@ async fn search(query: &str) -> Result<Vec<ApkPackage>, ApiError> {
             name,
             version,
             description,
+            protected: false,
         });
     }
     Ok(rows)
@@ -210,10 +228,13 @@ mod tests {
         let rows = parse_installed(
             "niri-25.11-r2\nniri-portalsconf-25.11-r2\n",
             "niri\nniri-portalsconf\n",
+            &["niri".to_string()],
         );
         assert_eq!(rows[0].name, "niri");
         assert_eq!(rows[0].version, "25.11-r2");
         assert_eq!(rows[1].name, "niri-portalsconf");
+        assert!(rows[0].protected);
+        assert!(!rows[1].protected);
     }
 
     #[test]
