@@ -14,6 +14,10 @@ pub struct Disk {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uuid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_percent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mountpoint: Option<String>,
     pub removable: bool,
     pub read_only: bool,

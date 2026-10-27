@@ -11,8 +11,8 @@ See `AGENTS.md` for project context and milestone history.
 - Added Niri output `mode` and `position` (x/y) through API, KDL read/write, and GUI.
 - Added `niri --version` to the config view and GUI; compatibility gate and field-level validation errors still pending.
 - Plan traceability rule added to AGENTS/workflow: no scope outside intent/inventory/SPEC; scanner config-only; autologin excluded.
-- Added APK per-package upgrade/update list, Flatpak per-app update, and Bluetooth battery details.
-- Next: Niri animations/curves; APK repos/size/progress; Flatpak remotes/runtimes/permissions; printers/network/firewall/disks.
+- Added APK per-package upgrade/update list, Flatpak per-app update, Bluetooth battery, and disk UUID/usage details.
+- Next: Niri animations/curves; APK repos/size/progress; Flatpak remotes/runtimes/permissions; printers/network/firewall; disks SMART/format.
 
 ## Session 2026-10-26 — dinit services, 0.19.0
 

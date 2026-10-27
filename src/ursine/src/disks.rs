@@ -53,24 +53,39 @@ impl DisksState {
         for disk in &self.disks {
             let device = disk.path.clone();
             let mounted = disk.mountpoint.is_some();
-            list = list.add(settings::item(
-                format!(
-                    "{} ({}) {}{}{}",
-                    disk.name,
-                    disk.kind,
-                    disk.size,
-                    disk.filesystem
-                        .as_ref()
-                        .map(|fs| format!(" · {fs}"))
-                        .unwrap_or_default(),
-                    disk.mountpoint
-                        .as_ref()
-                        .map(|mount| format!(" · {mount}"))
-                        .unwrap_or_default()
-                ),
-                button::text(if mounted { "Unmount" } else { "Mount" })
-                    .on_press(Message::DiskAction(device, !mounted)),
-            ));
+            list =
+                list.add(settings::item(
+                    format!(
+                        "{} ({}) {}{}{}",
+                        disk.name,
+                        disk.kind,
+                        disk.size,
+                        disk.filesystem
+                            .as_ref()
+                            .map(|fs| format!(" · {fs}"))
+                            .unwrap_or_default(),
+                        disk.mountpoint
+                            .as_ref()
+                            .map(|mount| format!(" · {mount}"))
+                            .unwrap_or_default()
+                            + &disk
+                                .use_percent
+                                .as_ref()
+                                .map(|usage| format!(" · {usage} used"))
+                                .unwrap_or_default()
+                    ),
+                    column(vec![
+                        text(disk.uuid.as_ref().map_or_else(
+                            || "UUID: none".to_string(),
+                            |uuid| format!("UUID: {uuid}"),
+                        ))
+                        .into(),
+                        button::text(if mounted { "Unmount" } else { "Mount" })
+                            .on_press(Message::DiskAction(device, !mounted))
+                            .into(),
+                    ])
+                    .spacing(4),
+                ));
         }
         items.push(list.into());
         scrollable(column(items).spacing(16).padding(24)).into()

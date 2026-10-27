@@ -27,7 +27,8 @@
 - [ ] Bluetooth: pairing agent PIN/passkey.
 - [ ] Network: Ethernet, IP/gateway/DNS, DHCP/static IPv4, forget, VPN.
 - [ ] Firewall: enable/disable, zone management, custom services, active rules summary.
-- [ ] Disks: UUID, SMART, usage/free, format/partition behind explicit enablement.
+- [x] Disks: UUID and usage/free percent.
+- [ ] Disks: SMART, format/partition behind explicit enablement.
 
 #### Decisions
 

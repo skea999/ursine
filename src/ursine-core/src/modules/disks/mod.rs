@@ -41,7 +41,7 @@ async fn list() -> Result<Vec<Disk>, ApiError> {
         &[
             "-J",
             "-o",
-            "NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,MOUNTPOINT,RM,RO,MODEL",
+            "NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,FSUSE%,MOUNTPOINT,RM,RO,MODEL",
         ],
         TIMEOUT,
     )
@@ -73,6 +73,10 @@ struct Block {
     #[serde(default)]
     label: Option<String>,
     #[serde(default)]
+    uuid: Option<String>,
+    #[serde(rename = "fsuse%", default)]
+    use_percent: Option<String>,
+    #[serde(default)]
     mountpoint: Option<String>,
     #[serde(default)]
     rm: bool,
@@ -92,6 +96,8 @@ fn flatten(block: Block, disks: &mut Vec<Disk>) {
         size: block.size,
         filesystem: block.fstype,
         label: block.label,
+        uuid: block.uuid,
+        use_percent: block.use_percent,
         mountpoint: block.mountpoint,
         removable: block.rm,
         read_only: block.ro,
