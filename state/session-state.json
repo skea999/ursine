@@ -41,6 +41,7 @@
     "Optional: promote agent fixes (hidden/no-model/quote) to skea-store template (15 files differ)."
   ],
   "key_decisions": [
+    "PACKAGE PROGRESS (2026-10-27): apk/flatpak/nix mutations use a daemon job log + job_output polling. UI shows exact terminal output, no percentage bar, and a Close button only after completion. Not implemented yet.",
     "PLAN TRACEABILITY (2026-10-26, binding): read intent/ROADMAP/features inventory/module SPEC before proposing or coding; every item must map to an explicit plan line; classify required vs optional/deferred; never invent scope; user decisions override docs and update plan/spec before code.",
     "SCOPE DECISIONS (2026-10-26): scanners are configuration-only (SPEC-scanners; no image scan); autologin is out of scope; Services supports OpenRC+dinit.",
     "REVIEW CLOSURE (2026-10-21, binding): fix every confirmed finding — blocker, high, medium and low — before commit. Zero known defects at commit time. A deferral needs explicit user approval recorded in state/session-state.json with owner and rationale. A fix cycle revalidates the full gate; new findings count as new defects.",
