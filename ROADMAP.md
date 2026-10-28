@@ -14,7 +14,7 @@
 | v0.3 | Store GUI | Planned | ursine GUI: nix store + snapshots panel |
 | v0.4 | Users + niri | Baseline in 0.7.0 | accountsservice panel, niri config.kdl editor with `niri validate`; remaining niri form groups tracked in TASKS |
 | **v1.0** | **v1 release** | — | **backend + GUI complete (nix, users, snapshots, niri), packaged in feralos-aports** |
-| v2 | Full coverage | Planned | apk + flatpak; printers (CUPS), scanners (SANE), bluetooth (BlueZ), network (NetworkManager), firewall (firewalld), disks (UDisks2) — all via D-Bus/CLI, capability-gated |
+| v2 | Full coverage | Planned | apk + flatpak; printers (CUPS), scanners (SANE), bluetooth (BlueZ), network (NetworkManager), firewall (firewalld), disks (UDisks2) — all via D-Bus/CLI, capability-gated; **uniform theming** section (shell theme → every toolkit, SPEC-theming) + uniform application top bar (specs pending) |
 | v3 | OIDC + web + CLI | Planned | OIDC auth, web interface (LAST GUI frontend), thin CLI client (`ursinectl`, scriptable/headless admin + smoke tests; reuses `ursine-api` over the same socket), same UX model; **memory-safe stack required** (Rust→WASM preferred for web; see SPEC-web) |
 | v4 | Incus UI | Planned | Incus management UI in the same product |
 | v5 | ZFS + Pirateus | Planned | ZFS + LINSTOR/Pirateus storage management (FeralOS hyperconverged stack) |

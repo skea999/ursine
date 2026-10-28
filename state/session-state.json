@@ -15,10 +15,12 @@
     "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
+    "THEMING (next feature, plan approved pending go): SPEC-theming.md written; implement module detect/get/apply (source = running Wayle/DMS of session user, else DMS) + GUI section + top bar section placeholder (specs pending user); live probes on this VM (DMS present).",
     "USER: VM smoke (daemon + GUI job output + Close); dinit boot fix now in tree — decide v0.20.1 tag or move v0.20.0; then push main + tag (CI auto-pins nix/binary.nix).",
     "Remaining v1/v2: Niri compatibility range/field errors; Flatpak remote dropdown/runtime split/permissions; Network static/forget/VPN; Firewall; Disks format/partition; Bluetooth pairing agent; printer live progress."
   ],
   "key_decisions": [
+    "THEMING (2026-10-27, user decision): new uniform-desktop theming section — read Wayle or DMS config and apply to EVERY toolkit (GTK3/4/2, qt5ct/qt6ct, KDE, Flatpak, libcosmic system-wide via cosmic-config, session env, portal); objective is visual uniformity across all applications; both shells present → the one running as the session user wins (else DMS); neither → capability off, section inactive. Application top bar also planned in the section; specs pending from user. Spec: docs/specs/SPEC-theming.md; plan: features-v1-v2 + ROADMAP.",
     "DINIT BOOT FIX (2026-10-27, aligned to feralos-aports): service depends-on local.target + before login.target (logfile in /var/log subvol), restart=false, wrapper sources env-file; earlier no-targets portability choice reversed for FeralOS (rename/drop lines on other dinit distros).",
     "CLI IN PLAN (2026-10-27, user decision): thin CLI client `ursinectl` (working name) added to the v3 wave alongside web — reuses ursine-api types over the same unix-socket protocol, no backend change, thin-frontend rules apply; use cases: headless/scriptable admin, smoke tests, VM verification without the GUI. ROADMAP/intent/features plan updated.",
     "REFRESH APK STAYS SYNC (2026-10-27, user decision): read-only index refresh runs synchronously and shows its output on completion; only mutations (install/remove/upgrade) use the job path. Previews/dry-run/search also stay sync.",
