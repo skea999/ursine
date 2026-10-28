@@ -423,6 +423,8 @@ pub enum Message {
     ThemingSnapshotLoaded(u64, Result<ThemeSnapshot, ApiError>),
     /// Ask for apply confirmation (SPEC: writes happen behind confirm).
     ThemingApply,
+    /// Toggle the minimize button of the baseline (GUI checkbox).
+    ThemingMinimizeToggled(bool),
     /// User confirmed: propagate the snapshot everywhere.
     ThemingApplyConfirmed,
     /// User cancelled the confirmation.
@@ -551,6 +553,7 @@ impl cosmic::Application for App {
             Message::ThemingSnapshotLoaded(epoch, result) => {
                 return self.finish_theming_snapshot(epoch, result);
             }
+            Message::ThemingMinimizeToggled(show) => self.theming.show_minimize = show,
             Message::ThemingApply => self.theming.confirm_apply = true,
             Message::ThemingApplyConfirmed => return self.apply_theming(),
             Message::ThemingApplyCancelled => self.theming.confirm_apply = false,
@@ -3458,6 +3461,7 @@ impl App {
         }
         match result {
             Ok(status) => {
+                self.theming.show_minimize = status.show_minimize;
                 self.theming.status = Some(status.clone());
                 if !status.available {
                     self.theming.busy = false;
@@ -3516,12 +3520,15 @@ impl App {
             return Task::none();
         }
         self.theming.apply_busy = true;
+        // Leave the confirmation step behind (stayed visible since 0.21.0).
+        self.theming.confirm_apply = false;
         self.theming.error = None;
         self.theming.message = None;
         let token = session.token.clone();
         let epoch = self.epoch;
+        let show_minimize = self.theming.show_minimize;
         Task::future(async move {
-            Message::ThemingApplyFinished(epoch, client::theming_apply(token).await)
+            Message::ThemingApplyFinished(epoch, client::theming_apply(token, show_minimize).await)
         })
         .map(cosmic::Action::App)
     }

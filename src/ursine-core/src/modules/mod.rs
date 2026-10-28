@@ -210,7 +210,7 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::SetNiriSection { .. } => "set_niri_section",
         Action::ThemeDetect => "theme_detect",
         Action::ThemeGet => "theme_get",
-        Action::ThemeApply => "theme_apply",
+        Action::ThemeApply { .. } => "theme_apply",
         Action::GetFirewall => "get_firewall",
         Action::SetDefaultFirewallZone { .. } => "set_default_firewall_zone",
         Action::AddFirewallService { .. } => "add_firewall_service",

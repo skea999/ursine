@@ -43,10 +43,13 @@ pub async fn handle(
             serde_json::to_value(snapshot)
                 .map_err(|e| ApiError::internal(format!("encode theme snapshot: {e}")))
         }
-        Action::ThemeApply => {
+        Action::ThemeApply { show_minimize } => {
             let (home, uid, gid) = target_identity(ctx.as_user)?;
             let user = ctx.as_user.to_string();
-            let report = blocking(move || apply::run_blocking(&user, &home, uid, gid)).await?;
+            let show_minimize = *show_minimize;
+            let report =
+                blocking(move || apply::run_blocking(&user, &home, uid, gid, show_minimize))
+                    .await?;
             serde_json::to_value(report)
                 .map_err(|e| ApiError::internal(format!("encode apply report: {e}")))
         }
@@ -204,6 +207,25 @@ fn wayle_running(uid: u32) -> bool {
     false
 }
 
+/// Current state of the minimize toggle: read back from the written
+/// settings.ini (our source of truth); absent key = trio on.
+fn baseline_show_minimize(home: &Path) -> bool {
+    for rel in [
+        ".config/gtk-4.0/settings.ini",
+        ".config/gtk-3.0/settings.ini",
+    ] {
+        let text = read_or_empty(&home.join(rel));
+        if let Some(line) = text
+            .lines()
+            .find(|l| l.starts_with("gtk-decoration-layout="))
+        {
+            let value = line.split_once('=').map(|(_, v)| v).unwrap_or_default();
+            return value.contains("minimize");
+        }
+    }
+    true
+}
+
 /// Read the winning source's config into a snapshot.
 fn snapshot_for(source: ThemeSource, home: &Path) -> Result<ThemeSnapshot, ApiError> {
     match source {
@@ -334,6 +356,7 @@ fn detect_blocking(home: &Path, uid: u32, _gid: u32) -> Result<ThemingStatus, Ap
         } else {
             Vec::new()
         },
+        show_minimize: baseline_show_minimize(home),
     })
 }
 
@@ -428,6 +451,34 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    fn temp_home_dir(tag: &str) -> PathBuf {
+        let home = std::env::temp_dir().join(format!("ursine-th-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        home
+    }
+    #[test]
+    fn minimize_toggle_reads_back_from_settings_ini() {
+        let home = temp_home_dir("min-read");
+        // Absent key = trio on (default).
+        assert!(baseline_show_minimize(&home));
+        let dir = home.join(".config/gtk-4.0");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("settings.ini"),
+            "[Settings]\ngtk-decoration-layout=:maximize,close\n",
+        )
+        .unwrap();
+        assert!(!baseline_show_minimize(&home));
+        std::fs::write(
+            dir.join("settings.ini"),
+            "[Settings]\ngtk-decoration-layout=:minimize,maximize,close\n",
+        )
+        .unwrap();
+        assert!(baseline_show_minimize(&home));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     #[test]
     fn json_helper_shapes_detect_response() {
         // Shapes the wire response the GUI renders.
@@ -435,6 +486,7 @@ mod tests {
             available: false,
             source: None,
             targets: vec![],
+            show_minimize: true,
         };
         assert_eq!(
             json!({"available": false}).to_string(),
@@ -486,6 +538,7 @@ mod tests {
             &probe_home,
             std::process::id(),
             std::process::id(),
+            true,
         )
         .expect("apply into throwaway home");
         let written = report

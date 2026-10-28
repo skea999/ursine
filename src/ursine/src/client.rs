@@ -417,12 +417,15 @@ pub async fn theming_snapshot(token: SessionToken) -> Result<ursine_api::ThemeSn
 }
 
 /// Apply the snapshot to every available target (writes user config).
-pub async fn theming_apply(token: SessionToken) -> Result<ursine_api::ThemeApplyReport, ApiError> {
+pub async fn theming_apply(
+    token: SessionToken,
+    show_minimize: bool,
+) -> Result<ursine_api::ThemeApplyReport, ApiError> {
     // File writes across every target incl. the cosmic-config walk.
     let value = call_with_timeout(
         token,
         ModuleId::Theming,
-        Action::ThemeApply,
+        Action::ThemeApply { show_minimize },
         None,
         Duration::from_secs(60),
     )

@@ -114,6 +114,10 @@ Notes:
 - **niri caveat**: niri has no minimized state — the native minimize click is
   inert until `ursine-titlebar` replaces it (see below). The baseline config
   is still written so KDE/other desktops and future coverage stay correct.
+- **GUI toggle**: the Theming section shows "Show minimize button"
+  (checkbox); `theme_detect` reads the current state back from
+  `settings.ini`, `theme_apply { show_minimize }` writes it into the GTK
+  layout, the live `button-layout` key and the kwin letters (`IAX`/`AX`).
 - **Grafica**: when we own `gtk.css` (Wayle source / no shell CSS) the
   window-control buttons get our uniform restyle (size, radius, palette
   alpha); when the shell owns it (DMS), the buttons still follow the shell

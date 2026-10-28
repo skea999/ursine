@@ -2,7 +2,7 @@
 
 use cosmic::iced::widget::container::Style as ContainerStyle;
 use cosmic::iced::Length;
-use cosmic::widget::{button, column, container, row, scrollable, text};
+use cosmic::widget::{button, column, container, row, scrollable, settings, text, toggler};
 use cosmic::Element;
 use ursine_api::{ThemeApplyReport, ThemeSnapshot, ThemingStatus};
 
@@ -15,6 +15,8 @@ pub struct ThemingState {
     /// Set when the user pressed Apply; the write happens only after the
     /// confirm step (SPEC: apply behind confirmation).
     pub confirm_apply: bool,
+    /// GUI checkbox: include the minimize button in the baseline.
+    pub show_minimize: bool,
     pub status: Option<ThemingStatus>,
     pub snapshot: Option<ThemeSnapshot>,
     pub report: Option<ThemeApplyReport>,
@@ -88,6 +90,13 @@ impl ThemingState {
             .collect();
         items.push(column(target_rows).spacing(4).into());
 
+        items.push(
+            settings::item(
+                "Show minimize button",
+                toggler(self.show_minimize).on_toggle(Message::ThemingMinimizeToggled),
+            )
+            .into(),
+        );
         if self.confirm_apply {
             let targets = status.targets.iter().filter(|t| t.available).count();
             items.push(
@@ -309,6 +318,7 @@ mod tests {
             status: Some(ThemingStatus {
                 available: true,
                 source: Some(ThemeSource::Dms),
+                show_minimize: true,
                 targets: vec![
                     TargetStatus::available(ThemingTarget::Gtk3, "settings.ini"),
                     TargetStatus::unavailable(ThemingTarget::Kde, "kwriteconfig5 not found"),

@@ -404,7 +404,17 @@ pub enum Action {
     /// Normalized theme snapshot from the winning source.
     ThemeGet,
     /// Propagate the snapshot to every available target (writes + report).
-    ThemeApply,
+    /// `show_minimize` toggles the minimize button of the three-button
+    /// baseline (default on).
+    ThemeApply {
+        #[serde(default = "default_show_minimize")]
+        show_minimize: bool,
+    },
+}
+
+/// Wire default for `ThemeApply.show_minimize` (trio on).
+fn default_show_minimize() -> bool {
+    true
 }
 
 #[cfg(test)]

@@ -25,6 +25,7 @@ pub(super) fn run_blocking(
     home: &Path,
     uid: u32,
     gid: u32,
+    show_minimize: bool,
 ) -> Result<ThemeApplyReport, ApiError> {
     let source = select_source(home, uid).ok_or_else(|| {
         ApiError::unavailable(
@@ -37,7 +38,14 @@ pub(super) fn run_blocking(
     let mut results = Vec::with_capacity(statuses.len());
     for status in &statuses {
         results.push(write_target(
-            user, status, home, uid, gid, &snapshot, &statuses,
+            user,
+            status,
+            home,
+            uid,
+            gid,
+            show_minimize,
+            &snapshot,
+            &statuses,
         ));
     }
     Ok(ThemeApplyReport { results })
@@ -51,12 +59,14 @@ pub(super) enum Applied {
     Kept(String),
 }
 
+#[allow(clippy::too_many_arguments)] // one routing helper per target
 fn write_target(
     user: &str,
     status: &TargetStatus,
     home: &Path,
     uid: u32,
     gid: u32,
+    show_minimize: bool,
     snap: &ThemeSnapshot,
     statuses: &[TargetStatus],
 ) -> TargetResult {
@@ -69,12 +79,12 @@ fn write_target(
         };
     }
     let outcome = match target {
-        ThemingTarget::Gtk3 => gtk_settings(user, home, uid, gid, snap, "gtk-3.0"),
-        ThemingTarget::Gtk4 => gtk_settings(user, home, uid, gid, snap, "gtk-4.0"),
+        ThemingTarget::Gtk3 => gtk_settings(user, home, uid, gid, show_minimize, snap, "gtk-3.0"),
+        ThemingTarget::Gtk4 => gtk_settings(user, home, uid, gid, show_minimize, snap, "gtk-4.0"),
         ThemingTarget::Gtk2 => gtk2(home, uid, gid, snap),
         ThemingTarget::Qt5 => qtct(home, uid, gid, snap, "qt5ct"),
         ThemingTarget::Qt6 => qtct(home, uid, gid, snap, "qt6ct"),
-        ThemingTarget::Kde => kde(home, uid, gid, snap),
+        ThemingTarget::Kde => kde(home, uid, gid, show_minimize, snap),
         ThemingTarget::Flatpak => flatpak(home, uid, gid),
         ThemingTarget::Cosmic => return cosmic::run(home, uid, gid, snap),
         ThemingTarget::Environment => environment(home, uid, gid, snap, statuses),
@@ -113,11 +123,13 @@ fn write_target(
 /// GTK3/GTK4: `settings.ini` (theme/font/icon/cursor) + colors CSS.
 /// An existing `gtk.css` without our marker (shell or hand-written) is never
 /// clobbered — no matter which source won.
+#[allow(clippy::too_many_arguments)] // follows the shared target signature
 fn gtk_settings(
     user: &str,
     home: &Path,
     uid: u32,
     gid: u32,
+    show_minimize: bool,
     snap: &ThemeSnapshot,
     dir_name: &str,
 ) -> Result<Applied, ApiError> {
@@ -126,12 +138,16 @@ fn gtk_settings(
 
     let mut updates: Vec<(&str, String)> = vec![
         ("gtk-theme-name", "Adwaita".to_string()),
-        // Classic trio for every app, GNOME/libadwaita included (SPEC:
-        // native three-button baseline). Colon = empty left side, all three
-        // buttons right-aligned like every other stack.
+        // Classic set for every app, GNOME/libadwaita included (SPEC:
+        // native three-button baseline). Colon = empty left side, buttons
+        // right-aligned like every other stack; minimize is the GUI toggle.
         (
             "gtk-decoration-layout",
-            ":minimize,maximize,close".to_string(),
+            if show_minimize {
+                ":minimize,maximize,close".to_string()
+            } else {
+                ":maximize,close".to_string()
+            },
         ),
     ];
     // Empty family = "leave fonts as configured" (Wayle exposes none).
@@ -169,7 +185,7 @@ fn gtk_settings(
     // The live session value (dconf -> settings portal -> GtkSettings)
     // overrides settings.ini on GNOME sessions: mirror the trio into
     // button-layout as well, through the user's session bus.
-    let gnote = apply_session_button_layout(user, uid);
+    let gnote = apply_session_button_layout(user, uid, show_minimize);
     Ok(Applied::Wrote(format!(
         "settings.ini + gtk.css written; {gnote}"
     )))
@@ -177,11 +193,11 @@ fn gtk_settings(
 
 /// Best-effort live update of the session's `button-layout` (what the
 /// settings portal serves to GTK). Failures fall back to settings.ini only.
-fn apply_session_button_layout(user: &str, uid: u32) -> String {
+fn apply_session_button_layout(user: &str, uid: u32, show_minimize: bool) -> String {
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
         return "gsettings skipped (no runtime)".to_string();
     };
-    let script = gsettings_script(uid);
+    let script = gsettings_script(uid, show_minimize);
     let outcome = handle.block_on(crate::modules::packages_nix::exec::run_as_user_script(
         user,
         &script,
@@ -194,9 +210,14 @@ fn apply_session_button_layout(user: &str, uid: u32) -> String {
 }
 
 /// Shell one-liner (no quotes/newlines: `run_as_user_script` contract).
-fn gsettings_script(uid: u32) -> String {
+fn gsettings_script(uid: u32, show_minimize: bool) -> String {
+    let layout = if show_minimize {
+        ":minimize,maximize,close"
+    } else {
+        ":maximize,close"
+    };
     format!(
-        "export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus; export XDG_RUNTIME_DIR=/run/user/{uid}; gsettings set org.gnome.desktop.wm.preferences button-layout :minimize,maximize,close; gsettings set org.gnome.desktop.interface gtk-decoration-layout :minimize,maximize,close || true"
+        "export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus; export XDG_RUNTIME_DIR=/run/user/{uid}; gsettings set org.gnome.desktop.wm.preferences button-layout {layout}; gsettings set org.gnome.desktop.interface gtk-decoration-layout {layout} || true"
     )
 }
 
@@ -400,7 +421,13 @@ fn qtct_colors(snap: &ThemeSnapshot) -> String {
 }
 
 /// KDE: write our `.colors` scheme and select it in `kdeglobals` (merged).
-fn kde(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied, ApiError> {
+fn kde(
+    home: &Path,
+    uid: u32,
+    gid: u32,
+    show_minimize: bool,
+    snap: &ThemeSnapshot,
+) -> Result<Applied, ApiError> {
     let scheme = format!("ursine-{}", snap.source.as_str());
     let colors_dir = home.join(".local/share/color-schemes");
     mkdir_owned(home, &colors_dir, uid, gid)?;
@@ -415,10 +442,11 @@ fn kde(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied,
     let globals = home.join(".config/kdeglobals");
     let existing = read_or_empty(&globals);
     let mut merged = replace_section_value(&existing, "General", "ColorScheme", &scheme);
-    // Classic trio on kwin titlebars (KDecoration letters: I=minimize,
+    // Classic set on kwin titlebars (KDecoration letters: I=minimize,
     // A=maximize, X=close); left side emptied for right-aligned uniformity.
     merged = replace_section_value(&merged, "WM", "ButtonsOnLeft", "");
-    merged = replace_section_value(&merged, "WM", "ButtonsOnRight", "IAX");
+    let right_buttons = if show_minimize { "IAX" } else { "AX" };
+    merged = replace_section_value(&merged, "WM", "ButtonsOnRight", right_buttons);
     if let Some(icon) = &snap.icon_theme {
         merged = replace_section_value(&merged, "Icons", "Theme", icon);
     }
@@ -662,7 +690,16 @@ mod tests {
     fn gtk_settings_writes_ini_and_css_for_wayle_source() {
         let home = temp_home("gtk");
         let detail = wrote(
-            gtk_settings("u", &home, 0, 0, &snapshot(ThemeSource::Wayle), "gtk-3.0").unwrap(),
+            gtk_settings(
+                "u",
+                &home,
+                0,
+                0,
+                true,
+                &snapshot(ThemeSource::Wayle),
+                "gtk-3.0",
+            )
+            .unwrap(),
         );
         assert!(detail.contains("gtk.css"));
         let ini = std::fs::read_to_string(home.join(".config/gtk-3.0/settings.ini")).unwrap();
@@ -681,7 +718,18 @@ mod tests {
         assert!(css.contains(".titlebar .titlebutton"));
         assert!(!css.contains("windowcontrols >"));
         // GTK4/libadwaita directory gets the element selector instead.
-        wrote(gtk_settings("u", &home, 0, 0, &snapshot(ThemeSource::Wayle), "gtk-4.0").unwrap());
+        wrote(
+            gtk_settings(
+                "u",
+                &home,
+                0,
+                0,
+                true,
+                &snapshot(ThemeSource::Wayle),
+                "gtk-4.0",
+            )
+            .unwrap(),
+        );
         let css4 = std::fs::read_to_string(home.join(".config/gtk-4.0/gtk.css")).unwrap();
         assert!(css4.contains("windowcontrols > button"));
         assert!(!css4.contains(".titlebar .titlebutton"));
@@ -700,8 +748,18 @@ mod tests {
             "@define-color window_bg_color #000000;\n",
         )
         .unwrap();
-        let detail =
-            wrote(gtk_settings("u", &home, 0, 0, &snapshot(ThemeSource::Dms), "gtk-3.0").unwrap());
+        let detail = wrote(
+            gtk_settings(
+                "u",
+                &home,
+                0,
+                0,
+                true,
+                &snapshot(ThemeSource::Dms),
+                "gtk-3.0",
+            )
+            .unwrap(),
+        );
         assert!(detail.contains("foreign gtk.css preserved"));
         // The trio baseline lives in settings.ini, independent of who owns
         // the CSS file.
@@ -765,7 +823,7 @@ mod tests {
             "[General]\nSomeKey=keep\n\n[Icons]\nTheme=OldIcon\n",
         )
         .unwrap();
-        kde(&home, 0, 0, &snapshot(ThemeSource::Dms)).unwrap();
+        kde(&home, 0, 0, true, &snapshot(ThemeSource::Dms)).unwrap();
         let globals = std::fs::read_to_string(home.join(".config/kdeglobals")).unwrap();
         assert!(globals.contains("ColorScheme=ursine-dms"));
         // Native three-button baseline on kwin (I=minimize A=maximize X=close).
@@ -789,8 +847,38 @@ mod tests {
     }
 
     #[test]
+    fn minimize_toggle_switches_layout_and_kde_buttons() {
+        // On: classic trio everywhere.
+        let on = gsettings_script(1000, true);
+        assert!(on.contains(":minimize,maximize,close"));
+        // Off: minimize dropped from GTK, live key and kwin letters.
+        let off = gsettings_script(1000, false);
+        assert!(off.contains(":maximize,close"));
+        assert!(!off.contains("minimize"));
+        let home = temp_home("min-off");
+        kde(&home, 0, 0, false, &snapshot(ThemeSource::Dms)).unwrap();
+        let globals = std::fs::read_to_string(home.join(".config/kdeglobals")).unwrap();
+        assert!(globals.contains("ButtonsOnRight=AX"), "{globals}");
+        assert!(!globals.contains("IAX"), "{globals}");
+        gtk_settings(
+            "u",
+            &home,
+            0,
+            0,
+            false,
+            &snapshot(ThemeSource::Wayle),
+            "gtk-3.0",
+        )
+        .unwrap();
+        let ini = std::fs::read_to_string(home.join(".config/gtk-3.0/settings.ini")).unwrap();
+        assert!(ini.contains("gtk-decoration-layout=:maximize,close"));
+        assert!(!ini.contains("minimize"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
     fn gsettings_script_targets_the_user_bus_and_both_keys() {
-        let script = gsettings_script(1000);
+        let script = gsettings_script(1000, true);
         assert!(script.contains("unix:path=/run/user/1000/bus"));
         assert!(script
             .contains("org.gnome.desktop.wm.preferences button-layout :minimize,maximize,close"));
@@ -807,6 +895,7 @@ mod tests {
             Path::new("/nonexistent"),
             0,
             0,
+            true,
             &snapshot(ThemeSource::Dms),
             std::slice::from_ref(&status),
         );
@@ -823,6 +912,7 @@ mod tests {
             Path::new("."),
             0,
             0,
+            true,
             &snapshot(ThemeSource::Dms),
             &[],
         );

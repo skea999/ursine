@@ -139,6 +139,15 @@ pub struct ThemingStatus {
     pub source: Option<ThemeSource>,
     /// Per-target availability for the target user's home.
     pub targets: Vec<TargetStatus>,
+    /// Whether the three-button baseline currently includes minimize
+    /// (initialized from the written settings.ini; GUI checkbox source).
+    #[serde(default = "default_show_minimize")]
+    pub show_minimize: bool,
+}
+
+/// Wire default: the classic trio starts enabled.
+fn default_show_minimize() -> bool {
+    true
 }
 
 /// Palette shared by every toolkit (`#rrggbb`).
@@ -297,6 +306,7 @@ mod tests {
             available: false,
             source: None,
             targets: vec![],
+            show_minimize: true,
         };
         let value = serde_json::to_value(&status).unwrap();
         assert!(value.get("source").is_none());
