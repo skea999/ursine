@@ -49,11 +49,12 @@ pub enum ThemingTarget {
     Wezterm,
     Cava,
     Electron,
+    Galculator,
 }
 
 impl ThemingTarget {
     /// Every target, in display order.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::Gtk3,
         Self::Gtk4,
         Self::Gtk2,
@@ -73,6 +74,7 @@ impl ThemingTarget {
         Self::Wezterm,
         Self::Cava,
         Self::Electron,
+        Self::Galculator,
     ];
 
     /// Stable wire/audit name.
@@ -97,6 +99,7 @@ impl ThemingTarget {
             Self::Wezterm => "wezterm",
             Self::Cava => "cava",
             Self::Electron => "electron",
+            Self::Galculator => "galculator",
         }
     }
 }
@@ -237,7 +240,7 @@ mod tests {
             assert_eq!(s.trim_matches('"'), name);
             assert!(seen.insert(name), "duplicate target name {name}");
         }
-        assert_eq!(ThemingTarget::ALL.len(), 19);
+        assert_eq!(ThemingTarget::ALL.len(), 20);
     }
 
     #[test]

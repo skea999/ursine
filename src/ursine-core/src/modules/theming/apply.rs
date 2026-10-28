@@ -99,7 +99,8 @@ fn write_target(
         | ThemingTarget::Ghostty
         | ThemingTarget::Foot
         | ThemingTarget::Wezterm
-        | ThemingTarget::Cava => apps::write_target(target, home, uid, gid, snap),
+        | ThemingTarget::Cava
+        | ThemingTarget::Galculator => apps::write_target(target, home, uid, gid, snap),
     };
     match outcome {
         Ok(Applied::Wrote(detail)) => TargetResult {

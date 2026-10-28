@@ -335,6 +335,11 @@ fn target_statuses(home: &Path) -> Vec<TargetStatus> {
         } else {
             TargetStatus::unavailable(ThemingTarget::Electron, "no Electron app detected")
         },
+        if has(".config/galculator/galculator.conf") || bin(&["/usr/bin/galculator"]) {
+            TargetStatus::available(ThemingTarget::Galculator, "galculator display colors")
+        } else {
+            TargetStatus::unavailable(ThemingTarget::Galculator, "galculator not installed")
+        },
     ];
     statuses.sort_by_key(|s| {
         ThemingTarget::ALL

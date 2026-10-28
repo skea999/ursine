@@ -11,7 +11,8 @@ use ursine_api::{ApiError, ThemeSnapshot, ThemingTarget};
 use super::apply::{Applied, BEGIN, END, MARKER};
 use super::color::{contrast_on, mix, without_alpha};
 use super::write::{
-    merge_json, mkdir_owned, read_or_empty, replace_block, replace_ini_section, write_owned,
+    merge_ini, merge_json, mkdir_owned, read_or_empty, replace_block, replace_ini_section,
+    write_owned,
 };
 use serde_json::json;
 
@@ -34,6 +35,7 @@ pub(super) fn write_target(
             "wezterm.lua has no safe merge point; colors left to the user (see SPEC)".to_string(),
         )),
         ThemingTarget::Cava => cava(home, uid, gid, snap),
+        ThemingTarget::Galculator => galculator(home, uid, gid, snap),
         ThemingTarget::Electron => electron(home, uid, gid),
         _ => Err(ApiError::internal("not an application target")),
     }
@@ -603,6 +605,34 @@ fn section_bodies(existing: &str) -> std::collections::HashMap<String, String> {
     map
 }
 
+/// galculator paints its display from its OWN config (`display_bkg_color`
+/// etc.) — the shell theme never reaches it. Merge the five display colors
+/// from the palette; everything else in the file is preserved.
+fn galculator(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied, ApiError> {
+    let dir = home.join(".config/galculator");
+    mkdir_owned(home, &dir, uid, gid)?;
+    let path = dir.join("galculator.conf");
+    let existing = read_or_empty(&path);
+    let c = &snap.colors;
+    let (bg, fg) = (c.background.as_str(), c.foreground.as_str());
+    let updates = [
+        ("display_bkg_color", format!("\"{bg}\"")),
+        ("display_result_color", format!("\"{fg}\"")),
+        ("display_stack_color", format!("\"{}\"", mix(fg, bg, 0.65))),
+        ("display_module_active_color", format!("\"{}\"", c.primary)),
+        (
+            "display_module_inactive_color",
+            format!("\"{}\"", mix(fg, bg, 0.45)),
+        ),
+    ];
+    let refs: Vec<(&str, &str)> = updates.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let merged = merge_ini(&existing, "general", &refs);
+    write_owned(home, &path, merged.as_bytes(), uid, gid)?;
+    Ok(Applied::Wrote(
+        "galculator display colors from shell palette".to_string(),
+    ))
+}
+
 /// Electron: keep Chromium on GTK4 so the GTK layers drive its colors.
 fn electron(home: &Path, uid: u32, gid: u32) -> Result<Applied, ApiError> {
     let path = home.join(".config/electron-flags.conf");
@@ -873,6 +903,30 @@ mod tests {
         wrote(cava(&home, 0, 0, &snapshot()).unwrap());
         let text = std::fs::read_to_string(cava_dir.join("config")).unwrap();
         assert_eq!(text.matches("[color]").count(), 1);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn galculator_display_colors_merge_preserve_the_rest() {
+        let home = temp_home("galculator");
+        let dir = home.join(".config/galculator");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("galculator.conf"),
+            "[general]\ndisplay_bkg_color=\"rgb(255,255,255)\"\nbutton_width=40\nmode=0\n",
+        )
+        .unwrap();
+        let detail = wrote(galculator(&home, 0, 0, &snapshot()).unwrap());
+        assert!(detail.contains("display colors"));
+        let text = std::fs::read_to_string(dir.join("galculator.conf")).unwrap();
+        // Quoted like galculator's own writer.
+        assert!(text.contains("display_bkg_color=\"#10140f\""), "{text}");
+        assert!(text.contains("display_result_color=\"#e0e4db\""));
+        assert!(text.contains("display_module_active_color=\"#4caf50\""));
+        assert!(!text.contains("rgb(255,255,255)"));
+        // Foreign keys untouched.
+        assert!(text.contains("button_width=40"));
+        assert!(text.contains("mode=0"));
         let _ = std::fs::remove_dir_all(&home);
     }
 
