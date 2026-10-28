@@ -1,7 +1,8 @@
 # SPEC — Theming (uniform desktop)
 
-Status: **planned** (user decision 2026-10-27). Application top bar: planned,
-specs pending from the user.
+Status: **implemented 2026-10-27** (backend + GUI; live probe against a real
+DMS config green; real FeralOS/KDE/Qt/Wayle smoke pending). Application top
+bar: planned, specs pending from the user.
 
 ## Goal
 
@@ -22,6 +23,11 @@ propagator, never the source of truth.
 3. If neither config exists: capability `theming` is unavailable — the GUI
    section stays hidden/inactive. No writes, ever.
 
+Capability probe: ANY login user (uid 1000..60000, same range as the module's
+identity check) has a shell config; `theme_detect`/`theme_get`/`theme_apply`
+resolve the session principal (or `asUser` equal to it — cross-user theming is
+rejected on the wire).
+
 ## Snapshot
 
 `theming.get` normalizes both sources into one `ThemeSnapshot`:
@@ -30,7 +36,8 @@ propagator, never the source of truth.
 - colors: background, foreground, primary/accent, secondary, surface,
   error/destructive, success, warning, outline (hex)
 - `dark`: bool (from palette luminance / source flag)
-- fonts: ui family, mono family, weight, scale
+- fonts: ui family, mono family, weight, scale (Wayle exposes none: empty
+  families mean "leave the configured fonts alone" — writers skip font keys)
 - corner radius, icon theme, cursor theme + size
 
 Source extraction:
@@ -43,20 +50,22 @@ Source extraction:
 ## Targets
 
 All `theming.apply` writes are user-scoped via `asUser`, atomic, audit-logged,
-and destructive parts sit behind GUI confirmation.
+and sit behind an explicit GUI confirmation step. Every propagated label
+(font/icon/cursor) is validated (no control bytes, no `=`) before entering an
+INI or env file.
 
 | # | Technology | Artifact | Gate |
 |---|---|---|---|
-| 1 | GTK3 | `~/.config/gtk-3.0/settings.ini` (theme/font/icon/cursor); CSS import only when DMS does not already own `gtk.css` | always |
-| 2 | GTK4 | `~/.config/gtk-4.0/settings.ini` + `gtk.css` import (same rule as GTK3) | always |
+| 1 | GTK3 | `~/.config/gtk-3.0/settings.ini` (theme/font/icon/cursor); `gtk.css` written only when absent or marker-owned (shell/hand-written CSS never clobbered, regardless of source) | always |
+| 2 | GTK4 | same as GTK3 under `~/.config/gtk-4.0/` | always |
 | 3 | GTK2 | `~/.gtkrc-2.0` (theme/font/icon/cursor) | always |
 | 4 | Qt5 | `~/.config/qt5ct/colors/ursine-<source>.conf` + `qt5ct.conf` `colorScheme=` | qt5ct config dir/tool present |
 | 5 | Qt6 | same under `~/.config/qt6ct/` | qt6ct present |
-| 6 | KDE | `~/.local/share/color-schemes/ursine-<source>.colors` + `kwriteconfig5` `kdeglobals` (ColorScheme, cursor, font) | `kwriteconfig5` present |
+| 6 | KDE | `~/.local/share/color-schemes/ursine-<source>.colors` + direct merged writes into `kdeglobals` (ColorScheme, Icons, cursor, Font) | kwriteconfig5/6 binary, `kdeglobals`, or color-schemes dir present |
 | 7 | Flatpak | merge `filesystems=…:ro` entries into `~/.local/share/flatpak/overrides/global` for `xdg-config/gtk-3.0`, `gtk-4.0`, `qt5ct`, `qt6ct` (read-only mounts so sandboxed apps see host theme) | flatpak present |
-| 8 | libcosmic / COSMIC apps | write custom entry `com.system76.CosmicTheme.*` + set `com.system76.CosmicTheme.Mode` active theme (systemic: all COSMIC windows follow) | always (cosmic-config present with COSMIC apps) |
-| 9 | Session env | `~/.config/environment.d/95-ursine-theme.conf`: `XCURSOR_THEME`, `XCURSOR_SIZE`, `ICON_THEME`, `QT_QPA_PLATFORMTHEME` (qt6ct/qt5ct/KDE per gate), `GTK_THEME` (only when Ursine owns the CSS path) | always (best-effort: session restart needed; note in GUI) |
-| 10 | Portal | appearance/prefer-dark via portal config where supported | portal present |
+| 8 | libcosmic / COSMIC apps | patch a full `cosmic_theme::Theme` from the snapshot (8-digit hex for ColorRepr) and `write_entry` into `com.system76.CosmicTheme.Dark`/`.Light` + `Mode.is_dark` via `Config::with_custom_path` (systemic: all COSMIC windows follow after restart) | always (self-sufficient: creates its config tree) |
+| 9 | Session env | `~/.config/environment.d/95-ursine-theme.conf`: `XCURSOR_THEME`, `XCURSOR_SIZE`, `ICON_THEME`, `QT_QPA_PLATFORMTHEME` (qt6ct/qt5ct when those tools exist; KDE apps read kdeglobals themselves) | always (best-effort: session restart needed; note in GUI) |
+| 10 | Portal | no direct file: the settings portal derives color/font from the GTK/Qt/KDE layers above (reported as `skipped` with that reason) | portal present |
 
 **DMS and Wayle themselves are excluded**: their own config files are the
 source we read; never write them.

@@ -39,11 +39,14 @@ pub enum Capability {
     Niri,
     /// PID 1 is dinit.
     Dinit,
+    /// A supported desktop shell (Wayle/DankMaterialShell) config or binary
+    /// exists for the target user (uniform theming source).
+    Theming,
 }
 
 impl Capability {
     /// Every capability the daemon probes, in display order.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::Btrbk,
         Self::Btrfs,
         Self::Nix,
@@ -59,6 +62,7 @@ impl Capability {
         Self::Accountsservice,
         Self::Niri,
         Self::Dinit,
+        Self::Theming,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -78,6 +82,7 @@ impl Capability {
             Self::Accountsservice => "accountsservice",
             Self::Niri => "niri",
             Self::Dinit => "dinit",
+            Self::Theming => "theming",
         }
     }
 }
@@ -125,9 +130,10 @@ mod tests {
 
     #[test]
     fn all_capabilities_are_listed_once() {
-        assert_eq!(Capability::ALL.len(), 15);
+        assert_eq!(Capability::ALL.len(), 16);
         assert!(Capability::ALL.contains(&Capability::Apk));
         assert!(Capability::ALL.contains(&Capability::Flatpak));
+        assert!(Capability::ALL.contains(&Capability::Theming));
     }
 
     #[test]

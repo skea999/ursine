@@ -73,6 +73,10 @@ const MODULE_SWITCHES: &[ModuleSwitch] = &[
         module: ModuleId::Niri,
         title: "Niri desktop",
     },
+    ModuleSwitch {
+        module: ModuleId::Theming,
+        title: "Theming",
+    },
 ];
 
 impl SettingsState {
@@ -211,6 +215,7 @@ fn module_switch(config: &ConfigSnapshot, module: ModuleId) -> TriState {
         ModuleId::Snapshots => config.modules.snapshots,
         ModuleId::Users => config.modules.users,
         ModuleId::Niri => config.modules.niri,
+        ModuleId::Theming => config.modules.theming,
         ModuleId::System | ModuleId::Config | ModuleId::Capabilities => TriState::Auto,
     }
 }

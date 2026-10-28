@@ -397,6 +397,14 @@ pub enum Action {
         section: String,
         value: serde_json::Value,
     },
+
+    // -- theming (uniform desktop) --
+    /// Detect the winning shell source (Wayle/DMS) and per-target availability.
+    ThemeDetect,
+    /// Normalized theme snapshot from the winning source.
+    ThemeGet,
+    /// Propagate the snapshot to every available target (writes + report).
+    ThemeApply,
 }
 
 #[cfg(test)]

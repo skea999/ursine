@@ -12,6 +12,8 @@ categories.workspace = true
 
 [dependencies]
 ursine-api.workspace = true
+cosmic-theme.workspace = true
+cosmic-config.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

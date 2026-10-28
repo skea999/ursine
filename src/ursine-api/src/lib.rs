@@ -23,6 +23,7 @@ pub mod printer;
 pub mod scanner;
 pub mod service;
 pub mod snapshot;
+pub mod theming;
 pub mod timeouts;
 pub mod token;
 pub mod users;
@@ -52,5 +53,9 @@ pub use printer::{PrintJob, Printer};
 pub use scanner::{AirscanDevice, Scanner, ScannerConfigView};
 pub use service::{Service, ServiceOp};
 pub use snapshot::{BtrbkConfigView, BtrbkSettings, Snapshot, SnapshotStats};
+pub use theming::{
+    ApplyOutcome, CursorTheme, TargetResult, TargetStatus, ThemeApplyReport, ThemeColors,
+    ThemeFonts, ThemeSnapshot, ThemeSource, ThemingStatus, ThemingTarget,
+};
 pub use token::SessionToken;
 pub use users::UserSummary;

@@ -40,6 +40,25 @@
 - [x] Disks: UUID, usage/free percent, SMART health when `smartctl` exists.
 - [ ] Disks: format/partition behind explicit enablement.
 
+#### Theming (uniform desktop, SPEC-theming) — 2026-10-27
+
+- [x] `theming` module: detect/get/apply; source precedence (running Wayle of
+  the session user wins, else DMS; inactive without a shell config);
+  capability `theming` + module switch.
+- [x] Toolkit writers: GTK3/4 settings.ini + CSS (shell's gtk.css never
+  clobbered), GTK2 gtkrc, qt5ct/qt6ct, KDE kdeglobals + color scheme,
+  Flatpak `overrides/global` mounts, COSMIC cosmic-config entries (systemic),
+  session `environment.d` (portal derives from toolkit layers).
+- [x] Application writers: Firefox profile `userChrome.css` + user.js prefs,
+  VSCodium/VSCode `workbench.colorCustomizations` + terminal palette,
+  alacritty import (DMS `dank-theme.toml` was never imported), kitty include,
+  ghostty/foot/cava color sections, Electron `--gtk-version=4`.
+- [x] GUI section: sidebar entry (capability-gated), palette preview, fonts
+  summary, per-target status, apply with per-target report.
+- [x] Live probe: real DMS config parsed and applied into a throwaway home.
+- [ ] Application top bar for every application — specs pending from the user.
+- [ ] Real FeralOS smoke with KDE/Qt (qt5ct/kwriteconfig5) and Wayle present.
+
 #### Decisions
 
 - Scanners: configuration only; no image scan (done).

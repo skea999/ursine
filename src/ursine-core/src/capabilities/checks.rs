@@ -3,7 +3,7 @@
 //! Cheap probes only: `stat` and tiny reads. Anything expensive is deferred
 //! to a later milestone (D-Bus name probing lands with the users module).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ursine_api::Capability;
 
@@ -95,7 +95,31 @@ pub fn check_capability(sys: &dyn Sysinfo, cap: Capability) -> bool {
         Capability::Dinit => {
             sys.read_trimmed(Path::new("/proc/1/comm")).as_deref() == Some("dinit")
         }
+        // Uniform theming: ANY normal login user (uid 1000..60000, aligned
+        // with the module's identity check) has a supported shell config.
+        // `theming.detect` refines per target user at call time.
+        Capability::Theming => passwd_homes(
+            &sys.read_trimmed(Path::new("/etc/passwd"))
+                .unwrap_or_default(),
+        )
+        .any(|home| {
+            sys.path_exists(&home.join(".config/wayle/config.toml"))
+                || sys.path_exists(&home.join(".config/DankMaterialShell/settings.json"))
+        }),
     }
+}
+
+/// Normal login users' homes from a `/etc/passwd` dump (uid 1000..60000).
+fn passwd_homes(passwd: &str) -> impl Iterator<Item = PathBuf> + '_ {
+    passwd.lines().filter_map(|line| {
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.len() < 6 {
+            return None;
+        }
+        let uid: u32 = fields.get(2)?.parse().ok()?;
+        let home = fields.get(5)?;
+        ((1000..60000).contains(&uid) && home.starts_with('/')).then(|| PathBuf::from(home))
+    })
 }
 
 /// Human reason + exact fix command for an unavailable capability.
@@ -134,5 +158,9 @@ pub fn hints(cap: Capability) -> (&'static str, &'static str) {
         Capability::Accountsservice => ("system D-Bus is not available", "start dbus"),
         Capability::Niri => ("niri not installed", "apk add niri"),
         Capability::Dinit => ("PID 1 is not dinit", "boot with dinit (OpenRC fallback)"),
+        Capability::Theming => (
+            "no Wayle or DankMaterialShell config found",
+            "install wayle or DankMaterialShell and sign in once",
+        ),
     }
 }

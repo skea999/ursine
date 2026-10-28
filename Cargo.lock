@@ -5286,6 +5286,8 @@ dependencies = [
 name = "ursine-core"
 version = "0.20.0"
 dependencies = [
+ "cosmic-config",
+ "cosmic-theme",
  "getrandom 0.2.17",
  "kdl",
  "pam-client",

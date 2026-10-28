@@ -17,6 +17,7 @@ pub mod printers;
 pub mod scanners;
 pub mod services;
 pub mod snapshots;
+pub mod theming;
 pub mod users;
 
 use crate::capabilities::{module_switch, Registry};
@@ -51,6 +52,7 @@ fn required_caps(module: ModuleId) -> &'static [Capability] {
         ModuleId::Snapshots => &[Capability::Btrbk, Capability::Btrfs],
         ModuleId::Users => &[Capability::Accountsservice],
         ModuleId::Niri => &[Capability::Niri],
+        ModuleId::Theming => &[Capability::Theming],
         ModuleId::Services | ModuleId::System | ModuleId::Config | ModuleId::Capabilities => &[],
     }
 }
@@ -121,6 +123,8 @@ pub async fn handle(
         (ModuleId::Users, action) => users::handle(action, ctx).await,
 
         (ModuleId::Niri, action) => niri::handle(action, ctx).await,
+
+        (ModuleId::Theming, action) => theming::handle(action, ctx).await,
 
         _ => Err(ApiError::invalid(format!(
             "action {} is not valid for module {}",
@@ -204,6 +208,9 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::GetNiriConfig => "get_niri_config",
         Action::ValidateNiriConfig { .. } => "validate_niri_config",
         Action::SetNiriSection { .. } => "set_niri_section",
+        Action::ThemeDetect => "theme_detect",
+        Action::ThemeGet => "theme_get",
+        Action::ThemeApply => "theme_apply",
         Action::GetFirewall => "get_firewall",
         Action::SetDefaultFirewallZone { .. } => "set_default_firewall_zone",
         Action::AddFirewallService { .. } => "add_firewall_service",
@@ -276,7 +283,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let clock = crate::clock::ManualClock::new(0);
         let audit = crate::audit::AuditLog::open(dir.join("audit.jsonl"), clock.clone()).unwrap();
-        let jobs = JobRegistry::new(dir.join("jobs"), Arc::new(audit), clock.clone()).unwrap();
+        let jobs = JobRegistry::new(dir.join("jobs"), Arc::new(audit), clock).unwrap();
         TestEnv {
             jobs,
             principal: Principal::local("skea999", Vec::new()),
@@ -305,7 +312,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn capabilities_list_returns_all_fifteen() {
+    async fn capabilities_list_returns_every_probed_capability() {
         let (caps, cfg, _path) = ctx_with(AllMissing);
         let env = test_env("ctx");
         let ctx = ModuleCtx {
@@ -318,7 +325,7 @@ mod tests {
         let v = handle(ModuleId::Capabilities, &Action::List, &ctx)
             .await
             .unwrap();
-        assert_eq!(v.as_array().unwrap().len(), 15);
+        assert_eq!(v.as_array().unwrap().len(), Capability::ALL.len());
     }
 
     #[tokio::test]

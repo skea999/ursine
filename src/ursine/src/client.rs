@@ -402,6 +402,35 @@ pub async fn job_output(
     serde_json::from_value(value).map_err(|e| ApiError::internal(format!("decode job output: {e}")))
 }
 
+/// Detect the winning shell source and per-target availability.
+pub async fn theming_status(token: SessionToken) -> Result<ursine_api::ThemingStatus, ApiError> {
+    let value = call(token, ModuleId::Theming, Action::ThemeDetect, None).await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode theming status: {e}")))
+}
+
+/// Normalized snapshot of the winning source's theme.
+pub async fn theming_snapshot(token: SessionToken) -> Result<ursine_api::ThemeSnapshot, ApiError> {
+    let value = call(token, ModuleId::Theming, Action::ThemeGet, None).await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode theme snapshot: {e}")))
+}
+
+/// Apply the snapshot to every available target (writes user config).
+pub async fn theming_apply(token: SessionToken) -> Result<ursine_api::ThemeApplyReport, ApiError> {
+    // File writes across every target incl. the cosmic-config walk.
+    let value = call_with_timeout(
+        token,
+        ModuleId::Theming,
+        Action::ThemeApply,
+        None,
+        Duration::from_secs(60),
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apply report: {e}")))
+}
+
 /// Installed packages and generation history for the target user's profile.
 pub async fn store_snapshot(
     token: SessionToken,

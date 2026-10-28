@@ -772,7 +772,7 @@ mod tests {
 
         let clock = crate::clock::ManualClock::new(0);
         let audit = AuditLog::open(dir.join("audit.jsonl"), clock.clone()).unwrap();
-        let jobs = JobRegistry::new(jobs_dir.clone(), Arc::new(audit), clock.clone()).unwrap();
+        let jobs = JobRegistry::new(jobs_dir, Arc::new(audit), clock).unwrap();
         assert!(!stale.exists(), "stale log survived startup purge");
         assert!(keep.exists(), "unrelated file was removed");
 
@@ -790,8 +790,8 @@ mod tests {
                 &principal(),
                 None,
                 |_| async {
-                    let out: Result<i32, ApiError> = panic!("simulated worker bug");
-                    out
+                    // Tail `panic!` coerces to the future's Result output.
+                    panic!("simulated worker bug")
                 },
             )
             .unwrap();

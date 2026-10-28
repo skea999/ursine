@@ -43,7 +43,7 @@ FeralOS has no control center; Nix has no GUI on any distro; the FeralOS desktop
 
 ## UI principles (binding)
 
-- **All UIs must behave as one product**: same layout patterns, same navigation structure, same terminology (`CONTEXT.md` vocabulary is the source of truth), consistent interaction model. Visual theme follows each toolkit (COSMIC for the GUI, browser-native for the web); pixel-identical theming across toolkits is NOT required (security decision 2026-10-19: memory-safe toolkit wins over visual coherence).
+- **All UIs must behave as one product**: same layout patterns, same navigation structure, same terminology (`CONTEXT.md` vocabulary is the source of truth), consistent interaction model. Visual theme follows each toolkit (COSMIC for the GUI, browser-native for the web); pixel-identical theming across toolkits is NOT required by default (security decision 2026-10-19: memory-safe toolkit wins over visual coherence). **Uniform theming decision (2026-10-27)**: a user-triggered "apply" propagates the shell theme (Wayle/DankMaterialShell) to every toolkit and application so all windows look identical — see `docs/specs/SPEC-theming.md`; the toolkit-independence rule above still governs default, unthemed rendering.
 - **User-friendly**: COSMIC design conventions for the GUI; capability-gated panels (never show a broken module — show why it is off and how to enable it); explicit confirmation for destructive actions; plain language, no jargon; every action visible in the audit log is explainable in the UI.
 
 ## Out of scope (today)

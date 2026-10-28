@@ -22,6 +22,7 @@ mod services;
 mod settings;
 mod snapshots;
 mod store;
+mod theming;
 mod users;
 
 use cosmic::app::Settings;

@@ -4,7 +4,8 @@ use cosmic::iced::Length;
 use cosmic::{Element, Task};
 use ursine_api::{
     validate_installable, Action, ApiError, ApkPackage, ApkUpdate, Capability, CapabilityReport,
-    ErrorCode, FlatpakPackage, JobOutput, JobStatus, ModuleId, SessionToken, TriState,
+    ErrorCode, FlatpakPackage, JobOutput, JobStatus, ModuleId, SessionToken, ThemeApplyReport,
+    ThemeSnapshot, ThemingStatus, TriState,
 };
 
 use crate::bluetooth::BluetoothState;
@@ -22,6 +23,7 @@ use crate::services::ServicesState;
 use crate::settings::SettingsState;
 use crate::snapshots::{SnapAction, SnapSetting, SnapshotsState};
 use crate::store::{PendingStoreAction, StoreAction, StoreScope, StoreState};
+use crate::theming::ThemingState;
 use crate::users::UsersState;
 
 /// Live session. The token stays in RAM: never written to disk, never logged.
@@ -113,6 +115,7 @@ enum Screen {
     Disks,
     Bluetooth,
     Network,
+    Theming,
 }
 
 pub struct App {
@@ -133,6 +136,7 @@ pub struct App {
     disks: DisksState,
     bluetooth: BluetoothState,
     network: NetworkState,
+    theming: ThemingState,
     screen: Screen,
     session: Option<Session>,
     /// Bumped on sign-in/sign-out so late async results cannot repopulate a
@@ -411,6 +415,20 @@ pub enum Message {
     JobPolled(u64, String, Result<JobOutput, ApiError>),
     /// Close a finished job's output box.
     JobClose,
+    /// Open the uniform theming section.
+    OpenTheming,
+    /// `theme_detect` finished.
+    ThemingStatusLoaded(u64, Result<ThemingStatus, ApiError>),
+    /// `theme_get` finished.
+    ThemingSnapshotLoaded(u64, Result<ThemeSnapshot, ApiError>),
+    /// Ask for apply confirmation (SPEC: writes happen behind confirm).
+    ThemingApply,
+    /// User confirmed: propagate the snapshot everywhere.
+    ThemingApplyConfirmed,
+    /// User cancelled the confirmation.
+    ThemingApplyCancelled,
+    /// `theme_apply` finished with a per-target report.
+    ThemingApplyFinished(u64, Result<ThemeApplyReport, ApiError>),
     SignOut,
 }
 
@@ -451,6 +469,7 @@ impl cosmic::Application for App {
             disks: DisksState::default(),
             bluetooth: BluetoothState::default(),
             network: NetworkState::default(),
+            theming: ThemingState::default(),
             screen: Screen::Home,
             session: None,
             epoch: 0,
@@ -521,6 +540,22 @@ impl cosmic::Application for App {
             Message::OpenNetwork => {
                 self.screen = Screen::Network;
                 return self.load_network();
+            }
+            Message::OpenTheming => {
+                self.screen = Screen::Theming;
+                return self.load_theming();
+            }
+            Message::ThemingStatusLoaded(epoch, result) => {
+                return self.finish_theming_status(epoch, result);
+            }
+            Message::ThemingSnapshotLoaded(epoch, result) => {
+                return self.finish_theming_snapshot(epoch, result);
+            }
+            Message::ThemingApply => self.theming.confirm_apply = true,
+            Message::ThemingApplyConfirmed => return self.apply_theming(),
+            Message::ThemingApplyCancelled => self.theming.confirm_apply = false,
+            Message::ThemingApplyFinished(epoch, result) => {
+                return self.finish_theming_apply(epoch, result);
             }
             Message::RefreshNetwork => return self.load_network(),
             Message::NetworkLoaded(epoch, result) => return self.finish_network(epoch, result),
@@ -1257,6 +1292,7 @@ impl cosmic::Application for App {
                     Screen::Disks => self.disks.view(),
                     Screen::Bluetooth => self.bluetooth.view(),
                     Screen::Network => self.network.view(),
+                    Screen::Theming => self.theming.view(),
                 };
                 cosmic::iced::widget::row(vec![self.sidebar(), content])
                     .width(Length::Fill)
@@ -2600,7 +2636,7 @@ impl App {
     fn sidebar(&self) -> Element<'_, Message> {
         use cosmic::widget::{button, column, container, scrollable, text};
 
-        let entries: [(Screen, &str); 13] = [
+        let entries: [(Screen, &str); 14] = [
             (Screen::Home, "Overview"),
             (Screen::Packages, "Package manager"),
             (Screen::Printers, "Printers"),
@@ -2613,6 +2649,7 @@ impl App {
             (Screen::Snapshots, "Snapshots"),
             (Screen::Users, "Users"),
             (Screen::Niri, "Niri desktop"),
+            (Screen::Theming, "Theming"),
             (Screen::Settings, "Settings"),
         ];
         let mut items: Vec<Element<'_, Message>> = vec![
@@ -2661,6 +2698,7 @@ impl App {
             Screen::Disks => Message::OpenDisks,
             Screen::Bluetooth => Message::OpenBluetooth,
             Screen::Network => Message::OpenNetwork,
+            Screen::Theming => Message::OpenTheming,
         }
     }
 
@@ -2694,6 +2732,7 @@ impl App {
             Screen::Disks => self.cap_available(Capability::Udisks2),
             Screen::Bluetooth => self.cap_available(Capability::Bluez),
             Screen::Network => self.cap_available(Capability::NetworkManager),
+            Screen::Theming => self.cap_available(Capability::Theming),
         }
     }
 
@@ -3389,6 +3428,140 @@ impl App {
         Task::none()
     }
 
+    /// Detect the shell source, then fetch the snapshot when available.
+    fn load_theming(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.theming.busy || self.theming.apply_busy {
+            return Task::none();
+        }
+        self.theming.busy = true;
+        self.theming.error = None;
+        self.theming.message = None;
+        self.theming.report = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            Message::ThemingStatusLoaded(epoch, client::theming_status(token).await)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_theming_status(
+        &mut self,
+        epoch: u64,
+        result: Result<ThemingStatus, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        match result {
+            Ok(status) => {
+                self.theming.status = Some(status.clone());
+                if !status.available {
+                    self.theming.busy = false;
+                    return Task::none();
+                }
+                // Snapshot next: the apply button needs the palette.
+                let Some(session) = &self.session else {
+                    self.theming.busy = false;
+                    return Task::none();
+                };
+                let token = session.token.clone();
+                return Task::future(async move {
+                    Message::ThemingSnapshotLoaded(epoch, client::theming_snapshot(token).await)
+                })
+                .map(cosmic::Action::App);
+            }
+            Err(error) => {
+                self.theming.busy = false;
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.theming.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn finish_theming_snapshot(
+        &mut self,
+        epoch: u64,
+        result: Result<ThemeSnapshot, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.theming.busy = false;
+        match result {
+            Ok(snapshot) => {
+                self.theming.snapshot = Some(snapshot);
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.theming.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn apply_theming(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.theming.busy || self.theming.apply_busy || self.theming.snapshot.is_none() {
+            return Task::none();
+        }
+        self.theming.apply_busy = true;
+        self.theming.error = None;
+        self.theming.message = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            Message::ThemingApplyFinished(epoch, client::theming_apply(token).await)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_theming_apply(
+        &mut self,
+        epoch: u64,
+        result: Result<ThemeApplyReport, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.theming.apply_busy = false;
+        match result {
+            Ok(report) => {
+                let failed = report
+                    .results
+                    .iter()
+                    .filter(|r| r.outcome == ursine_api::ApplyOutcome::Failed)
+                    .count();
+                let written = report
+                    .results
+                    .iter()
+                    .filter(|r| r.outcome == ursine_api::ApplyOutcome::Written)
+                    .count();
+                self.theming.message = Some(format!(
+                    "Applied: {written} written, {failed} failed. Restart apps or the session to see every change."
+                ));
+                self.theming.report = Some(report);
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.theming.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
     fn network_action(
         &mut self,
         label: &str,
@@ -3480,6 +3653,7 @@ impl App {
                 self.disks = DisksState::default();
                 self.bluetooth = BluetoothState::default();
                 self.network = NetworkState::default();
+                self.theming = ThemingState::default();
                 self.home.user.clone_from(&user);
                 self.home.busy = true;
                 self.home.error = None;
@@ -4063,6 +4237,7 @@ impl App {
         self.disks = DisksState::default();
         self.bluetooth = BluetoothState::default();
         self.network = NetworkState::default();
+        self.theming = ThemingState::default();
         self.screen = Screen::Home;
         self.login.password.clear();
         self.login.error = None;

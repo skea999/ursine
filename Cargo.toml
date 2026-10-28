@@ -16,6 +16,10 @@ categories = ["system-tools", "command-line-utilities"]
 [workspace.dependencies]
 ursine-api = { path = "src/ursine-api", version = "0.20.0" }
 ursine-core = { path = "src/ursine-core", version = "0.20.0" }
+# Same pin as the GUI: cosmic-theme writes the COSMIC config entries that all
+# libcosmic apps read (uniform theming target).
+cosmic-theme = { version = "1.0.0", git = "https://github.com/pop-os/libcosmic", rev = "430f3d48a97d8779f9c1985473912e594ccca1ae" }
+cosmic-config = { version = "1.0.0", git = "https://github.com/pop-os/libcosmic", rev = "430f3d48a97d8779f9c1985473912e594ccca1ae" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

@@ -85,6 +85,9 @@ pub struct ModulesConfig {
     pub snapshots: TriState,
     pub users: TriState,
     pub niri: TriState,
+    /// Uniform desktop theming propagation (SPEC-theming).
+    #[serde(default)]
+    pub theming: TriState,
 }
 
 impl Default for ModulesConfig {
@@ -103,6 +106,7 @@ impl Default for ModulesConfig {
             snapshots: TriState::Auto,
             users: TriState::Auto,
             niri: TriState::Auto,
+            theming: TriState::Auto,
         }
     }
 }

@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- Uniform theming section (daemon `theming` module + GUI): reads the active
+  shell config (Wayle or DankMaterialShell — running shell of the session
+  user wins, DMS default; inactive without either) and propagates one
+  normalized theme to every toolkit and app: GTK3/4/2 (`settings.ini` + CSS
+  without clobbering the shell's own `gtk.css`), qt5ct/qt6ct, KDE
+  (`kdeglobals` + color scheme), Flatpak sandbox mounts, COSMIC apps
+  (cosmic-config Dark/Light + Mode, systemic), session `environment.d`,
+  Firefox (`userChrome.css` + prefs), VSCodium color customizations,
+  terminals (alacritty import fix, kitty, ghostty, foot), cava, Electron
+  GTK4 flags. Per-target report; application top bar planned (specs pending).
+
 ### Fixed
 
 - dinit service starts at boot again: depends on `local.target` and runs

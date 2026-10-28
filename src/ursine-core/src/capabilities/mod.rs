@@ -102,6 +102,7 @@ pub fn module_switch(modules: &ModulesConfig, cap: Capability) -> TriState {
         Capability::NetworkManager => modules.network,
         Capability::Accountsservice => modules.users,
         Capability::Niri => modules.niri,
+        Capability::Theming => modules.theming,
     }
 }
 

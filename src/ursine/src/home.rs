@@ -31,6 +31,7 @@ struct ModuleEntry {
 #[derive(Clone, Copy)]
 enum Panel {
     Packages,
+    Theming,
     Snapshots,
     Users,
     Niri,
@@ -121,6 +122,13 @@ const MODULES: &[ModuleEntry] = &[
         any: false,
         panel: Some(Panel::Niri),
     },
+    ModuleEntry {
+        title: "Theming",
+        module: Some(ModuleId::Theming),
+        requires: &[Capability::Theming],
+        any: false,
+        panel: Some(Panel::Theming),
+    },
 ];
 
 impl HomeState {
@@ -206,7 +214,8 @@ impl HomeState {
                 | Panel::Services
                 | Panel::Disks
                 | Panel::Bluetooth
-                | Panel::Network,
+                | Panel::Network
+                | Panel::Theming,
             ) => {
                 let available = !Self::is_manually_off(entry, modules)
                     && if entry.any {
@@ -232,6 +241,7 @@ impl HomeState {
                     Some(Panel::Disks) => Message::OpenDisks,
                     Some(Panel::Bluetooth) => Message::OpenBluetooth,
                     Some(Panel::Network) => Message::OpenNetwork,
+                    Some(Panel::Theming) => Message::OpenTheming,
                     None => unreachable!(),
                 };
                 let open = button::text("Open").on_press_maybe(available.then_some(open_message));
@@ -270,6 +280,7 @@ fn module_mode(modules: &ModulesConfig, module: ModuleId) -> TriState {
         ModuleId::Snapshots => modules.snapshots,
         ModuleId::Users => modules.users,
         ModuleId::Niri => modules.niri,
+        ModuleId::Theming => modules.theming,
         ModuleId::System | ModuleId::Config | ModuleId::Capabilities => TriState::Auto,
     }
 }

@@ -38,6 +38,8 @@ pub enum ModuleId {
     Users,
     /// niri compositor configuration.
     Niri,
+    /// Uniform desktop theming (shell theme → every toolkit).
+    Theming,
 }
 
 impl ModuleId {
@@ -60,6 +62,7 @@ impl ModuleId {
             Self::Snapshots => "snapshots",
             Self::Users => "users",
             Self::Niri => "niri",
+            Self::Theming => "theming",
         }
     }
 }
@@ -96,6 +99,7 @@ mod tests {
             ModuleId::Snapshots,
             ModuleId::Users,
             ModuleId::Niri,
+            ModuleId::Theming,
         ] {
             let s = serde_json::to_string(&m).unwrap();
             let back: ModuleId = serde_json::from_str(&s).unwrap();

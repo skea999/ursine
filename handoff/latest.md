@@ -6,6 +6,16 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-27 — uniform theming implemented + review-closed (uncommitted)
+
+**Status**: gate green — 261 tests (core 179+1 probe, GUI 40, API 36, integration 6), clippy `-D warnings`, fmt, static-check PASS, docs PASS, live probe against the real DMS config on this VM PASS. Uncommitted; top bar specs pending from the user.
+
+- New `theming` module (detect/get/apply) + GUI section: reads Wayle/DMS config (running Wayle of the session uid wins, else DMS; inactive without a shell) and propagates one theme to GTK3/4/2, qt5ct/qt6ct, KDE, Flatpak overrides, COSMIC cosmic-config (systemic), `environment.d`, Firefox, VSCodium, terminals (alacritty import fix, kitty, ghostty, foot), cava, Electron flags. Protocol additions: `ModuleId::Theming`, `Action::ThemeDetect/Get/Apply`, `Capability::Theming` (any login user), `ModulesConfig.theming`.
+- Tier-2 review: 4 lenses, ~45 findings (3 blockers: Firefox profiles.ini escape → root write; give_tree symlink chown; missing apply confirmation) — ALL fixed; rejected with rationale: env first-apply convergence (impossible case), UX global items already covered.
+- Security hardening: component-wise home path check + `O_NOFOLLOW` temp + stale-tmp cleanup (residual TOCTOU documented), symlink-skipping chown walker, label sanitization (`\n`/`=` blocked), as_user theming own-account only, marker-ownership everywhere (foreign files preserved → `skipped`), 8 MiB read cap, JSONC-tolerant VSCodium merge.
+- Plan/docs: SPEC-theming (status, KDE/portal rows, capability note), intent uniformity amendment, TASKS, CHANGELOG; settings switch + home capability card for Theming.
+- Next: commit (Tier-2 closed), then user decides push/tag (v0.20.1?) for VM smoke; top bar specs from the user.
+
 ## Session 2026-10-27 — dinit boot fix + CLI in plan
 
 **Status**: post-0.20.0 fixes; uncommitted.

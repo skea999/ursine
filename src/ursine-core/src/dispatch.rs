@@ -316,13 +316,25 @@ impl Daemon {
             return Response::err(id, ApiError::unauthorized());
         };
 
-        // `asUser` is meaningful only for packages actions that read or mutate
-        // one profile. Everything else (StoreGc, system, capabilities, config)
-        // acts on the daemon or the whole store and must not carry a target.
+        // `asUser` is meaningful for packages actions that read or mutate one
+        // profile and for theming (writes land in that user's home).
+        // Everything else (StoreGc, system, capabilities, config) acts on the
+        // daemon or the whole store and must not carry a target.
         let profile_scoped = module == ModuleId::PackagesNix && uses_profile(&action);
-        let as_user_error = if as_user.is_some() && !profile_scoped {
+        let user_scoped = profile_scoped || module == ModuleId::Theming;
+        // Theming writes config files: only the caller's own home (no
+        // cross-user theming from the wire — the GUI never sends a target).
+        let theming_foreign_target = module == ModuleId::Theming
+            && as_user
+                .as_ref()
+                .is_some_and(|target| target != &principal.user);
+        let as_user_error = if as_user.is_some() && !user_scoped {
             Some(ApiError::invalid(
-                "as_user is only valid for profile-scoped packages_nix actions",
+                "as_user is only valid for profile-scoped packages_nix or theming actions",
+            ))
+        } else if theming_foreign_target {
+            Some(ApiError::invalid(
+                "theming only applies to your own account",
             ))
         } else if as_user
             .as_ref()
@@ -338,12 +350,12 @@ impl Daemon {
             .as_ref()
             .is_none_or(|target| target.len() <= MAX_AS_USER_BYTES);
         // Never audit a target the action did not honor.
-        let audited_as_user = if profile_scoped && as_user_valid {
+        let audited_as_user = if user_scoped && as_user_valid {
             as_user.clone()
         } else {
             None
         };
-        let target_user = if profile_scoped {
+        let target_user = if user_scoped {
             as_user.clone().unwrap_or_else(|| principal.user.clone())
         } else {
             principal.user.clone()

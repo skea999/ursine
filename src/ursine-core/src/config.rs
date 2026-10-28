@@ -80,6 +80,7 @@ pub const fn configurable_module(module: ModuleId) -> Option<&'static str> {
         ModuleId::Snapshots => Some("snapshots"),
         ModuleId::Users => Some("users"),
         ModuleId::Niri => Some("niri"),
+        ModuleId::Theming => Some("theming"),
         ModuleId::System | ModuleId::Config | ModuleId::Capabilities => None,
     }
 }
@@ -281,7 +282,8 @@ pub fn render_template(caps: &[CapabilityReport]) -> String {
     out.push_str("packages_nix = \"auto\"\n");
     out.push_str("snapshots = \"auto\"\n");
     out.push_str("users = \"auto\"\n");
-    out.push_str("niri = \"auto\"\n\n");
+    out.push_str("niri = \"auto\"\n");
+    out.push_str("theming = \"auto\"\n\n");
 
     out.push_str("# --- Detection hints (informational; not read by the daemon) ---\n");
     for report in caps {
