@@ -275,7 +275,7 @@ Not required by the intent table but compatible:
 
 ## Explicitly out of v1/v2
 
-- OIDC and web interface → v3.
+- OIDC, web interface and thin CLI (`ursinectl`) → v3.
 - Incus UI → v4.
 - ZFS/Pirateus → v5.
 - Multi-distro abstraction/glibc → v6.

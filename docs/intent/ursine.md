@@ -6,7 +6,7 @@ Confirmed by skea999, 2026-10-16 (interview-me protocol: hypothesis → correcti
 
 ## Outcome
 
-Ursine is the complete control center of FeralOS, in the spirit of Webmin: one root daemon (`ursined`) exposing a unified API over every system area — packages (nix, apk, flatpak), users, snapshots, niri config, printers, scanners, bluetooth, network, firewall, disks, and later Incus, ZFS/Pirateus — with interchangeable frontends (native libcosmic GUI, later web, later Incus UI). Modules turn themselves on or off via the runtime capability mechanism (`"auto"`): the machine's reality drives what is visible.
+Ursine is the complete control center of FeralOS, in the spirit of Webmin: one root daemon (`ursined`) exposing a unified API over every system area — packages (nix, apk, flatpak), users, snapshots, niri config, printers, scanners, bluetooth, network, firewall, disks, and later Incus, ZFS/Pirateus — with interchangeable frontends (native libcosmic GUI, later web, later thin CLI `ursinectl`, later Incus UI). Modules turn themselves on or off via the runtime capability mechanism (`"auto"`): the machine's reality drives what is visible.
 
 ## User
 
@@ -36,7 +36,7 @@ FeralOS has no control center; Nix has no GUI on any distro; the FeralOS desktop
 |-----|---------|
 | **v1** | Backend skeleton (socket, PAM handshake, capabilities, audit) + **GUI libcosmic** (mandatory in v1): packages **nix** (the unique gap), users (accountsservice), snapshots (btrfs/btrbk), niri config editor |
 | **v2** | Packages **apk** + **flatpak**; modules printers (CUPS), scanners (SANE), bluetooth (BlueZ), network (NetworkManager), firewall (firewalld), disks (UDisks2). No OIDC in v2 |
-| **v3** | **OIDC + web interface** (web is the LAST frontend) |
+| **v3** | **OIDC + web interface + thin CLI** (web is the LAST GUI frontend; CLI `ursinectl` is a thin `ursine-api` client for headless/scriptable admin, decided 2026-10-27) |
 | **v4** | **Incus UI** |
 | **v5** | **ZFS + Pirateus** (FeralOS hyperconverged storage stack) |
 | **v6** | **Support for other distros** (package-manager/init abstraction; glibc revisited here) |
