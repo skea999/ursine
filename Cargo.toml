@@ -3,7 +3,7 @@ resolver = "2"
 members = ["src/ursine-api", "src/ursine-core", "src/ursined", "src/ursine"]
 
 [workspace.package]
-version = "0.21.0"
+version = "0.21.1"
 edition = "2021"
 license = "ISC"
 authors = ["skea999 <sket999@disroot.org>"]
@@ -14,8 +14,8 @@ keywords = ["linux", "system-administration", "nix", "cosmic", "daemon"]
 categories = ["system-tools", "command-line-utilities"]
 
 [workspace.dependencies]
-ursine-api = { path = "src/ursine-api", version = "0.21.0" }
-ursine-core = { path = "src/ursine-core", version = "0.21.0" }
+ursine-api = { path = "src/ursine-api", version = "0.21.1" }
+ursine-core = { path = "src/ursine-core", version = "0.21.1" }
 # Same pin as the GUI: cosmic-theme writes the COSMIC config entries that all
 # libcosmic apps read (uniform theming target).
 cosmic-theme = { version = "1.0.0", git = "https://github.com/pop-os/libcosmic", rev = "430f3d48a97d8779f9c1985473912e594ccca1ae" }

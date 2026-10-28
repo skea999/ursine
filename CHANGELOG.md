@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.21.1] — 2026-10-28
+
+### Fixed
+
+- GNOME sessions ignored `settings.ini`: the settings portal serves
+  `org.gnome.desktop.wm.preferences button-layout` (e.g. `appmenu:close`)
+  over GtkSettings, hiding the trio. Apply now mirrors
+  `:minimize,maximize,close` into that live key through the user session
+  bus (best-effort; `settings.ini` stays as the non-GNOME fallback).
+
 ## [0.21.0] — 2026-10-28
 
 ### Added

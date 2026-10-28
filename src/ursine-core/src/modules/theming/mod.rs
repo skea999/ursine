@@ -45,7 +45,8 @@ pub async fn handle(
         }
         Action::ThemeApply => {
             let (home, uid, gid) = target_identity(ctx.as_user)?;
-            let report = blocking(move || apply::run_blocking(&home, uid, gid)).await?;
+            let user = ctx.as_user.to_string();
+            let report = blocking(move || apply::run_blocking(&user, &home, uid, gid)).await?;
             serde_json::to_value(report)
                 .map_err(|e| ApiError::internal(format!("encode apply report: {e}")))
         }
@@ -480,8 +481,13 @@ mod tests {
             }
             ThemeSource::Wayle => copy(".config/wayle/config.toml").unwrap(),
         }
-        let report = apply::run_blocking(&probe_home, std::process::id(), std::process::id())
-            .expect("apply into throwaway home");
+        let report = apply::run_blocking(
+            "tester",
+            &probe_home,
+            std::process::id(),
+            std::process::id(),
+        )
+        .expect("apply into throwaway home");
         let written = report
             .results
             .iter()

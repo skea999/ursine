@@ -20,7 +20,12 @@ pub(super) const MARKER: &str = "# Written by Ursine (uniform theming, SPEC-them
 pub(super) const BEGIN: &str = "#ursine-theme begin";
 pub(super) const END: &str = "#ursine-theme end";
 
-pub(super) fn run_blocking(home: &Path, uid: u32, gid: u32) -> Result<ThemeApplyReport, ApiError> {
+pub(super) fn run_blocking(
+    user: &str,
+    home: &Path,
+    uid: u32,
+    gid: u32,
+) -> Result<ThemeApplyReport, ApiError> {
     let source = select_source(home, uid).ok_or_else(|| {
         ApiError::unavailable(
             "no supported desktop shell config (Wayle or DankMaterialShell)",
@@ -31,7 +36,9 @@ pub(super) fn run_blocking(home: &Path, uid: u32, gid: u32) -> Result<ThemeApply
     let statuses = target_statuses(home);
     let mut results = Vec::with_capacity(statuses.len());
     for status in &statuses {
-        results.push(write_target(status, home, uid, gid, &snapshot, &statuses));
+        results.push(write_target(
+            user, status, home, uid, gid, &snapshot, &statuses,
+        ));
     }
     Ok(ThemeApplyReport { results })
 }
@@ -45,6 +52,7 @@ pub(super) enum Applied {
 }
 
 fn write_target(
+    user: &str,
     status: &TargetStatus,
     home: &Path,
     uid: u32,
@@ -61,8 +69,8 @@ fn write_target(
         };
     }
     let outcome = match target {
-        ThemingTarget::Gtk3 => gtk_settings(home, uid, gid, snap, "gtk-3.0"),
-        ThemingTarget::Gtk4 => gtk_settings(home, uid, gid, snap, "gtk-4.0"),
+        ThemingTarget::Gtk3 => gtk_settings(user, home, uid, gid, snap, "gtk-3.0"),
+        ThemingTarget::Gtk4 => gtk_settings(user, home, uid, gid, snap, "gtk-4.0"),
         ThemingTarget::Gtk2 => gtk2(home, uid, gid, snap),
         ThemingTarget::Qt5 => qtct(home, uid, gid, snap, "qt5ct"),
         ThemingTarget::Qt6 => qtct(home, uid, gid, snap, "qt6ct"),
@@ -106,6 +114,7 @@ fn write_target(
 /// An existing `gtk.css` without our marker (shell or hand-written) is never
 /// clobbered — no matter which source won.
 fn gtk_settings(
+    user: &str,
     home: &Path,
     uid: u32,
     gid: u32,
@@ -157,7 +166,38 @@ fn gtk_settings(
         gid,
     )?;
     give_away(&css_path, uid, gid).ok();
-    Ok(Applied::Wrote("settings.ini + gtk.css written".to_string()))
+    // The live session value (dconf -> settings portal -> GtkSettings)
+    // overrides settings.ini on GNOME sessions: mirror the trio into
+    // button-layout as well, through the user's session bus.
+    let gnote = apply_session_button_layout(user, uid);
+    Ok(Applied::Wrote(format!(
+        "settings.ini + gtk.css written; {gnote}"
+    )))
+}
+
+/// Best-effort live update of the session's `button-layout` (what the
+/// settings portal serves to GTK). Failures fall back to settings.ini only.
+fn apply_session_button_layout(user: &str, uid: u32) -> String {
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return "gsettings skipped (no runtime)".to_string();
+    };
+    let script = gsettings_script(uid);
+    let outcome = handle.block_on(crate::modules::packages_nix::exec::run_as_user_script(
+        user,
+        &script,
+        std::time::Duration::from_secs(10),
+    ));
+    match outcome {
+        Ok(_) => "gsettings button-layout updated".to_string(),
+        Err(error) => format!("gsettings skipped ({})", error.message),
+    }
+}
+
+/// Shell one-liner (no quotes/newlines: `run_as_user_script` contract).
+fn gsettings_script(uid: u32) -> String {
+    format!(
+        "export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus; export XDG_RUNTIME_DIR=/run/user/{uid}; gsettings set org.gnome.desktop.wm.preferences button-layout :minimize,maximize,close; gsettings set org.gnome.desktop.interface gtk-decoration-layout :minimize,maximize,close || true"
+    )
 }
 
 /// Point size for propagated fonts: scaled 11pt, clamped to sane bounds.
@@ -621,8 +661,9 @@ mod tests {
     #[test]
     fn gtk_settings_writes_ini_and_css_for_wayle_source() {
         let home = temp_home("gtk");
-        let detail =
-            wrote(gtk_settings(&home, 0, 0, &snapshot(ThemeSource::Wayle), "gtk-3.0").unwrap());
+        let detail = wrote(
+            gtk_settings("u", &home, 0, 0, &snapshot(ThemeSource::Wayle), "gtk-3.0").unwrap(),
+        );
         assert!(detail.contains("gtk.css"));
         let ini = std::fs::read_to_string(home.join(".config/gtk-3.0/settings.ini")).unwrap();
         assert!(ini.contains("gtk-theme-name=Adwaita"));
@@ -640,7 +681,7 @@ mod tests {
         assert!(css.contains(".titlebar .titlebutton"));
         assert!(!css.contains("windowcontrols >"));
         // GTK4/libadwaita directory gets the element selector instead.
-        wrote(gtk_settings(&home, 0, 0, &snapshot(ThemeSource::Wayle), "gtk-4.0").unwrap());
+        wrote(gtk_settings("u", &home, 0, 0, &snapshot(ThemeSource::Wayle), "gtk-4.0").unwrap());
         let css4 = std::fs::read_to_string(home.join(".config/gtk-4.0/gtk.css")).unwrap();
         assert!(css4.contains("windowcontrols > button"));
         assert!(!css4.contains(".titlebar .titlebutton"));
@@ -660,7 +701,7 @@ mod tests {
         )
         .unwrap();
         let detail =
-            wrote(gtk_settings(&home, 0, 0, &snapshot(ThemeSource::Dms), "gtk-3.0").unwrap());
+            wrote(gtk_settings("u", &home, 0, 0, &snapshot(ThemeSource::Dms), "gtk-3.0").unwrap());
         assert!(detail.contains("foreign gtk.css preserved"));
         // The trio baseline lives in settings.ini, independent of who owns
         // the CSS file.
@@ -748,9 +789,20 @@ mod tests {
     }
 
     #[test]
+    fn gsettings_script_targets_the_user_bus_and_both_keys() {
+        let script = gsettings_script(1000);
+        assert!(script.contains("unix:path=/run/user/1000/bus"));
+        assert!(script
+            .contains("org.gnome.desktop.wm.preferences button-layout :minimize,maximize,close"));
+        assert!(script.contains("gtk-decoration-layout :minimize,maximize,close"));
+        assert!(!script.contains('\'') && !script.contains('\n'));
+    }
+
+    #[test]
     fn portal_target_reports_derivation_not_a_write() {
         let status = TargetStatus::available(ThemingTarget::Portal, "portal");
         let result = write_target(
+            "u",
             &status,
             Path::new("/nonexistent"),
             0,
@@ -766,6 +818,7 @@ mod tests {
     fn unavailable_targets_are_skipped_with_detail() {
         let status = TargetStatus::unavailable(ThemingTarget::Kde, "KDE tools not installed");
         let result = write_target(
+            "u",
             &status,
             Path::new("."),
             0,

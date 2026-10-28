@@ -385,7 +385,7 @@ pub(super) async fn run_as_user_search(
 /// Run a constant shell script as `user` (used to resolve the user's profile
 /// directory with the same environment `nix profile` sees). The script is a
 /// fixed literal: it contains no input and no single quotes.
-pub(super) async fn run_as_user_script(
+pub(crate) async fn run_as_user_script(
     user: &str,
     script: &str,
     timeout: Duration,
