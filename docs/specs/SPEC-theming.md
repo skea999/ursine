@@ -58,9 +58,29 @@ and destructive parts sit behind GUI confirmation.
 | 9 | Session env | `~/.config/environment.d/95-ursine-theme.conf`: `XCURSOR_THEME`, `XCURSOR_SIZE`, `ICON_THEME`, `QT_QPA_PLATFORMTHEME` (qt6ct/qt5ct/KDE per gate), `GTK_THEME` (only when Ursine owns the CSS path) | always (best-effort: session restart needed; note in GUI) |
 | 10 | Portal | appearance/prefer-dark via portal config where supported | portal present |
 
-**Not ours** (shell templates already own these; Ursine verifies only, never
-double-writes): Firefox, VSCode/Electron-flags, terminals (DMS matugen
-templates / Wayle providers). Electron/Chromium apps inherit through GTK.
+**DMS and Wayle themselves are excluded**: their own config files are the
+source we read; never write them.
+
+## Application themes (discovery 2026-10-27 on the test VM)
+
+The shell does NOT theme these; Ursine must. Per-app targets, each gated on
+the app's config/profile actually existing (write only what is there or
+directly creatable for an installed binary):
+
+| App class | Mechanism | Gate |
+|---|---|---|
+| Firefox | profile `chrome/userChrome.css` (import/embed the palette) + prefs `toolkit.legacyUserProfileCustomizations.stylesheets=true`, `ui.systemUsesDarkTheme`, ui font — via `user.js` in the profile | a Firefox profile exists (`profiles.ini`) |
+| VSCodium / VSCode family | merge into `User/settings.json`: `workbench.colorCustomizations`, `terminal.integrated.*` palette; title bar styling deferred to the top-bar spec | `~/.config/VSCodium` (or Code) exists |
+| Terminals | **alacritty**: `alacritty.toml` `import = ["dank-theme.toml"]` (DMS file exists but is never imported — create the import; for wayle source write `[colors]` directly); **kitty** `include`; **ghostty** `theme`/colors; **foot** `include`; **wezterm** — same pattern | that terminal's config file/dir exists |
+| cava | `~/.config/cava/config` `[color]` / theme section | config exists |
+| Generic Electron | best-effort `electron-flags.conf` (`--gtk-version=4`) so Electron follows GTK; colors only via per-app settings when available | flags file writable / app present |
+| Everything else | covered by the toolkit layers above (GTK/Qt/KDE/portal/env) — nautilus, LibreOffice, KeepassXC, missioncenter, filezilla, remmina, eog, zim, galculator, simple-scan … | — |
+
+**Out of scope (declared)**: DBeaver/Eclipse SWT workbench themes (proprietary
+XML theme system) — optional candidate only if requested later.
+
+All per-app merges are idempotent (JSON/TOML round-trip merge, Ursine-owned
+keys marked), atomic, and reported per-target in the apply result.
 
 ## Application top bar (planned)
 
@@ -91,4 +111,6 @@ entry) and per-target status. All writes reversible; stop on any mismatch.
   normalization (dark detection), flatpak override merge, source precedence
   (running-shell wins by uid).
 - Unit: apply writers against temp dirs (idempotency, atomicity, gates).
+- Unit: application writers — firefox profile detection + user.js prefs,
+  codium settings.json merge, alacritty import creation, cava config merge.
 - GUI: section hidden when capability off; apply flow shows per-target results.

@@ -267,9 +267,12 @@ Configuration only; image acquisition is intentionally out of scope
 User decision 2026-10-27; spec: `docs/specs/SPEC-theming.md`.
 
 - Goal: every application looks identical regardless of toolkit (GTK3/4/2,
-  Qt5/6 qtct, KDE, Flatpak, libcosmic/COSMIC, session env); source = Wayle or
-  DMS shell config, running shell of the session user wins; inactive when
-  neither is present.
+  Qt5/6 qtct, KDE, Flatpak, libcosmic/COSMIC, session env) **and per-app
+  themes the shells do not cover** (Firefox userChrome, VSCodium color
+  customizations, alacritty/kitty/ghostty/foot terminals, cava, Electron
+  flags); source = Wayle or DMS shell config, running shell of the session
+  user wins; inactive when neither is present. DMS/Wayle own configs are
+  read-only sources.
 - `theming` module (detect/get/apply) + GUI section, capability-gated,
   parity in the same task.
 - Application top bar for all applications: planned in the same section;
