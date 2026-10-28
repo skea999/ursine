@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-10-28
+
 ### Added
 
 - Uniform theming section (daemon `theming` module + GUI): reads the active
