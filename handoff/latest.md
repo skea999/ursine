@@ -6,6 +6,14 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-27 — dinit boot fix + CLI in plan
+
+**Status**: post-0.20.0 fixes; uncommitted.
+
+- dinit service aligned with the working feralos-aports unit (`src/ursine/ursined.dinit`): `depends-on = local.target`, `before = login.target` (logfile in the `/var/log` fstab subvol must open after that mount — missing targets were why boot start failed), `restart = false`; wrapper now sources the env-file for manual starts; installation guide updated. shellcheck/shfmt/docs PASS.
+- CLI decision: thin `ursinectl` added to the v3 plan wave (commit `60ee2b2`).
+- Next: commit dinit fix; decide whether to cut v0.20.1 or move the v0.20.0 tag before the VM smoke.
+
 ## Session 2026-10-27 — package progress implemented + review-closed (0.20.0 ready)
 
 **Status**: DONE — Tier-2 review closed (4 lenses: requirements/code/security/ux), every confirmed finding fixed; gate green (210 tests: 135 core / 37 GUI / 32 API / 6 integration; clippy `-D warnings`; fmt; static PASS; docs PASS); version 0.20.0; commit `611f263`; tag `v0.20.0` (not pushed).

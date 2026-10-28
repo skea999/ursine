@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- dinit service starts at boot again: depends on `local.target` and runs
+  before `login.target` (the `/var/log` fstab subvol must be mounted before
+  the service opens its logfile), matching feralos-aports; `restart = false`;
+  wrapper sources the env-file for manual starts.
+
 ## [0.20.0] — 2026-10-27
 
 ### Added

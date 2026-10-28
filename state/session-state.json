@@ -15,10 +15,11 @@
     "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
-    "USER: build/tag smoke on VM (daemon + GUI job output + Close), then push main + v0.20.0 (CI auto-pins nix/binary.nix).",
+    "USER: VM smoke (daemon + GUI job output + Close); dinit boot fix now in tree — decide v0.20.1 tag or move v0.20.0; then push main + tag (CI auto-pins nix/binary.nix).",
     "Remaining v1/v2: Niri compatibility range/field errors; Flatpak remote dropdown/runtime split/permissions; Network static/forget/VPN; Firewall; Disks format/partition; Bluetooth pairing agent; printer live progress."
   ],
   "key_decisions": [
+    "DINIT BOOT FIX (2026-10-27, aligned to feralos-aports): service depends-on local.target + before login.target (logfile in /var/log subvol), restart=false, wrapper sources env-file; earlier no-targets portability choice reversed for FeralOS (rename/drop lines on other dinit distros).",
     "CLI IN PLAN (2026-10-27, user decision): thin CLI client `ursinectl` (working name) added to the v3 wave alongside web — reuses ursine-api types over the same unix-socket protocol, no backend change, thin-frontend rules apply; use cases: headless/scriptable admin, smoke tests, VM verification without the GUI. ROADMAP/intent/features plan updated.",
     "REFRESH APK STAYS SYNC (2026-10-27, user decision): read-only index refresh runs synchronously and shows its output on completion; only mutations (install/remove/upgrade) use the job path. Previews/dry-run/search also stay sync.",
     "REVIEW FIXES 0.20.0 (2026-10-27): single tracked job enforced across package+store panels (guard at dispatch + track_job fallback + job id on JobPolled to drop stale polls); poll keeps draining full 64 KiB pages after done; job worker panic monitored via JoinHandle (closed immediately, no 2h slot burn); completion audit written outside the jobs lock; stale /run/ursine/jobs logs purged at startup; prune job re-validates the profile at execution time; JobOutput bound to principal (origin+user); flatpak system jobs audit as_user=None; poll failure keeps the log box (detached + Close) instead of dropping it; job box renders 16 KiB tail with monospace + snap-to-bottom, sits below tabs; specs updated (--no-progress removal, job-log progress design supersedes progress.rs).",

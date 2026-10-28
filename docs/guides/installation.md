@@ -130,11 +130,12 @@ The dinit layout follows FeralOS conventions:
 - wrapper: `LIBEXECDIR/dinit/ursined`
 - user config: `/etc/dinit.d/config/ursined.conf`
 
-The service uses `smooth-recovery` and has no dependency on named boot
-targets. Target names differ between dinit distributions (`local.target`,
-`login.target`, `local`, `login`, `dbus`), and a missing target prevents the
-service from loading. Enabled services start from `boot.d`; `ursined` binds its
-socket without requiring D-Bus at startup.
+The service uses `smooth-recovery` and depends on the FeralOS (dinit-services)
+targets: `depends-on = local.target`, `before = login.target`. The logfile
+lives in the `/var/log` fstab subvol, so the service must start after that
+mount — this matches feralos-aports. On a dinit distribution with different
+target names, rename or drop those two lines. Enabled services start from
+`boot.d`; `ursined` binds its socket without requiring D-Bus at startup.
 
 ## Package builds (staging)
 
