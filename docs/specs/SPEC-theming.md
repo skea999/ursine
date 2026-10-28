@@ -91,11 +91,75 @@ XML theme system) — optional candidate only if requested later.
 All per-app merges are idempotent (JSON/TOML round-trip merge, Ursine-owned
 keys marked), atomic, and reported per-target in the apply result.
 
-## Application top bar (planned)
+## Application title bar — `ursine-titlebar` (planned, separate repo)
 
-A uniform application title bar across all applications (specs pending from
-the user). Same goal — the bar must look identical regardless of toolkit.
-Block until specs arrive; keep the section in the GUI plan.
+Specs from the user 2026-10-28; reference behaviour:
+`github.com/skea999/dms-window-buttons` (actions only — NOT a bar plugin).
+Status: **planned only** — do not scaffold the repo yet. Ursine configures
+it; the drawing lives in its own repository/app.
+
+### Requirement
+
+Keep every application's own title bar (headerbar, GNOME menus, Qt titlebar)
+visible. Remove the native buttons and make the buttons identical for every
+toolkit (GTK3/4, Qt, libcosmic, Electron):
+
+- **niri (v1)**: four buttons on the title bar's top-right corner of **every
+  window, focused or not**, right-to-left: close (rightmost), maximize,
+  move-workspace-down, move-workspace-up. Behaviour: `niri msg action`
+  `close-window` / `maximize-column` / `move-column-to-workspace-down` /
+  `move-column-to-workspace-up`, socket self-resolved
+  (`$XDG_RUNTIME_DIR/niri*.sock`), exactly like the reference plugin.
+- **Other compositors (at most COSMIC, KDE, GNOME — decided later)**: the
+  classic three (minimize, maximize, close). Not in v1.
+
+### Mechanism (analysis 2026-10-28)
+
+Wayland forbids drawing into another client's window, so no code can be
+injected into apps; per-toolkit config can only *remove* buttons, never add
+move-workspace buttons. The only viable mechanism is **layer-shell overlay
+surfaces from one user-session process**:
+
+- `ursine-titlebar` = one process (started with the user session via
+  autostart/dinit user unit — never inside root `ursined`), **one overlay
+  surface per window**, anchored with top/left margins to that window's
+  title-bar geometry, opaque background in the title-bar colour covering the
+  native button area (this also "removes" buttons that no config can hide,
+  e.g. libcosmic header buttons), while the rest of the title bar and all
+  menus stay untouched and clickable underneath.
+- Window list, geometry, focus and open/close come from the niri event
+  stream; actions via `niri msg action` (reference plugin's approach).
+- Rust + libcosmic/iced layer-shell (verified present in the pinned fork).
+- Its own TOML config with hot reload, its own CI, v1 targets niri only;
+  future backends limited to cosmic/kde/gnome (user decision).
+
+### Division of labour
+
+| Component | Owns |
+|---|---|
+| `ursine-titlebar` (new repo) | surfaces per window, geometry tracking, drawing, niri IPC, autostart, its config format, hot reload |
+| Ursine `theming` module | remove native buttons where config allows (GTK3/4 CSS marker block, KDE `[WM]`, Electron); detect the binary (capability); write `~/.config/ursine-titlebar/config.toml` from the shell snapshot (`enabled`, `buttons` per compositor — 4 on niri, 3 elsewhere —, `[style] background/foreground/accent/radius/height`); GUI toggle + status in the Theming section |
+
+Contract (Ursine is the only writer of style/button keys):
+
+```toml
+# ~/.config/ursine-titlebar/config.toml
+enabled = true
+buttons = ["move-up", "move-down", "maximize", "close"]   # niri; others: ["minimize", "maximize", "close"]
+[style]
+background = "#rrggbb"
+foreground = "#rrggbb"
+accent = "#rrggbb"
+radius = 12
+height = 28
+```
+
+### Sequencing note
+
+Removing native min/max via config takes effect before the title-bar app
+exists: until `ursine-titlebar` ships, minimized/maximized clicks are gone
+(keyboard binds still work). Ship the config removal behind the same Apply
+step so it moves with the feature.
 
 ## Rules
 

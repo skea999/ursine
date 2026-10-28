@@ -275,8 +275,10 @@ User decision 2026-10-27; spec: `docs/specs/SPEC-theming.md`.
   read-only sources.
 - `theming` module (detect/get/apply) + GUI section, capability-gated,
   parity in the same task.
-- Application top bar for all applications: planned in the same section;
-  specs pending from the user.
+- Application title bar: planned as the separate app `ursine-titlebar`
+  (per-window layer-shell buttons; v1 niri-only; later at most
+  COSMIC/KDE/GNOME) — Ursine only configures it (native-button removal +
+  its TOML from the shell snapshot). Full analysis in SPEC-theming §top bar.
 
 ### Optional v2 candidates
 

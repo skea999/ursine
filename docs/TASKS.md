@@ -56,7 +56,11 @@
 - [x] GUI section: sidebar entry (capability-gated), palette preview, fonts
   summary, per-target status, apply with per-target report.
 - [x] Live probe: real DMS config parsed and applied into a throwaway home.
-- [ ] Application top bar for every application — specs pending from the user.
+- [ ] Application title bar: `ursine-titlebar` separate repo (planned,
+  SPEC-theming §top bar): per-window layer-shell buttons, niri v1; Ursine
+  side = native-button removal + config writer + toggle.
+- [ ] Native-button removal pass (all stacks → close only): discovery of
+  per-toolkit feasibility, then implement in theming.
 - [ ] Real FeralOS smoke with KDE/Qt (qt5ct/kwriteconfig5) and Wayle present.
 
 #### Decisions
