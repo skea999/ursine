@@ -169,27 +169,31 @@ fn gtk_settings(
     write_owned(home, &ini_path, merged.as_bytes(), uid, gid)?;
 
     let css_path = dir.join("gtk.css");
-    let existing_css = read_or_empty(&css_path);
-    if !existing_css.is_empty() && !existing_css.contains(MARKER) {
-        return Ok(Applied::Wrote(
-            "settings.ini written; foreign gtk.css preserved".to_string(),
-        ));
-    }
-    write_owned(
-        home,
-        &css_path,
-        gtk_css(snap, dir_name == "gtk-4.0").as_bytes(),
-        uid,
-        gid,
-    )?;
+    let dank = dir.join("dank-colors.css");
+    let gtk4 = dir_name == "gtk-4.0";
+    // gtk.css is OUR wrapper: it @imports the shell palette file (never
+    // rewritten — DMS/matugen keeps regenerating it) and adds what the
+    // shell does not provide: GTK3 legacy name aliases plus the uniform
+    // control restyle. Without a shell file (Wayle path) we generate the
+    // full palette ourselves.
+    let (css_body, note) = if dank.is_file() {
+        (
+            wrapper_css(gtk4),
+            "settings.ini + gtk.css (imports shell palette)".to_string(),
+        )
+    } else {
+        (
+            gtk_css(snap, gtk4),
+            "settings.ini + gtk.css written".to_string(),
+        )
+    };
+    write_owned(home, &css_path, css_body.as_bytes(), uid, gid)?;
     give_away(&css_path, uid, gid).ok();
     // The live session value (dconf -> settings portal -> GtkSettings)
     // overrides settings.ini on GNOME sessions: mirror the trio into
     // button-layout as well, through the user's session bus.
     let gnote = apply_session_button_layout(user, uid, show_minimize);
-    Ok(Applied::Wrote(format!(
-        "settings.ini + gtk.css written; {gnote}"
-    )))
+    Ok(Applied::Wrote(format!("{note}; {gnote}")))
 }
 
 /// Best-effort live update of the session's `button-layout` (what the
@@ -285,10 +289,44 @@ fn gtk_css(snap: &ThemeSnapshot, gtk4: bool) -> String {
         format!("@define-color error_bg_color {};", c.error),
         format!("@define-color error_fg_color {on_error};"),
         format!("color-scheme: {dark_word};"),
-        "/* Uniform window controls: same size, radius and palette alpha */".to_string(),
     ];
-    // Neutral pill buttons for the trio (close keeps the same neutral look
-    // as minimize/maximize so every stack reads as one design).
+    lines.extend(control_rules(gtk4));
+    format!("{}\n", lines.join("\n"))
+}
+
+/// Wrapper CSS when a shell palette file exists: import it (DMS keeps
+/// regenerating the file itself; we only reference it) and bridge the
+/// GTK3 legacy names the shell never defines.
+fn wrapper_css(gtk4: bool) -> String {
+    let mut lines = vec![
+        MARKER.to_string(),
+        "/* Shell palette imported; never rewritten by Ursine */".to_string(),
+        "@import url(\"dank-colors.css\");".to_string(),
+    ];
+    if !gtk4 {
+        // GTK3 widgets (gtk-contained/Adwaita) read theme_* names;
+        // matugen/DMS defines the GTK4-style names only.
+        for (legacy, shell) in [
+            ("theme_bg_color", "window_bg_color"),
+            ("theme_fg_color", "window_fg_color"),
+            ("theme_base_color", "view_bg_color"),
+            ("theme_text_color", "view_fg_color"),
+            ("theme_selected_bg_color", "accent_bg_color"),
+            ("theme_selected_fg_color", "accent_fg_color"),
+        ] {
+            lines.push(format!("@define-color {legacy} @{shell};"));
+        }
+        lines.push("@define-color borders alpha(@window_fg_color, 0.2);".to_string());
+        lines.push("@define-color error_color @error_bg_color;".to_string());
+    }
+    lines.extend(control_rules(gtk4));
+    format!("{}\n", lines.join("\n"))
+}
+
+/// Uniform window-control restyle (shared by generated and wrapper CSS).
+fn control_rules(gtk4: bool) -> Vec<String> {
+    let mut lines =
+        vec!["/* Uniform window controls: same size, radius and palette alpha */".to_string()];
     let controls = [
         "  min-width: 24px;",
         "  min-height: 24px;",
@@ -323,7 +361,7 @@ fn gtk_css(snap: &ThemeSnapshot, gtk4: bool) -> String {
             lines.push("}".to_string());
         }
     }
-    format!("{}\n", lines.join("\n"))
+    lines
 }
 
 /// GTK2: one color-scheme line (guarded by our marker so hand-edited
@@ -740,15 +778,17 @@ mod tests {
     }
 
     #[test]
-    fn gtk_settings_never_clobbers_the_shell_css() {
+    fn gtk_css_imports_the_shell_palette_without_touching_it() {
         let home = temp_home("gtk-dms");
         let dir = home.join(".config/gtk-3.0");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
-            dir.join("gtk.css"),
-            "@define-color window_bg_color #000000;\n",
+            dir.join("dank-colors.css"),
+            "@define-color window_bg_color #10140f;\n",
         )
         .unwrap();
+        // DMS-style symlink pointing at its palette file.
+        std::os::unix::fs::symlink("dank-colors.css", dir.join("gtk.css")).unwrap();
         let detail = wrote(
             gtk_settings(
                 "u",
@@ -761,13 +801,24 @@ mod tests {
             )
             .unwrap(),
         );
-        assert!(detail.contains("foreign gtk.css preserved"));
-        // The trio baseline lives in settings.ini, independent of who owns
-        // the CSS file.
+        assert!(detail.contains("imports shell palette"), "{detail}");
+        // The shell file itself is never rewritten…
+        assert_eq!(
+            std::fs::read_to_string(dir.join("dank-colors.css")).unwrap(),
+            "@define-color window_bg_color #10140f;\n"
+        );
+        // …while gtk.css becomes our wrapper: import + legacy aliases +
+        // marker + control restyle.
+        let css = std::fs::read_to_string(dir.join("gtk.css")).unwrap();
+        assert!(css.contains(MARKER), "{css}");
+        assert!(css.contains("@import url(\"dank-colors.css\")"), "{css}");
+        assert!(
+            css.contains("@define-color theme_bg_color @window_bg_color;"),
+            "{css}"
+        );
+        assert!(css.contains(".titlebar .titlebutton"), "{css}");
         let ini = std::fs::read_to_string(home.join(".config/gtk-3.0/settings.ini")).unwrap();
         assert!(ini.contains("gtk-decoration-layout=:minimize,maximize,close"));
-        let css = std::fs::read_to_string(dir.join("gtk.css")).unwrap();
-        assert!(css.contains("#000000"), "shell css was overwritten: {css}");
         let _ = std::fs::remove_dir_all(&home);
     }
 

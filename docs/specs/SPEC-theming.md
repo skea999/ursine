@@ -56,8 +56,8 @@ INI or env file.
 
 | # | Technology | Artifact | Gate |
 |---|---|---|---|
-| 1 | GTK3 | `~/.config/gtk-3.0/settings.ini` (theme/font/icon/cursor); `gtk.css` written only when absent or marker-owned (shell/hand-written CSS never clobbered, regardless of source) | always |
-| 2 | GTK4 | same as GTK3 under `~/.config/gtk-4.0/` | always |
+| 1 | GTK3 | `~/.config/gtk-3.0/settings.ini` (theme/font/icon/cursor); `gtk.css` is an Ursine-owned **wrapper** that `@import`s the shell `dank-colors.css` (the shell file itself is never rewritten) and adds GTK3 legacy name aliases (`theme_*` → shell palette) + control restyle; without a shell file the full palette is generated | always |
+| 2 | GTK4 | `settings.ini` + wrapper `gtk.css` (import of the shell palette + control restyle; no legacy aliases needed) | always |
 | 3 | GTK2 | `~/.gtkrc-2.0` (theme/font/icon/cursor) | always |
 | 4 | Qt5 | `~/.config/qt5ct/colors/ursine-<source>.conf` + `qt5ct.conf` `colorScheme=` | qt5ct config dir/tool present |
 | 5 | Qt6 | same under `~/.config/qt6ct/` | qt6ct present |
@@ -118,11 +118,13 @@ Notes:
   (checkbox); `theme_detect` reads the current state back from
   `settings.ini`, `theme_apply { show_minimize }` writes it into the GTK
   layout, the live `button-layout` key and the kwin letters (`IAX`/`AX`).
-- **Grafica**: when we own `gtk.css` (Wayle source / no shell CSS) the
-  window-control buttons get our uniform restyle (size, radius, palette
-  alpha); when the shell owns it (DMS), the buttons still follow the shell
-  palette through the shell CSS. Rest of the stacks: palette-level similarity
-  only.
+- **Grafica**: the wrapper carries the uniform control restyle (size,
+  radius, palette alpha) in every case, and — decisive on GTK3 — the legacy
+  `theme_*` aliases that map the shell's GTK4-style palette onto GTK3
+  widgets (zim, eog, firewall-config, galculator chrome). `settings.ini` is
+  still written for environments where GtkSettings loads it; on sessions
+  where it is ignored (observed on the test VM's GTK3), `gtk.css` is the
+  effective channel. Rest of the stacks: palette-level similarity only.
 
 ## Application title bar — `ursine-titlebar` (planned, separate repo)
 
