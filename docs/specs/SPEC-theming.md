@@ -40,8 +40,10 @@ Source extraction:
   `~/.config/gtk-3.0/dank-colors.css` (DMS/matugen own that file).
 - **Wayle**: `config.toml` `[styling]` palette tokens and providers.
 
-## Targets (`theming.apply`, all writes user-scoped via `asUser`, atomic,
-audit-logged, destructive parts behind GUI confirmation)
+## Targets
+
+All `theming.apply` writes are user-scoped via `asUser`, atomic, audit-logged,
+and destructive parts sit behind GUI confirmation.
 
 | # | Technology | Artifact | Gate |
 |---|---|---|---|
