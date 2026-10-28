@@ -115,7 +115,16 @@ fn gtk_settings(
     let dir = home.join(".config").join(dir_name);
     mkdir_owned(home, &dir, uid, gid)?;
 
-    let mut updates: Vec<(&str, String)> = vec![("gtk-theme-name", "Adwaita".to_string())];
+    let mut updates: Vec<(&str, String)> = vec![
+        ("gtk-theme-name", "Adwaita".to_string()),
+        // Classic trio for every app, GNOME/libadwaita included (SPEC:
+        // native three-button baseline). Colon = empty left side, all three
+        // buttons right-aligned like every other stack.
+        (
+            "gtk-decoration-layout",
+            ":minimize,maximize,close".to_string(),
+        ),
+    ];
     // Empty family = "leave fonts as configured" (Wayle exposes none).
     if !snap.fonts.ui.is_empty() {
         let font = format!("{} {}", snap.fonts.ui, font_point(snap.fonts.scale));
@@ -140,7 +149,13 @@ fn gtk_settings(
             "settings.ini written; foreign gtk.css preserved".to_string(),
         ));
     }
-    write_owned(home, &css_path, gtk_css(snap).as_bytes(), uid, gid)?;
+    write_owned(
+        home,
+        &css_path,
+        gtk_css(snap, dir_name == "gtk-4.0").as_bytes(),
+        uid,
+        gid,
+    )?;
     give_away(&css_path, uid, gid).ok();
     Ok(Applied::Wrote("settings.ini + gtk.css written".to_string()))
 }
@@ -151,8 +166,10 @@ fn font_point(scale: f64) -> u32 {
     (11.0 * scale).round().clamp(6.0, 32.0) as u32
 }
 
-/// Generated CSS: both GTK3 (`theme_*`) and GTK4/libadwaita variable sets.
-fn gtk_css(snap: &ThemeSnapshot) -> String {
+/// Generated CSS: palette variables (shared by GTK3/GTK4) plus the uniform
+/// window-control restyle for the toolkit of this directory (`gtk4` selects
+/// the `windowcontrols` element, GTK3 the `.titlebutton` classes).
+fn gtk_css(snap: &ThemeSnapshot, gtk4: bool) -> String {
     let c = &snap.colors;
     let on_primary = contrast_on(&c.primary);
     let on_error = contrast_on(&c.error);
@@ -160,7 +177,7 @@ fn gtk_css(snap: &ThemeSnapshot) -> String {
     let dark_word = if snap.dark { "dark" } else { "light" };
     // Line array (not a continuation-literal): keeps every line at an even
     // indent for editorconfig-checker.
-    let lines = [
+    let mut lines = vec![
         MARKER.to_string(),
         format!("/* Palette source: {} */", snap.source.as_str()),
         format!("@define-color theme_bg_color {};", c.background),
@@ -206,7 +223,44 @@ fn gtk_css(snap: &ThemeSnapshot) -> String {
         format!("@define-color error_bg_color {};", c.error),
         format!("@define-color error_fg_color {on_error};"),
         format!("color-scheme: {dark_word};"),
+        "/* Uniform window controls: same size, radius and palette alpha */".to_string(),
     ];
+    // Neutral pill buttons for the trio (close keeps the same neutral look
+    // as minimize/maximize so every stack reads as one design).
+    let controls = [
+        "  min-width: 24px;",
+        "  min-height: 24px;",
+        "  padding: 4px;",
+        "  border-radius: 999px;",
+        "  color: @window_fg_color;",
+        "  background-color: alpha(@window_fg_color, 0.10);",
+    ];
+    let states = [
+        (":hover", "background-color: alpha(@window_fg_color, 0.20);"),
+        (
+            ":active",
+            "background-color: alpha(@window_fg_color, 0.30);",
+        ),
+    ];
+    if gtk4 {
+        lines.push("windowcontrols > button {".to_string());
+        lines.extend(controls.iter().map(ToString::to_string));
+        lines.push("}".to_string());
+        for (state, body) in states {
+            lines.push(format!("windowcontrols > button{state} {{"));
+            lines.push(format!("  {body}"));
+            lines.push("}".to_string());
+        }
+    } else {
+        lines.push(".titlebar .titlebutton, headerbar .titlebutton {".to_string());
+        lines.extend(controls.iter().map(ToString::to_string));
+        lines.push("}".to_string());
+        for (state, body) in states {
+            lines.push(format!(".titlebar .titlebutton{state} {{"));
+            lines.push(format!("  {body}"));
+            lines.push("}".to_string());
+        }
+    }
     format!("{}\n", lines.join("\n"))
 }
 
@@ -321,6 +375,10 @@ fn kde(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied,
     let globals = home.join(".config/kdeglobals");
     let existing = read_or_empty(&globals);
     let mut merged = replace_section_value(&existing, "General", "ColorScheme", &scheme);
+    // Classic trio on kwin titlebars (KDecoration letters: I=minimize,
+    // A=maximize, X=close); left side emptied for right-aligned uniformity.
+    merged = replace_section_value(&merged, "WM", "ButtonsOnLeft", "");
+    merged = replace_section_value(&merged, "WM", "ButtonsOnRight", "IAX");
     if let Some(icon) = &snap.icon_theme {
         merged = replace_section_value(&merged, "Icons", "Theme", icon);
     }
@@ -572,10 +630,22 @@ mod tests {
         assert!(ini.contains("gtk-cursor-theme-name=Bibata"));
         assert!(ini.contains("gtk-cursor-size=24"));
         assert!(ini.contains("gtk-font-name=Inter Variable 11"));
+        // Native three-button baseline (SPEC): classic trio, right side.
+        assert!(ini.contains("gtk-decoration-layout=:minimize,maximize,close"));
         let css = std::fs::read_to_string(home.join(".config/gtk-3.0/gtk.css")).unwrap();
         assert!(css.contains("@define-color theme_bg_color #10140f;"));
         assert!(css.contains("@define-color window_bg_color #10140f;"));
         assert!(css.contains("color-scheme: dark;"));
+        // GTK3 uniform restyle targets .titlebutton, not the GTK4 element.
+        assert!(css.contains(".titlebar .titlebutton"));
+        assert!(!css.contains("windowcontrols >"));
+        // GTK4/libadwaita directory gets the element selector instead.
+        wrote(gtk_settings(&home, 0, 0, &snapshot(ThemeSource::Wayle), "gtk-4.0").unwrap());
+        let css4 = std::fs::read_to_string(home.join(".config/gtk-4.0/gtk.css")).unwrap();
+        assert!(css4.contains("windowcontrols > button"));
+        assert!(!css4.contains(".titlebar .titlebutton"));
+        let ini4 = std::fs::read_to_string(home.join(".config/gtk-4.0/settings.ini")).unwrap();
+        assert!(ini4.contains("gtk-decoration-layout=:minimize,maximize,close"));
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -592,6 +662,10 @@ mod tests {
         let detail =
             wrote(gtk_settings(&home, 0, 0, &snapshot(ThemeSource::Dms), "gtk-3.0").unwrap());
         assert!(detail.contains("foreign gtk.css preserved"));
+        // The trio baseline lives in settings.ini, independent of who owns
+        // the CSS file.
+        let ini = std::fs::read_to_string(home.join(".config/gtk-3.0/settings.ini")).unwrap();
+        assert!(ini.contains("gtk-decoration-layout=:minimize,maximize,close"));
         let css = std::fs::read_to_string(dir.join("gtk.css")).unwrap();
         assert!(css.contains("#000000"), "shell css was overwritten: {css}");
         let _ = std::fs::remove_dir_all(&home);
@@ -653,6 +727,16 @@ mod tests {
         kde(&home, 0, 0, &snapshot(ThemeSource::Dms)).unwrap();
         let globals = std::fs::read_to_string(home.join(".config/kdeglobals")).unwrap();
         assert!(globals.contains("ColorScheme=ursine-dms"));
+        // Native three-button baseline on kwin (I=minimize A=maximize X=close).
+        let wm = globals
+            .lines()
+            .skip_while(|l| l.trim() != "[WM]")
+            .skip(1) // consume the header itself
+            .take_while(|l| !l.trim().starts_with('['))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(wm.contains("ButtonsOnLeft="), "{globals}");
+        assert!(wm.contains("ButtonsOnRight=IAX"), "{globals}");
         assert!(globals.contains("SomeKey=keep"), "foreign key lost");
         assert!(globals.contains("Theme=Papirus"));
         let colors =

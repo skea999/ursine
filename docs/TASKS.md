@@ -59,8 +59,10 @@
 - [ ] Application title bar: `ursine-titlebar` separate repo (planned,
   SPEC-theming §top bar): per-window layer-shell buttons, niri v1; Ursine
   side = native-button removal + config writer + toggle.
-- [ ] Native-button removal pass (all stacks → close only): discovery of
-  per-toolkit feasibility, then implement in theming.
+- [ ] Native three-button baseline (permanent): GTK `gtk-decoration-layout`
+  and window-control restyle; KDE `[WM] ButtonsOnLeft` empty plus
+  `ButtonsOnRight=IAX`; Qt/Electron/libcosmic already show the trio; niri
+  native minimize inert until `ursine-titlebar` (SPEC-theming §baseline).
 - [ ] Real FeralOS smoke with KDE/Qt (qt5ct/kwriteconfig5) and Wayle present.
 
 #### Decisions

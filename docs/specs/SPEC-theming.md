@@ -91,6 +91,35 @@ XML theme system) — optional candidate only if requested later.
 All per-app merges are idempotent (JSON/TOML round-trip merge, Ursine-owned
 keys marked), atomic, and reported per-target in the apply result.
 
+## Native three-button baseline (permanent, all desktops — decided 2026-10-28)
+
+Every application — GNOME/libadwaita included — must show the classic
+trio **minimize, maximize, close**, and the three must look as similar as
+each toolkit allows (colours/sizes follow the shell palette; pixel-identical
+shapes are NOT required, per the binding UI rule). This baseline stays in
+effect permanently, including when `ursine-titlebar` exists (that app is
+niri-only and overlays its four buttons there; the configured baseline keeps
+every other desktop and every non-covered window correct).
+
+| Stack | Mechanism |
+|---|---|
+| GTK3 | `gtk-decoration-layout=:minimize,maximize,close` in our `settings.ini` merge + restyle rules for `.titlebutton` in the CSS we own |
+| GTK4 + libadwaita (GNOME apps) | same `gtk-decoration-layout` key + `windowcontrols` restyle rules in the CSS we own; libadwaita follows the system layout |
+| KDE/kwin | `kdeglobals [WM] ButtonsOnLeft=` (empty) + `ButtonsOnRight=IAX` (KDecoration letters: I=minimize, A=maximize, X=close) |
+| Qt CSD / Electron / libcosmic | already draw the trio by default → no functional key; colours follow their own palette (Breeze/chromium/cosmic — partial styling only) |
+| Terminals without decorations (alacritty …) | nothing to configure; covered later by `ursine-titlebar` |
+
+Notes:
+
+- **niri caveat**: niri has no minimized state — the native minimize click is
+  inert until `ursine-titlebar` replaces it (see below). The baseline config
+  is still written so KDE/other desktops and future coverage stay correct.
+- **Grafica**: when we own `gtk.css` (Wayle source / no shell CSS) the
+  window-control buttons get our uniform restyle (size, radius, palette
+  alpha); when the shell owns it (DMS), the buttons still follow the shell
+  palette through the shell CSS. Rest of the stacks: palette-level similarity
+  only.
+
 ## Application title bar — `ursine-titlebar` (planned, separate repo)
 
 Specs from the user 2026-10-28; reference behaviour:
@@ -110,6 +139,13 @@ toolkit (GTK3/4, Qt, libcosmic, Electron):
   `close-window` / `maximize-column` / `move-column-to-workspace-down` /
   `move-column-to-workspace-up`, socket self-resolved
   (`$XDG_RUNTIME_DIR/niri*.sock`), exactly like the reference plugin.
+  The move-workspace-down button IS the working minimize: it occupies the
+  classic minimize role and moves the app to the workspace below (niri has
+  no minimized state and native `set_minimized` cannot be remapped by any
+  config); move-workspace-up restores it.
+- The native three-button baseline above stays configured at all times,
+  also when `ursine-titlebar` runs (the strip overlays the native area on
+  niri; the baseline governs every other desktop).
 - **Other compositors (at most COSMIC, KDE, GNOME — decided later)**: the
   classic three (minimize, maximize, close). Not in v1.
 
