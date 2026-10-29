@@ -15,6 +15,7 @@
     "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
+    "LOG VIEWER (2026-10-29): DONE uncommitted — logs module + GUI Logs screen; gate green. Next: review + commit; user VM test.",
     "THEMING (2026-10-27): DONE uncommitted — module+GUI+review-closed (4 lenses, ~45 findings fixed incl. 3 blockers: firefox path escape, give_tree symlink chown, apply confirmation); gate 261 tests + clippy/fmt + static PASS + docs PASS + live DMS probe. Next: commit; top bar specs pending from user.",
     "THREE-BUTTON BASELINE (2026-10-28): DONE uncommitted — gtk-decoration-layout (:minimize,maximize,close) in settings.ini, GTK3/GTK4 window-control restyle in our CSS, kdeglobals [WM] ButtonsOnLeft/ + ButtonsOnRight=IAX; Qt/Electron/libcosmic already show the trio; niri native minimize stays inert until ursine-titlebar (its move-down IS the working minimize). Live probe green.",
     "USER: VM smoke (daemon + GUI job output + Close); dinit boot fix now in tree — decide v0.20.1 tag or move v0.20.0; then push main + tag (CI auto-pins nix/binary.nix).",

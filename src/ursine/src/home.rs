@@ -281,7 +281,10 @@ fn module_mode(modules: &ModulesConfig, module: ModuleId) -> TriState {
         ModuleId::Users => modules.users,
         ModuleId::Niri => modules.niri,
         ModuleId::Theming => modules.theming,
-        ModuleId::System | ModuleId::Config | ModuleId::Capabilities => TriState::Auto,
+        // Log viewer: read-only, always auto (no switch).
+        ModuleId::Logs | ModuleId::System | ModuleId::Config | ModuleId::Capabilities => {
+            TriState::Auto
+        }
     }
 }
 

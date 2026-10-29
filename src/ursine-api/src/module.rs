@@ -40,6 +40,8 @@ pub enum ModuleId {
     Niri,
     /// Uniform desktop theming (shell theme → every toolkit).
     Theming,
+    /// Log viewer over `/var/log` (SPEC-logs).
+    Logs,
 }
 
 impl ModuleId {
@@ -63,6 +65,7 @@ impl ModuleId {
             Self::Users => "users",
             Self::Niri => "niri",
             Self::Theming => "theming",
+            Self::Logs => "logs",
         }
     }
 }

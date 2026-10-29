@@ -402,6 +402,33 @@ pub async fn job_output(
     serde_json::from_value(value).map_err(|e| ApiError::internal(format!("decode job output: {e}")))
 }
 
+/// Discover log files under `/var/log` (fresh scan each call).
+pub async fn log_list(token: SessionToken) -> Result<Vec<ursine_api::LogFile>, ApiError> {
+    let value = call(token, ModuleId::Logs, Action::LogList, None).await?;
+    serde_json::from_value(value).map_err(|e| ApiError::internal(format!("decode log list: {e}")))
+}
+
+/// Read one chunk of a `/var/log` file (tail / previous / follow cursors).
+pub async fn log_read(
+    token: SessionToken,
+    file: String,
+    lines: u32,
+    cursor: ursine_api::LogCursor,
+) -> Result<ursine_api::LogChunk, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Logs,
+        Action::LogRead {
+            file,
+            lines,
+            cursor,
+        },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value).map_err(|e| ApiError::internal(format!("decode log chunk: {e}")))
+}
+
 /// Detect the winning shell source and per-target availability.
 pub async fn theming_status(token: SessionToken) -> Result<ursine_api::ThemingStatus, ApiError> {
     let value = call(token, ModuleId::Theming, Action::ThemeDetect, None).await?;

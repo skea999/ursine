@@ -216,7 +216,10 @@ fn module_switch(config: &ConfigSnapshot, module: ModuleId) -> TriState {
         ModuleId::Users => config.modules.users,
         ModuleId::Niri => config.modules.niri,
         ModuleId::Theming => config.modules.theming,
-        ModuleId::System | ModuleId::Config | ModuleId::Capabilities => TriState::Auto,
+        // Log viewer: read-only, always auto (no switch).
+        ModuleId::Logs | ModuleId::System | ModuleId::Config | ModuleId::Capabilities => {
+            TriState::Auto
+        }
     }
 }
 

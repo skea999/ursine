@@ -81,7 +81,8 @@ pub const fn configurable_module(module: ModuleId) -> Option<&'static str> {
         ModuleId::Users => Some("users"),
         ModuleId::Niri => Some("niri"),
         ModuleId::Theming => Some("theming"),
-        ModuleId::System | ModuleId::Config | ModuleId::Capabilities => None,
+        // Log viewer: read-only, always on (no module switch).
+        ModuleId::System | ModuleId::Config | ModuleId::Capabilities | ModuleId::Logs => None,
     }
 }
 

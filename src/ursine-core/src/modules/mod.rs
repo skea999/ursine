@@ -8,6 +8,7 @@ use ursine_api::{Action, ApiError, Capability, ModuleId, Principal, Response, Ur
 pub mod bluetooth;
 pub mod disks;
 pub mod firewall;
+pub mod logs;
 pub mod network;
 pub mod niri;
 pub mod packages_apk;
@@ -53,7 +54,11 @@ fn required_caps(module: ModuleId) -> &'static [Capability] {
         ModuleId::Users => &[Capability::Accountsservice],
         ModuleId::Niri => &[Capability::Niri],
         ModuleId::Theming => &[Capability::Theming],
-        ModuleId::Services | ModuleId::System | ModuleId::Config | ModuleId::Capabilities => &[],
+        ModuleId::Services
+        | ModuleId::System
+        | ModuleId::Config
+        | ModuleId::Capabilities
+        | ModuleId::Logs => &[],
     }
 }
 
@@ -125,6 +130,8 @@ pub async fn handle(
         (ModuleId::Niri, action) => niri::handle(action, ctx).await,
 
         (ModuleId::Theming, action) => theming::handle(action, ctx).await,
+
+        (ModuleId::Logs, action) => logs::handle(action, ctx).await,
 
         _ => Err(ApiError::invalid(format!(
             "action {} is not valid for module {}",
@@ -211,6 +218,8 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::ThemeDetect => "theme_detect",
         Action::ThemeGet => "theme_get",
         Action::ThemeApply { .. } => "theme_apply",
+        Action::LogList => "log_list",
+        Action::LogRead { .. } => "log_read",
         Action::GetFirewall => "get_firewall",
         Action::SetDefaultFirewallZone { .. } => "set_default_firewall_zone",
         Action::AddFirewallService { .. } => "add_firewall_service",

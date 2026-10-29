@@ -12,6 +12,7 @@ mod disks;
 mod firewall;
 mod home;
 mod login;
+mod logs;
 mod network;
 mod niri;
 mod package_row;

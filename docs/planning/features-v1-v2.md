@@ -249,6 +249,12 @@ Configuration only; image acquisition is intentionally out of scope
 - GUI: device table with detail pane, mount/unmount actions.
 - No write to raw devices without confirmation; no silent format.
 
+### Log viewer (SPEC-logs)
+
+- [ ] `logs` module: dynamic `/var/log` discovery, tail with configurable
+  line count (default 200), load-previous chunks, follow (`tail -f`
+  polling), path-escape hardened; GUI sidebar section.
+
 ### v2 cross-cutting
 
 - Capability checks and fixes for every backend.

@@ -410,6 +410,18 @@ pub enum Action {
         #[serde(default = "default_show_minimize")]
         show_minimize: bool,
     },
+
+    // -- logs (SPEC-logs) --
+    /// Discover log files under `/var/log` (fresh scan — new files show up).
+    LogList,
+    /// Read a chunk of a `/var/log` file (tail / previous / follow).
+    LogRead {
+        /// Path relative to `/var/log`.
+        file: String,
+        #[serde(default = "crate::logs::default_log_lines")]
+        lines: u32,
+        cursor: crate::logs::LogCursor,
+    },
 }
 
 /// Wire default for `ThemeApply.show_minimize` (trio on).

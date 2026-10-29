@@ -4,6 +4,11 @@
 
 ### Added
 
+- Log viewer: dynamic `/var/log` discovery (fresh scan — drop-in files
+  appear on Refresh), plain-text tail with an editable line count
+  (default 200), "Load previous" chunks, and a follow toggle (`tail -f`
+  polling at ~700 ms with snap-to-bottom); path escapes and binary files
+  rejected; sidebar section `Logs`.
 - Theming: `galculator` target (display colors from the shell palette) and
   `eog` target (view background via session gsettings).
 - GTK3 chrome now follows the palette: `gtk-theme-name=adw-gtk3-dark` when

@@ -4,8 +4,8 @@ use cosmic::iced::Length;
 use cosmic::{Element, Task};
 use ursine_api::{
     validate_installable, Action, ApiError, ApkPackage, ApkUpdate, Capability, CapabilityReport,
-    ErrorCode, FlatpakPackage, JobOutput, JobStatus, ModuleId, SessionToken, ThemeApplyReport,
-    ThemeSnapshot, ThemingStatus, TriState,
+    ErrorCode, FlatpakPackage, JobOutput, JobStatus, LogChunk, LogCursor, LogFile, ModuleId,
+    SessionToken, ThemeApplyReport, ThemeSnapshot, ThemingStatus, TriState,
 };
 
 use crate::bluetooth::BluetoothState;
@@ -14,6 +14,7 @@ use crate::disks::DisksState;
 use crate::firewall::FirewallState;
 use crate::home::HomeState;
 use crate::login::LoginState;
+use crate::logs::{LogPhase, LogsState, LOGS_SCROLL_ID};
 use crate::network::NetworkState;
 use crate::niri::NiriState;
 use crate::packages::{PackageKind, PackagesState};
@@ -116,6 +117,7 @@ enum Screen {
     Bluetooth,
     Network,
     Theming,
+    Logs,
 }
 
 pub struct App {
@@ -137,6 +139,7 @@ pub struct App {
     bluetooth: BluetoothState,
     network: NetworkState,
     theming: ThemingState,
+    logs: LogsState,
     screen: Screen,
     session: Option<Session>,
     /// Bumped on sign-in/sign-out so late async results cannot repopulate a
@@ -431,6 +434,22 @@ pub enum Message {
     ThemingApplyCancelled,
     /// `theme_apply` finished with a per-target report.
     ThemingApplyFinished(u64, Result<ThemeApplyReport, ApiError>),
+    /// Open the log viewer (also the Refresh action).
+    OpenLogs,
+    /// `log_list` finished.
+    LogsListLoaded(u64, Result<Vec<LogFile>, ApiError>),
+    /// Dropdown selection: tail this file (index into the list).
+    LogsFileSelected(usize),
+    /// `log_read` finished for one of the three phases.
+    LogsReadLoaded(u64, String, LogPhase, Result<LogChunk, ApiError>),
+    /// Line-count input changed (text).
+    LogLinesChanged(String),
+    /// Re-tail with the typed line count.
+    LogLinesApply,
+    /// Load the chunk before the current window.
+    LogLoadPrevious,
+    /// Toggle follow (`tail -f`).
+    LogFollowToggled(bool),
     SignOut,
 }
 
@@ -472,6 +491,7 @@ impl cosmic::Application for App {
             bluetooth: BluetoothState::default(),
             network: NetworkState::default(),
             theming: ThemingState::default(),
+            logs: LogsState::default(),
             screen: Screen::Home,
             session: None,
             epoch: 0,
@@ -559,6 +579,24 @@ impl cosmic::Application for App {
             Message::ThemingApplyCancelled => self.theming.confirm_apply = false,
             Message::ThemingApplyFinished(epoch, result) => {
                 return self.finish_theming_apply(epoch, result);
+            }
+            Message::OpenLogs => {
+                self.screen = Screen::Logs;
+                return self.load_logs();
+            }
+            Message::LogsListLoaded(epoch, result) => return self.finish_logs_list(epoch, result),
+            Message::LogsFileSelected(index) => return self.select_log_file(index),
+            Message::LogsReadLoaded(epoch, file, phase, result) => {
+                return self.finish_log_read(epoch, &file, phase, result);
+            }
+            Message::LogLinesChanged(value) => self.logs.lines_input = value,
+            Message::LogLinesApply => return self.apply_log_lines(),
+            Message::LogLoadPrevious => return self.load_previous_log(),
+            Message::LogFollowToggled(follow) => {
+                self.logs.follow = follow;
+                if follow {
+                    return self.follow_log_poll();
+                }
             }
             Message::RefreshNetwork => return self.load_network(),
             Message::NetworkLoaded(epoch, result) => return self.finish_network(epoch, result),
@@ -1296,6 +1334,7 @@ impl cosmic::Application for App {
                     Screen::Bluetooth => self.bluetooth.view(),
                     Screen::Network => self.network.view(),
                     Screen::Theming => self.theming.view(),
+                    Screen::Logs => self.logs.view(),
                 };
                 cosmic::iced::widget::row(vec![self.sidebar(), content])
                     .width(Length::Fill)
@@ -2639,7 +2678,7 @@ impl App {
     fn sidebar(&self) -> Element<'_, Message> {
         use cosmic::widget::{button, column, container, scrollable, text};
 
-        let entries: [(Screen, &str); 14] = [
+        let entries: [(Screen, &str); 15] = [
             (Screen::Home, "Overview"),
             (Screen::Packages, "Package manager"),
             (Screen::Printers, "Printers"),
@@ -2653,6 +2692,7 @@ impl App {
             (Screen::Users, "Users"),
             (Screen::Niri, "Niri desktop"),
             (Screen::Theming, "Theming"),
+            (Screen::Logs, "Logs"),
             (Screen::Settings, "Settings"),
         ];
         let mut items: Vec<Element<'_, Message>> = vec![
@@ -2702,6 +2742,7 @@ impl App {
             Screen::Bluetooth => Message::OpenBluetooth,
             Screen::Network => Message::OpenNetwork,
             Screen::Theming => Message::OpenTheming,
+            Screen::Logs => Message::OpenLogs,
         }
     }
 
@@ -2715,7 +2756,7 @@ impl App {
 
     fn screen_available(&self, screen: Screen) -> bool {
         match screen {
-            Screen::Home | Screen::Settings => true,
+            Screen::Home | Screen::Settings | Screen::Logs => true,
             Screen::Packages => {
                 self.cap_available(Capability::Nix)
                     || self.cap_available(Capability::Apk)
@@ -3569,6 +3610,237 @@ impl App {
         Task::none()
     }
 
+    /// Discover `/var/log` and tail the most recent file.
+    fn load_logs(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.logs.busy {
+            return Task::none();
+        }
+        self.logs.busy = true;
+        self.logs.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move { Message::LogsListLoaded(epoch, client::log_list(token).await) })
+            .map(cosmic::Action::App)
+    }
+
+    fn finish_logs_list(
+        &mut self,
+        epoch: u64,
+        result: Result<Vec<LogFile>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        match result {
+            Ok(files) => {
+                self.logs.files = files;
+                if self.logs.selected.is_none() {
+                    // Most recent first (server sorts by mtime desc).
+                    self.logs.selected = self.logs.files.first().map(|f| f.path.clone());
+                }
+                if self.logs.selected.is_some() {
+                    return self.tail_log();
+                }
+                self.logs.busy = false;
+            }
+            Err(error) => {
+                self.logs.busy = false;
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.logs.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn select_log_file(&mut self, index: usize) -> Task<cosmic::Action<Message>> {
+        let Some(file) = self.logs.files.get(index).map(|f| f.path.clone()) else {
+            return Task::none();
+        };
+        if self.logs.selected.as_deref() == Some(file.as_str()) || self.logs.busy {
+            return Task::none();
+        }
+        self.logs.selected = Some(file);
+        self.logs.content.clear();
+        self.logs.start = 0;
+        self.logs.end = 0;
+        self.logs.size = 0;
+        self.logs.has_before = false;
+        self.tail_log()
+    }
+
+    /// Read the last `count` lines of the selected file (baseline/re-tail).
+    fn tail_log(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some(file) = self.logs.selected.clone() else {
+            self.logs.busy = false;
+            return Task::none();
+        };
+        self.logs.busy = true;
+        self.logs.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        let lines = self.logs.count;
+        Task::future(async move {
+            let result = client::log_read(token, file.clone(), lines, LogCursor::End).await;
+            Message::LogsReadLoaded(epoch, file, LogPhase::Tail, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn apply_log_lines(&mut self) -> Task<cosmic::Action<Message>> {
+        let parsed = self.logs.lines_input.trim().parse::<u32>().ok();
+        let Some(count) = parsed else {
+            self.logs.error = Some("Line count must be a number.".into());
+            return Task::none();
+        };
+        if !(1..=10_000).contains(&count) {
+            self.logs.error = Some("Line count must be between 1 and 10000.".into());
+            return Task::none();
+        }
+        self.logs.count = count;
+        self.logs.error = None;
+        self.tail_log()
+    }
+
+    fn load_previous_log(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.logs.busy || self.logs.start == 0 {
+            return Task::none();
+        }
+        let Some(file) = self.logs.selected.clone() else {
+            return Task::none();
+        };
+        self.logs.busy = true;
+        self.logs.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        let lines = self.logs.count;
+        let before = self.logs.start;
+        Task::future(async move {
+            let result = client::log_read(
+                token,
+                file.clone(),
+                lines,
+                LogCursor::Before { offset: before },
+            )
+            .await;
+            Message::LogsReadLoaded(epoch, file, LogPhase::Previous, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    /// One follow poll: forward read from the last byte we hold.
+    fn follow_log_poll(&self) -> Task<cosmic::Action<Message>> {
+        if !self.logs.follow || self.logs.busy {
+            return Task::none();
+        }
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some(file) = self.logs.selected.clone() else {
+            return Task::none();
+        };
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        let lines = self.logs.count;
+        let from = self.logs.end;
+        Task::future(async move {
+            // tail -f cadence: chained by the Follow handler.
+            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+            let result =
+                client::log_read(token, file.clone(), lines, LogCursor::From { offset: from })
+                    .await;
+            Message::LogsReadLoaded(epoch, file, LogPhase::Follow, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_log_read(
+        &mut self,
+        epoch: u64,
+        file: &str,
+        phase: LogPhase,
+        result: Result<LogChunk, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        // Stale response for another file (user switched while in flight).
+        if self.logs.selected.as_deref() != Some(file) {
+            return Task::none();
+        }
+        let chunk = match result {
+            Ok(chunk) => chunk,
+            Err(error) => {
+                self.logs.busy = false;
+                self.logs.follow = false;
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.logs.error = Some(friendly(&error));
+                return Task::none();
+            }
+        };
+        // Rotation/truncation detected mid-follow: reset with a full tail.
+        if phase == LogPhase::Follow && chunk.size < self.logs.size {
+            return self.tail_log();
+        }
+        let mut snap = Task::none();
+        match phase {
+            LogPhase::Tail => {
+                self.logs.content = chunk.content;
+                self.logs.start = chunk.start;
+                self.logs.end = chunk.end;
+                self.logs.size = chunk.size;
+                self.logs.has_before = chunk.has_before;
+                self.logs.busy = false;
+            }
+            LogPhase::Previous => {
+                // Prepend the older chunk above what we already hold.
+                self.logs.content = format!("{}{}", chunk.content, self.logs.content);
+                self.logs.start = chunk.start;
+                self.logs.has_before = chunk.has_before;
+                self.logs.busy = false;
+            }
+            LogPhase::Follow => {
+                let appended = !chunk.content.is_empty();
+                if appended {
+                    self.logs.content.push_str(&chunk.content);
+                    snap = Task::batch([Self::snap_logs_bottom()]);
+                }
+                self.logs.end = chunk.end;
+                self.logs.size = chunk.size;
+                self.logs.has_before = self.logs.has_before || chunk.has_before;
+            }
+        }
+        // Keep the tail -f chain alive while follow stays on this screen
+        // (a fresh Tail also hands over to the chain when follow is on).
+        if self.logs.follow && self.screen == Screen::Logs && self.session.is_some() {
+            return Task::batch([snap, self.follow_log_poll()]);
+        }
+        snap
+    }
+
+    /// Snap the log box to the bottom (new lines stay visible in follow).
+    fn snap_logs_bottom() -> Task<cosmic::Action<Message>> {
+        cosmic::iced::widget::scrollable::snap_to(
+            cosmic::iced::core::widget::Id::new(LOGS_SCROLL_ID),
+            cosmic::iced::widget::scrollable::RelativeOffset {
+                x: None,
+                y: Some(1.0),
+            },
+        )
+    }
+
     fn network_action(
         &mut self,
         label: &str,
@@ -4245,6 +4517,7 @@ impl App {
         self.bluetooth = BluetoothState::default();
         self.network = NetworkState::default();
         self.theming = ThemingState::default();
+        self.logs = LogsState::default();
         self.screen = Screen::Home;
         self.login.password.clear();
         self.login.error = None;

@@ -13,6 +13,7 @@ pub mod envelope;
 pub mod error;
 pub mod firewall;
 pub mod job;
+pub mod logs;
 pub mod module;
 pub mod network;
 pub mod niri;
@@ -37,6 +38,7 @@ pub use envelope::{Request, RequestBody, Response, ResponseBody, PROTOCOL_VERSIO
 pub use error::{ApiError, ErrorCode};
 pub use firewall::{FirewallStatus, FirewallZone};
 pub use job::{JobOutput, JobStarted, JobStatus};
+pub use logs::{default_log_lines, LogChunk, LogCursor, LogFile};
 pub use module::ModuleId;
 pub use network::{NetworkDevice, NetworkView, WifiNetwork};
 pub use niri::{

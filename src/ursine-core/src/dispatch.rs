@@ -386,10 +386,10 @@ impl Daemon {
             },
         };
 
-        // `job_output` polls are read-only and frequent; auditing them would
-        // flood the log. Start and completion are audited (completion by the
-        // registry when the worker exits).
-        if !matches!(&action, Action::JobOutput { .. }) {
+        // Read-only high-frequency polls stay out of the audit: `job_output`
+        // (start/completion are audited by the job registry) and `log_read`
+        // (follow polls every ~700 ms). Everything else is recorded.
+        if !matches!(&action, Action::JobOutput { .. } | Action::LogRead { .. }) {
             let outcome = Outcome::from_result(&result);
             self.audit.record(
                 &principal,
