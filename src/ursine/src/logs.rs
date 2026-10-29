@@ -153,12 +153,15 @@ impl LogsState {
                 text(self.content.clone())
             };
             items.push(
+                // Height on the SCROLLABLE (not on the content): the text
+                // overflows and the side scrollbar appears.
                 scrollable(
                     cosmic::widget::container(body)
                         .class(cosmic::theme::Container::Background)
-                        .padding(4)
-                        .height(Length::Fixed(420.0)),
+                        .padding(4),
                 )
+                .height(Length::Fixed(420.0))
+                .width(Length::Fill)
                 .id(cosmic::iced::core::widget::Id::new(LOGS_SCROLL_ID))
                 .into(),
             );

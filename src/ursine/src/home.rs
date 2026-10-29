@@ -32,6 +32,7 @@ struct ModuleEntry {
 enum Panel {
     Packages,
     Theming,
+    Logs,
     Snapshots,
     Users,
     Niri,
@@ -129,6 +130,15 @@ const MODULES: &[ModuleEntry] = &[
         any: false,
         panel: Some(Panel::Theming),
     },
+    ModuleEntry {
+        title: "Logs",
+        // Read-only, always on: no module switch (module: None like the
+        // Package manager card).
+        module: None,
+        requires: &[],
+        any: false,
+        panel: Some(Panel::Logs),
+    },
 ];
 
 impl HomeState {
@@ -215,7 +225,8 @@ impl HomeState {
                 | Panel::Disks
                 | Panel::Bluetooth
                 | Panel::Network
-                | Panel::Theming,
+                | Panel::Theming
+                | Panel::Logs,
             ) => {
                 let available = !Self::is_manually_off(entry, modules)
                     && if entry.any {
@@ -242,6 +253,7 @@ impl HomeState {
                     Some(Panel::Bluetooth) => Message::OpenBluetooth,
                     Some(Panel::Network) => Message::OpenNetwork,
                     Some(Panel::Theming) => Message::OpenTheming,
+                    Some(Panel::Logs) => Message::OpenLogs,
                     None => unreachable!(),
                 };
                 let open = button::text("Open").on_press_maybe(available.then_some(open_message));
