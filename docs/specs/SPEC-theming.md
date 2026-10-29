@@ -81,7 +81,8 @@ directly creatable for an installed binary):
 | Firefox | profile `chrome/userChrome.css` (import/embed the palette) + prefs `toolkit.legacyUserProfileCustomizations.stylesheets=true`, `ui.systemUsesDarkTheme`, ui font — via `user.js` in the profile | a Firefox profile exists (`profiles.ini`) |
 | VSCodium / VSCode family | merge into `User/settings.json`: `workbench.colorCustomizations`, `terminal.integrated.*` palette; title bar styling deferred to the top-bar spec | `~/.config/VSCodium` (or Code) exists |
 | Terminals | **alacritty**: `alacritty.toml` `import = ["dank-theme.toml"]` (DMS file exists but is never imported — create the import; for wayle source write `[colors]` directly); **kitty** `include`; **ghostty** `theme`/colors; **foot** `include`; **wezterm** — same pattern | that terminal's config file/dir exists |
-| cava | `~/.config/cava/config` `[color]` / theme section | config exists |\n| galculator | `~/.config/galculator/galculator.conf` `[general]` display colors (`display_bkg_color`, result/stack/module colors) merged from the palette — its display ignores GTK theming | config file or binary present |
+| cava | `~/.config/cava/config` `[color]` / theme section | config exists |
+| galculator | `~/.config/galculator/galculator.conf` `[general]` display colors (`display_bkg_color`, result/stack/module colors) merged from the palette — its display ignores GTK theming | config file or binary present |
 | Generic Electron | best-effort `electron-flags.conf` (`--gtk-version=4`) so Electron follows GTK; colors only via per-app settings when available | flags file writable / app present |
 | Everything else | covered by the toolkit layers above (GTK/Qt/KDE/portal/env) — nautilus, LibreOffice, KeepassXC, missioncenter, filezilla, remmina, eog, zim, galculator, simple-scan … | — |
 
