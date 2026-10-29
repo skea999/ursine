@@ -8,7 +8,7 @@ use std::path::{Component, Path, PathBuf};
 
 use ursine_api::{ApiError, ThemeSnapshot, ThemingTarget};
 
-use super::apply::{Applied, BEGIN, END, MARKER};
+use super::apply::{Applied, BEGIN, CSS_MARKER, END, MARKER};
 use super::color::{contrast_on, mix, without_alpha};
 use super::write::{
     merge_ini, merge_json, mkdir_owned, read_or_empty, replace_block, replace_ini_section,
@@ -120,7 +120,7 @@ fn firefox(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Appl
     let scheme = if snap.dark { "dark" } else { "light" };
     let on_primary = contrast_on(&c.primary);
     let css_lines = [
-        MARKER.to_string(),
+        CSS_MARKER.to_string(),
         "/* Uniform Firefox colors from the shell palette. */".to_string(),
         format!(":root {{ color-scheme: {scheme}; }}"),
         "@-moz-document url-prefix(\"about:\") {".to_string(),
@@ -153,7 +153,7 @@ fn firefox(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Appl
         mkdir_owned(home, &chrome, uid, gid)?;
         let user_chrome = chrome.join("userChrome.css");
         let existing = read_or_empty(&user_chrome);
-        if existing.is_empty() || existing.contains(MARKER) {
+        if existing.is_empty() || existing.contains(CSS_MARKER) {
             write_owned(home, &user_chrome, css.as_bytes(), uid, gid)?;
             touched += 1;
         } else {

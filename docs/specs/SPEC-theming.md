@@ -56,7 +56,7 @@ INI or env file.
 
 | # | Technology | Artifact | Gate |
 |---|---|---|---|
-| 1 | GTK3 | `~/.config/gtk-3.0/settings.ini` (theme/font/icon/cursor); `gtk.css` is an Ursine-owned **wrapper** that `@import`s the shell `dank-colors.css` (the shell file itself is never rewritten) and adds GTK3 legacy name aliases (`theme_*` → shell palette) + control restyle; without a shell file the full palette is generated | always |
+| 1 | GTK3 | `~/.config/gtk-3.0/settings.ini` (`gtk-theme-name=adw-gtk3-dark` when installed — Adwaita GTK3 files are not shipped on the target systems and the stock fallback ignores palette colors; else `Adwaita` + font/icon/cursor/decoration layout); `gtk.css` is an Ursine-owned **wrapper** (real `/* */` marker — a leading `#` line is a CSS id selector and makes GTK discard the file) that `@import`s the shell `dank-colors.css` (shell file never rewritten) and adds GTK3 legacy name aliases (`theme_*` → shell palette) + control restyle; without a shell file the full palette is generated | always |
 | 2 | GTK4 | `settings.ini` + wrapper `gtk.css` (import of the shell palette + control restyle; no legacy aliases needed) | always |
 | 3 | GTK2 | `~/.gtkrc-2.0` (theme/font/icon/cursor) | always |
 | 4 | Qt5 | `~/.config/qt5ct/colors/ursine-<source>.conf` + `qt5ct.conf` `colorScheme=` | qt5ct config dir/tool present |
@@ -83,6 +83,7 @@ directly creatable for an installed binary):
 | Terminals | **alacritty**: `alacritty.toml` `import = ["dank-theme.toml"]` (DMS file exists but is never imported — create the import; for wayle source write `[colors]` directly); **kitty** `include`; **ghostty** `theme`/colors; **foot** `include`; **wezterm** — same pattern | that terminal's config file/dir exists |
 | cava | `~/.config/cava/config` `[color]` / theme section | config exists |
 | galculator | `~/.config/galculator/galculator.conf` `[general]` display colors (`display_bkg_color`, result/stack/module colors) merged from the palette — its display ignores GTK theming | config file or binary present |
+| eog | `org.gnome.eog.view background-color` session gsettings (eog paints its canvas from its own key, not the GTK theme) | `/usr/bin/eog` or its desktop file |
 | Generic Electron | best-effort `electron-flags.conf` (`--gtk-version=4`) so Electron follows GTK; colors only via per-app settings when available | flags file writable / app present |
 | Everything else | covered by the toolkit layers above (GTK/Qt/KDE/portal/env) — nautilus, LibreOffice, KeepassXC, missioncenter, filezilla, remmina, eog, zim, galculator, simple-scan … | — |
 

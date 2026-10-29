@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Theming: `galculator` target (display colors from the shell palette) and
+  `eog` target (view background via session gsettings).
+- GTK3 chrome now follows the palette: `gtk-theme-name=adw-gtk3-dark` when
+  the theme is installed, and the GTK css wrapper uses a real `/* */` marker
+  (a `#` line made GTK discard the whole stylesheet) with legacy `theme_*`
+  aliases onto the shell palette.
+
 ## [0.21.1] — 2026-10-28
 
 ### Fixed

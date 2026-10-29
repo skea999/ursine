@@ -340,6 +340,13 @@ fn target_statuses(home: &Path) -> Vec<TargetStatus> {
         } else {
             TargetStatus::unavailable(ThemingTarget::Galculator, "galculator not installed")
         },
+        if bin(&["/usr/bin/eog", "/usr/local/bin/eog"])
+            || has(".local/share/applications/org.gnome.eog.desktop")
+        {
+            TargetStatus::available(ThemingTarget::Eog, "eog view background")
+        } else {
+            TargetStatus::unavailable(ThemingTarget::Eog, "eog not installed")
+        },
     ];
     statuses.sort_by_key(|s| {
         ThemingTarget::ALL

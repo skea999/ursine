@@ -17,6 +17,10 @@ use super::{select_source, snapshot_for, target_statuses};
 
 /// Marker line: files we own carry it so a hand-edited file is never stomped.
 pub(super) const MARKER: &str = "# Written by Ursine (uniform theming, SPEC-theming)";
+
+/// CSS files need a real `/* … */` comment: a leading `#` line is parsed as
+/// an id selector and GTK discards the whole stylesheet (verified on the VM).
+pub(super) const CSS_MARKER: &str = "/* Written by Ursine (uniform theming, SPEC-theming) */";
 pub(super) const BEGIN: &str = "#ursine-theme begin";
 pub(super) const END: &str = "#ursine-theme end";
 
@@ -101,6 +105,7 @@ fn write_target(
         | ThemingTarget::Wezterm
         | ThemingTarget::Cava
         | ThemingTarget::Galculator => apps::write_target(target, home, uid, gid, snap),
+        ThemingTarget::Eog => Ok(eog_view_background(user, uid, &snap.colors.background)),
     };
     match outcome {
         Ok(Applied::Wrote(detail)) => TargetResult {
@@ -137,8 +142,18 @@ fn gtk_settings(
     let dir = home.join(".config").join(dir_name);
     mkdir_owned(home, &dir, uid, gid)?;
 
+    // adw-gtk3-dark is the complete GTK3 theme present on FeralOS-like
+    // systems and it consumes the window_*/accent_* names our css overrides
+    // (verified: without it GTK3 falls back to an unstyled stock look and
+    // Adwaita's GTK3 files are not even shipped).
+    let gtk3_theme =
+        if dir_name == "gtk-3.0" && Path::new("/usr/share/themes/adw-gtk3-dark/gtk-3.0").is_dir() {
+            "adw-gtk3-dark"
+        } else {
+            "Adwaita"
+        };
     let mut updates: Vec<(&str, String)> = vec![
-        ("gtk-theme-name", "Adwaita".to_string()),
+        ("gtk-theme-name", gtk3_theme.to_string()),
         // Classic set for every app, GNOME/libadwaita included (SPEC:
         // native three-button baseline). Colon = empty left side, buttons
         // right-aligned like every other stack; minimize is the GUI toggle.
@@ -196,20 +211,39 @@ fn gtk_settings(
     Ok(Applied::Wrote(format!("{note}; {gnote}")))
 }
 
+/// Run one fixed shell script as the target user on the session bus.
+fn run_session_script(user: &str, script: &str) -> Result<(), ApiError> {
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return Err(ApiError::internal("no runtime"));
+    };
+    handle
+        .block_on(crate::modules::packages_nix::exec::run_as_user_script(
+            user,
+            script,
+            std::time::Duration::from_secs(10),
+        ))
+        .map(|_| ())
+}
+
+/// eog paints its image canvas from its own `GSettings` key (not the GTK
+/// theme): mirror the palette background into it (soft — schema may be
+/// absent, e.g. flatpak-only installs).
+fn eog_view_background(user: &str, uid: u32, background: &str) -> Applied {
+    let script = format!(
+        "export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus; export XDG_RUNTIME_DIR=/run/user/{uid}; gsettings set org.gnome.eog.view background-color \"{background}\" || true"
+    );
+    match run_session_script(user, &script) {
+        Ok(()) => Applied::Wrote("eog view background set".to_string()),
+        Err(error) => Applied::Kept(format!("eog gsettings skipped ({})", error.message)),
+    }
+}
+
 /// Best-effort live update of the session's `button-layout` (what the
 /// settings portal serves to GTK). Failures fall back to settings.ini only.
 fn apply_session_button_layout(user: &str, uid: u32, show_minimize: bool) -> String {
-    let Ok(handle) = tokio::runtime::Handle::try_current() else {
-        return "gsettings skipped (no runtime)".to_string();
-    };
     let script = gsettings_script(uid, show_minimize);
-    let outcome = handle.block_on(crate::modules::packages_nix::exec::run_as_user_script(
-        user,
-        &script,
-        std::time::Duration::from_secs(10),
-    ));
-    match outcome {
-        Ok(_) => "gsettings button-layout updated".to_string(),
+    match run_session_script(user, &script) {
+        Ok(()) => "gsettings button-layout updated".to_string(),
         Err(error) => format!("gsettings skipped ({})", error.message),
     }
 }
@@ -244,7 +278,7 @@ fn gtk_css(snap: &ThemeSnapshot, gtk4: bool) -> String {
     // Line array (not a continuation-literal): keeps every line at an even
     // indent for editorconfig-checker.
     let mut lines = vec![
-        MARKER.to_string(),
+        CSS_MARKER.to_string(),
         format!("/* Palette source: {} */", snap.source.as_str()),
         format!("@define-color theme_bg_color {};", c.background),
         format!("@define-color theme_fg_color {};", c.foreground),
@@ -299,7 +333,7 @@ fn gtk_css(snap: &ThemeSnapshot, gtk4: bool) -> String {
 /// GTK3 legacy names the shell never defines.
 fn wrapper_css(gtk4: bool) -> String {
     let mut lines = vec![
-        MARKER.to_string(),
+        CSS_MARKER.to_string(),
         "/* Shell palette imported; never rewritten by Ursine */".to_string(),
         "@import url(\"dank-colors.css\");".to_string(),
     ];
@@ -810,7 +844,7 @@ mod tests {
         // …while gtk.css becomes our wrapper: import + legacy aliases +
         // marker + control restyle.
         let css = std::fs::read_to_string(dir.join("gtk.css")).unwrap();
-        assert!(css.contains(MARKER), "{css}");
+        assert!(css.contains(CSS_MARKER), "{css}");
         assert!(css.contains("@import url(\"dank-colors.css\")"), "{css}");
         assert!(
             css.contains("@define-color theme_bg_color @window_bg_color;"),
@@ -926,6 +960,26 @@ mod tests {
         assert!(ini.contains("gtk-decoration-layout=:maximize,close"));
         assert!(!ini.contains("minimize"));
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn eog_target_sets_view_background_and_degrades_softly() {
+        // Outside a tokio runtime (unit test) the session runner reports
+        // soft-skip instead of failing the target.
+        let applied = eog_view_background("u", 1000, "#10140f");
+        match applied {
+            Applied::Kept(detail) => assert!(detail.contains("eog gsettings skipped"), "{detail}"),
+            Applied::Wrote(detail) => assert!(detail.contains("view background"), "{detail}"),
+        }
+        // The script itself must survive the no-single-quote contract and
+        // quote the hex (a bare # would start a shell comment).
+        let script = format!(
+            "export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus; export XDG_RUNTIME_DIR=/run/user/{uid}; gsettings set org.gnome.eog.view background-color \"{bg}\" || true",
+            uid = 1000,
+            bg = "#10140f"
+        );
+        assert!(!script.contains('\''));
+        assert!(script.contains("background-color \"#10140f\""));
     }
 
     #[test]
