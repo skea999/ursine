@@ -257,6 +257,9 @@ Configuration only; image acquisition is intentionally out of scope
 
 ### v2 cross-cutting
 
+- Every module opens on the CURRENT configuration if it exists on disk
+  (read-only works with no display/compositor; live-only bits show an
+  explicit unavailable note) — binding, see `docs/intent/ursine.md`.
 - Capability checks and fixes for every backend.
 - Module switches for every new module.
 - `asUser` only where a per-user backend exists.

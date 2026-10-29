@@ -19,6 +19,12 @@ FeralOS has no control center; Nix has no GUI on any distro; the FeralOS desktop
 ## Success
 
 - Every module whose backend exists on the machine is fully operable from the GUI (and later web).
+- **Reads work without a display**: opening a module always shows the
+  CURRENT on-disk configuration/state when it exists (config files, service
+  state, shell configs, niri `config.kdl`, …) even with no compositor,
+  session or display running — the daemon reads files, it never requires a
+  live GUI. Live-only capabilities (outputs, running shells) degrade to a
+  clear "unavailable" note instead of an empty or broken panel.
 - CI compiles and tests every cargo feature combination and builds+publishes the musl nix flake.
 - Daemon idles at ~3-6 MB RSS, 0% CPU.
 - The UIs look and behave like one product, and a non-expert can use them.
