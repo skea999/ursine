@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.24.0] — 2026-10-30
+
+### Added
+
+- `ursinectl` root CLI: every daemon action from the terminal, running
+  in-process (no daemon, no socket — works inside a FeralOS chroot during
+  installation). Generic `<module> <action> key=value...` surface covering
+  every API action, `--json` for scripts, `--yes` for destructive actions,
+  live job-output streaming with the job's exit code, secrets read from
+  stdin only. Hard root gate: without root it refuses (exit 2) before any
+  side effect.
+- Parity rule extended: new features ship daemon + GUI + CLI together.
+
+### Fixed
+
+- Concurrent crontab/theming writes staged to a fixed temp path could
+  race (ENOENT) or hand the wrong staged payload to the target tool —
+  temp file names are now per-process.
+- Root's own crontab is manageable again: when the target user is root
+  the trusted `crontab` path runs directly (no `su`).
+- CLI rejects unknown argument keys instead of silently dropping them,
+  and numeric values (`port=8080`) fill string fields.
+
 ## [0.23.0] — 2026-10-30
 
 ### Added
