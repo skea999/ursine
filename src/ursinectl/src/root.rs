@@ -5,7 +5,7 @@
 //! it; without `/proc` the gate fails closed).
 
 /// Refuse to run unless the effective uid is 0. Fails closed when the
-/// status file is missing or unparseable.
+/// status file is missing or unparsable.
 pub fn ensure_root() -> Result<u32, String> {
     let status = std::fs::read_to_string("/proc/self/status")
         .map_err(|e| format!("cannot read /proc/self/status: {e}"))?;

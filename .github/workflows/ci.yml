@@ -390,7 +390,7 @@ jobs:
           cargo build --release -p ursine -p ursinectl
           mkdir -p artifacts/pkg/bin
           cp artifacts/target/release/ursined artifacts/target/release/ursine \
-             artifacts/target/release/ursinectl artifacts/pkg/bin/
+            artifacts/target/release/ursinectl artifacts/pkg/bin/
           cp install.sh artifacts/pkg/
           cp src/tools/ursine-activate.sh artifacts/pkg/bin/ursine-activate
           cp src/tools/ursine-deactivate.sh artifacts/pkg/bin/ursine-deactivate
