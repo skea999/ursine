@@ -1,14 +1,29 @@
 # Changelog
 
-## [Unreleased]
+## [0.23.0] — 2026-10-30
 
 ### Added
 
 - Crontab section: view/replace the session user's crontab through the
   `crontab` tool (works on busybox/Alpine, cronie and Debian/vixie),
-  editor seeded with the current crontab, save behind confirmation.
+  editor seeded with the current crontab, save behind confirmation;
+  own-account target only, trusted absolute tool path, bounded reads.
 - Log viewer search: case-insensitive substring scan with clickable hits
   (line number + jump-to-chunk), 4 MiB scan cap.
+
+## [0.22.1] — 2026-10-29
+
+### Added
+
+- Log viewer: side scrollbar for the body and an Overview card entry
+  (Logs reachable from Home).
+- Requirement documented and audited: config-first reads work without a
+  display (current config wins over a running shell).
+
+## [0.22.0] — 2026-10-29
+
+### Added
+
 - Log viewer: dynamic `/var/log` discovery (fresh scan — drop-in files
   appear on Refresh), plain-text tail with an editable line count
   (default 200), "Load previous" chunks, and a follow toggle (`tail -f`

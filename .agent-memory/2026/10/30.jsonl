@@ -1,0 +1,1 @@
+{"ts":1793362884639,"topic":"0.23.0 pushed","content":"Today: Tier-2 review findings fixed (259aff5->caaa527, crontab cross-user blocker, bounded reads, trusted crontab path, audit, follow supersession), pushed main+tag v0.23.0, both CI green; next: nix pin verify, VM smoke (Logs search/follow, Crontab busybox, Niri Outputs mode)","tags":[],"importance":"normal"}
