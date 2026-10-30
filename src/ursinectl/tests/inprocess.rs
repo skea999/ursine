@@ -4,6 +4,8 @@
 #![allow(clippy::unwrap_used)] // tests
 #![allow(clippy::panic)] // test failure reporting
 
+pub mod common;
+
 use ursine_api::{Action, ModuleId, ResponseBody};
 use ursine_core::auth::PeerInfo;
 use ursine_core::dispatch::Daemon;
@@ -540,7 +542,7 @@ async fn logs_read_search_and_hardening_through_dispatch() {
 
 /// Build an action from a static sample with a fake secret reader (tests
 /// must never touch the real stdin).
-fn sample_action(s: &ursinectl::cli::Sample) -> Action {
+fn sample_action(s: &common::Sample) -> Action {
     let pairs: Vec<(String, String)> = s
         .pairs
         .iter()
@@ -553,7 +555,7 @@ fn sample_action(s: &ursinectl::cli::Sample) -> Action {
 /// Shared fixture for `log_read`/`log_search` samples.
 fn write_log_fixture() {
     use std::io::Write as _;
-    let path = std::path::Path::new("/var/log").join(ursinectl::cli::LOG_FIXTURE);
+    let path = std::path::Path::new("/var/log").join(common::LOG_FIXTURE);
     let mut f = std::fs::File::create(&path).unwrap();
     writeln!(f, "fixture line one").unwrap();
     writeln!(f, "Needle in a fixture").unwrap();
@@ -567,7 +569,7 @@ macro_rules! dispatch_per_module {
         async fn $fn_name() {
             let (daemon, token) = build();
             ($setup)();
-            for s in ursinectl::cli::samples_for($module) {
+            for s in common::samples_for($module) {
                 let action = sample_action(s);
                 assert_eq!(
                     ursine_core::modules::action_name(&action),
@@ -576,18 +578,18 @@ macro_rules! dispatch_per_module {
                 );
                 let result = call(&daemon, &token, $module, action).await;
                 match (&s.dispatch, result) {
-                    (ursinectl::cli::Dispatch::Skip, _) => {}
-                    (ursinectl::cli::Dispatch::Ok, Ok(value)) => {
+                    (common::Dispatch::Skip, _) => {}
+                    (common::Dispatch::Ok, Ok(value)) => {
                         assert!(
                             value.is_object() || value.is_array(),
                             "{}: unexpected payload {value}",
                             s.action
                         );
                     }
-                    (ursinectl::cli::Dispatch::Ok, Err(e)) => {
+                    (common::Dispatch::Ok, Err(e)) => {
                         panic!("{}: expected Ok, got {e:?}", s.action);
                     }
-                    (ursinectl::cli::Dispatch::Gate, Err(e)) => {
+                    (common::Dispatch::Gate, Err(e)) => {
                         assert_eq!(
                             e.code,
                             ursine_api::ErrorCode::Unavailable,
@@ -595,14 +597,14 @@ macro_rules! dispatch_per_module {
                             s.action
                         );
                     }
-                    (ursinectl::cli::Dispatch::Gate, Ok(value)) => {
+                    (common::Dispatch::Gate, Ok(value)) => {
                         panic!("{}: expected capability gate, got {value}", s.action);
                     }
-                    (ursinectl::cli::Dispatch::Any, _) => {}
-                    (ursinectl::cli::Dispatch::Code(expected), Err(e)) => {
+                    (common::Dispatch::Any, _) => {}
+                    (common::Dispatch::Code(expected), Err(e)) => {
                         assert_eq!(e.code, *expected, "{}: {e:?}", s.action);
                     }
-                    (ursinectl::cli::Dispatch::Code(expected), Ok(value)) => {
+                    (common::Dispatch::Code(expected), Ok(value)) => {
                         panic!(
                             "{}: expected error {expected:?}, got {value}",
                             s.action
