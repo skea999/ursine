@@ -2,6 +2,7 @@
 //! Runs as root inside the CI container (the same condition the CLI enforces).
 
 #![allow(clippy::unwrap_used)] // tests
+#![allow(clippy::panic)] // test failure reporting
 
 use ursine_api::{Action, ModuleId, ResponseBody};
 use ursine_core::auth::PeerInfo;
@@ -534,3 +535,104 @@ async fn logs_read_search_and_hardening_through_dispatch() {
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_file(&binpath);
 }
+
+// ---- one dispatch test per module, driven by the 100-action sample table ----
+
+/// Build an action from a static sample with a fake secret reader (tests
+/// must never touch the real stdin).
+fn sample_action(s: &ursinectl::cli::Sample) -> Action {
+    let pairs: Vec<(String, String)> = s
+        .pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    ursinectl::cli::build_action_with(s.action, &pairs, || Ok("x".to_string()))
+        .unwrap_or_else(|e| panic!("{}: {e}", s.action))
+}
+
+/// Shared fixture for `log_read`/`log_search` samples.
+fn write_log_fixture() {
+    use std::io::Write as _;
+    let path = std::path::Path::new("/var/log").join(ursinectl::cli::LOG_FIXTURE);
+    let mut f = std::fs::File::create(&path).unwrap();
+    writeln!(f, "fixture line one").unwrap();
+    writeln!(f, "Needle in a fixture").unwrap();
+}
+
+/// Run every sample of `$module` through the real daemon and check the
+/// declared expectation. `$setup` runs before the loop (fixtures).
+macro_rules! dispatch_per_module {
+    ($fn_name:ident => $module:expr, setup $setup:expr) => {
+        #[tokio::test]
+        async fn $fn_name() {
+            let (daemon, token) = build();
+            ($setup)();
+            for s in ursinectl::cli::samples_for($module) {
+                let action = sample_action(s);
+                assert_eq!(
+                    ursine_core::modules::action_name(&action),
+                    s.action,
+                    "wire tag drift"
+                );
+                let result = call(&daemon, &token, $module, action).await;
+                match (&s.dispatch, result) {
+                    (ursinectl::cli::Dispatch::Skip, _) => {}
+                    (ursinectl::cli::Dispatch::Ok, Ok(value)) => {
+                        assert!(
+                            value.is_object() || value.is_array(),
+                            "{}: unexpected payload {value}",
+                            s.action
+                        );
+                    }
+                    (ursinectl::cli::Dispatch::Ok, Err(e)) => {
+                        panic!("{}: expected Ok, got {e:?}", s.action);
+                    }
+                    (ursinectl::cli::Dispatch::Gate, Err(e)) => {
+                        assert_eq!(
+                            e.code,
+                            ursine_api::ErrorCode::Unavailable,
+                            "{}: gate must be Unavailable: {e:?}",
+                            s.action
+                        );
+                    }
+                    (ursinectl::cli::Dispatch::Gate, Ok(value)) => {
+                        panic!("{}: expected capability gate, got {value}", s.action);
+                    }
+                    (ursinectl::cli::Dispatch::Any, _) => {}
+                    (ursinectl::cli::Dispatch::Code(expected), Err(e)) => {
+                        assert_eq!(e.code, *expected, "{}: {e:?}", s.action);
+                    }
+                    (ursinectl::cli::Dispatch::Code(expected), Ok(value)) => {
+                        panic!(
+                            "{}: expected error {expected:?}, got {value}",
+                            s.action
+                        );
+                    }
+                }
+            }
+        }
+    };
+    ($fn_name:ident => $module:expr) => {
+        dispatch_per_module!($fn_name => $module, setup || ());
+    };
+}
+
+dispatch_per_module!(dispatch_system => ModuleId::System);
+dispatch_per_module!(dispatch_config => ModuleId::Config);
+dispatch_per_module!(dispatch_capabilities => ModuleId::Capabilities);
+dispatch_per_module!(dispatch_packages_nix => ModuleId::PackagesNix);
+dispatch_per_module!(dispatch_packages_apk => ModuleId::PackagesApk);
+dispatch_per_module!(dispatch_packages_flatpak => ModuleId::PackagesFlatpak);
+dispatch_per_module!(dispatch_printers => ModuleId::Printers);
+dispatch_per_module!(dispatch_scanners => ModuleId::Scanners);
+dispatch_per_module!(dispatch_network => ModuleId::Network);
+dispatch_per_module!(dispatch_bluetooth => ModuleId::Bluetooth);
+dispatch_per_module!(dispatch_disks => ModuleId::Disks);
+dispatch_per_module!(dispatch_services => ModuleId::Services);
+dispatch_per_module!(dispatch_firewall => ModuleId::Firewall);
+dispatch_per_module!(dispatch_snapshots => ModuleId::Snapshots);
+dispatch_per_module!(dispatch_users => ModuleId::Users);
+dispatch_per_module!(dispatch_niri => ModuleId::Niri);
+dispatch_per_module!(dispatch_theming => ModuleId::Theming);
+dispatch_per_module!(dispatch_logs => ModuleId::Logs, setup write_log_fixture);
+dispatch_per_module!(dispatch_crontab => ModuleId::Crontab);
