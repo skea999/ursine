@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["src/ursine-api", "src/ursine-core", "src/ursined", "src/ursine"]
+members = ["src/ursine-api", "src/ursine-core", "src/ursined", "src/ursine", "src/ursinectl"]
 
 [workspace.package]
 version = "0.23.0"

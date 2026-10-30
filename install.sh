@@ -714,6 +714,13 @@ if [ "$INSTALL_SERVICE" -eq 1 ]; then
   esac
 fi
 
+# ursinectl (root CLI) ships with 0.24+ tarballs; optional so older
+# layouts still install.
+if [ -f "$BIN_SRC/ursinectl" ]; then
+  install_file "$BIN_SRC/ursinectl" "$(target_path "$BINDIR/ursinectl")" 0755
+else
+  warn "ursinectl not found in $BIN_SRC (root CLI not installed)"
+fi
 install_file "$BIN_SRC/ursine" "$(target_path "$BINDIR/ursine")" 0755
 info "installed: $(target_path "$BINDIR/ursine")"
 install_file "$BIN_SRC/ursined" "$(target_path "$SBINDIR/ursined")" 0755

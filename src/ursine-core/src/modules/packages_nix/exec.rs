@@ -444,6 +444,34 @@ pub async fn run_as_user_argv(
     }
 }
 
+/// Like [`run_as_user_argv_bounded`] but the target user IS root.
+///
+/// No `su`, no shell — the calling process already runs as root. Used by
+/// the crontab module when the session user is root (`ursinectl`).
+pub async fn run_root_argv_bounded(
+    program: &str,
+    argv: &[&str],
+    timeout: Duration,
+    max_bytes: usize,
+) -> Result<CommandOutcome, ApiError> {
+    let cmd = root_command(program, argv)?;
+    let output = run_command(cmd, timeout, OutputPolicy::Complete(max_bytes), None).await?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if output.status.success() {
+        Ok(CommandOutcome { stdout, stderr })
+    } else {
+        Err(ApiError::internal(format!(
+            "command failed: {}",
+            if stderr.trim().is_empty() {
+                stdout.trim()
+            } else {
+                stderr.trim()
+            }
+        )))
+    }
+}
+
 /// Like [`run_as_user_argv`] but with an explicit byte budget: output over
 /// `max_bytes` is rejected instead of silently truncated (crontab reads —
 /// a truncated read followed by a save would destroy the tail).

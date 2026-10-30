@@ -44,38 +44,45 @@ call it over the socket (root has no reason to hop through a token).
 
 ## Command surface
 
-One clap subcommand per `Action` variant, grouped by module (mirrors the API
-1:1 — new API action ⇒ new subcommand, same PR):
+Generic, serde-driven — NO per-action subcommand code:
 
 ```text
-ursinectl status
-ursinectl config get | init | set-switch --module M --value auto|on|off
-ursinectl capabilities list | refresh
-ursinectl nix list | search Q | install P… | remove P… | upgrade … |
-         generations | rollback | store-gc | prune --keep N | …
-ursinectl apk list | search Q | install P… | remove P… | upgrade … | …
-ursinectl flatpak list | search Q | install … | …
-ursinectl snapshots list | stats | create --name … | restore … | …
-ursinectl users list | create … | delete … | set-password … | groups …
-ursinectl niri get | validate | set-section --file …
-ursinectl printers … | scanners … | network … | firewall … | disks … |
-         bluetooth … | services … | theming … | logs … | crontab …
-ursinectl job-output --id … [--follow]
+ursinectl [--json] [--yes] [--as-user U] [--config PATH] \
+          <module> <action> [key=value ...]
 ```
 
+- Module names are the wire names (`packages_nix`, …) with short aliases
+  (`nix`, `apk`, `flatpak`, `caps`).
+- Action names and field names are the serde `Action` tags (`install_apk`,
+  `dry_run`, …): every action that exists in the API is reachable from the
+  CLI **by construction** — a new API action needs zero CLI changes (parity
+  rule satisfied automatically; the CLI table in `--help` is the only doc
+  touch-up).
+- Values parse as JSON when valid (`dry_run=true`, `keep=3`,
+  `value={"layout":{...}}`), else fall back to plain strings. `key=@path`
+  reads a file, `key=-` reads stdin.
+- `password` / `new_password` MUST be `key=-` (read from stdin): secrets
+  never ride on argv (visible in `/proc`).
 - `--as-user U` on profile-scoped nix / theming / crontab actions (same
   dispatch rules; cross-user crontab/theming remains rejected even for root —
   root edits root's crontab via this tool, not other users', matching the
-  wire rule).
-- `--json` prints the raw result value as JSON (scripting). Default: compact
-  human output per module (best effort; JSON is the contract).
+  wire rule). Root's own crontab runs the trusted tool directly (no `su`).
+- `--json` prints the raw result value as JSON (scripting). Default:
+  pretty-printed JSON (the contract; per-module human tables are a possible
+  refinement, not a requirement).
 - Job mutations (`install`, `upgrade`, `remove`, …) return `job_id`: the CLI
   polls `JobOutput` and streams the log to **stdout live** (binding
   package-progress rule: terminal text, no percentage), then exits with the
-  job's exit code.
-- Destructive actions: `--yes` required (CLI equivalent of the GUI
-  confirmation). Without it, print exactly what would happen and exit 2.
+  job's exit code. CLI jobs live under `/run/ursinectl/jobs` (never the
+  daemon's `/run/ursine/jobs` — the registry purges its dir at startup).
+- Destructive actions (removals, deletes, rollbacks, gc, restore-apply,
+  crontab set, theme apply, …): `--yes` required (CLI equivalent of the GUI
+  confirmation); without it, refuse with the action name and exit 2.
+  Dry-run/preview variants never require `--yes`.
 - Exit codes: 0 ok, 1 action/API error, 2 usage/root-gate/confirmation.
+- Auth: the euid-0 gate replaces PAM entirely; the CLI's in-process
+  authenticator rejects every `auth` request outright (no stub backdoor in
+  a root binary).
 
 ## Chroot behaviour
 

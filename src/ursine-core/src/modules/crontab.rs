@@ -41,6 +41,37 @@ fn validate_content(content: &str) -> Result<String, ApiError> {
     }
 }
 
+/// Staging-file identity: root stages in its passwd home (uid/gid 0) —
+/// the normal-login-user guard in `target_identity` exists for cross-user
+/// writes, not for root editing its own crontab.
+fn staging_identity(user: &str) -> Result<(PathBuf, u32, u32), ApiError> {
+    if user != "root" {
+        return target_identity(user);
+    }
+    let passwd = std::fs::read_to_string("/etc/passwd")
+        .map_err(|e| ApiError::internal(format!("read /etc/passwd: {e}")))?;
+    for line in passwd.lines() {
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.len() >= 7 && fields.first() == Some(&"root") {
+            let uid: u32 = fields
+                .get(2)
+                .and_then(|v| v.parse().ok())
+                .ok_or_else(|| ApiError::internal("bad root uid"))?;
+            let gid: u32 = fields
+                .get(3)
+                .and_then(|v| v.parse().ok())
+                .ok_or_else(|| ApiError::internal("bad root gid"))?;
+            let Some(home) = fields.get(5).map(|v| PathBuf::from(*v)) else {
+                continue;
+            };
+            if uid == 0 && home.is_absolute() {
+                return Ok((home, uid, gid));
+            }
+        }
+    }
+    Err(ApiError::internal("no root entry in /etc/passwd"))
+}
+
 /// Route a crontab action (async exec helpers run inline, like niri's).
 pub async fn handle(
     action: &Action,
@@ -69,14 +100,25 @@ pub async fn handle(
 /// truncation (a truncated read + save would destroy the tail).
 async fn get_crontab(user: &str) -> Result<CrontabView, ApiError> {
     let tool = crontab_tool()?;
-    let outcome = run_as_user_argv_bounded(
-        user,
-        tool,
-        &["-l"],
-        std::time::Duration::from_secs(10),
-        ursine_api::max_crontab_bytes() + 1024,
-    )
-    .await;
+    let outcome = if user == "root" {
+        // Root is the calling process (`ursinectl`): no `su`, direct exec.
+        crate::modules::packages_nix::exec::run_root_argv_bounded(
+            tool,
+            &["-l"],
+            std::time::Duration::from_secs(10),
+            ursine_api::max_crontab_bytes() + 1024,
+        )
+        .await
+    } else {
+        run_as_user_argv_bounded(
+            user,
+            tool,
+            &["-l"],
+            std::time::Duration::from_secs(10),
+            ursine_api::max_crontab_bytes() + 1024,
+        )
+        .await
+    };
     view_from_outcome(outcome)
 }
 
@@ -111,8 +153,10 @@ async fn set_crontab(
     let payload = normalized.clone();
     // Identity lookup + atomic write off the async executor (same policy
     // as the theming writers).
+    // Root stages in its own home (the normal-login-user guard is for
+    // cross-user writes, not for root editing its own crontab).
     let staging: PathBuf = tokio::task::spawn_blocking(move || -> Result<PathBuf, ApiError> {
-        let (home, uid, gid) = target_identity(&user)?;
+        let (home, uid, gid) = staging_identity(&user)?;
         let staging: PathBuf = home.join(".config/ursine-crontab.tmp");
         write_user_file(&home, &staging, payload.as_bytes(), uid, gid)?;
         Ok(staging)
@@ -121,13 +165,23 @@ async fn set_crontab(
     .map_err(|e| ApiError::internal(format!("crontab staging failed: {e}")))??;
     let staged = staging.to_string_lossy().into_owned();
     let tool = crontab_tool()?;
-    let result = run_as_user_argv(
-        ctx.as_user,
-        tool,
-        &[&staged],
-        std::time::Duration::from_secs(15),
-    )
-    .await;
+    let result = if ctx.as_user == "root" {
+        crate::modules::packages_nix::exec::run_root_argv_bounded(
+            tool,
+            &[&staged],
+            std::time::Duration::from_secs(15),
+            ursine_api::max_crontab_bytes() + 1024,
+        )
+        .await
+    } else {
+        run_as_user_argv(
+            ctx.as_user,
+            tool,
+            &[&staged],
+            std::time::Duration::from_secs(15),
+        )
+        .await
+    };
     let _ = std::fs::remove_file(&staging);
     result?;
     Ok(CrontabView {

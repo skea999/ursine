@@ -22,7 +22,7 @@ keywords:
 - review closure (binding): fix every confirmed finding (blocker/high/medium/low) before commit; zero known defects at commit time; no silent downgrade or deferral — deferral needs explicit user approval recorded in state/session-state.json; a fix cycle revalidates the full gate and new findings count as new defects
 - package progress (binding): apk/flatpak/nix mutations show terminal output live via daemon job-log polling (`job_output`), no percentage bar; Close button only after completion.
 - plan traceability (binding): read intent/ROADMAP/features inventory/module SPEC before proposing or coding; every item must map to an explicit plan line; classify required vs optional/deferred; never invent scope; user decisions override docs and must update plan/spec before code. Scanner = config-only, no image scan; autologin out of scope; Services = OpenRC+dinit.
-- parity (binding): backend first, frontend immediately, same feature/session; no next feature until daemon + every frontend reach functional parity; deferral only with explicit user approval recorded in state
+- parity (binding): backend first, every frontend immediately (GUI + CLI), same feature/session; no next feature until daemon + every frontend reach functional parity; deferral only with explicit user approval recorded in state
 - UI reference (binding): take interaction/layout patterns from cosmic-settings (native COSMIC structure), Webmin (dense action coverage), Cockpit (capability gating, status, destructive confirmations); never copy code
 - parallel: indep features, agents-in-step, review+tests, policy
 - never parallel: tests(need code first)

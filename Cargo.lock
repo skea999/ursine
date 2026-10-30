@@ -5305,6 +5305,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ursinectl"
+version = "0.23.0"
+dependencies = [
+ "serde_json",
+ "tokio",
+ "ursine-api",
+ "ursine-core",
+]
+
+[[package]]
 name = "ursined"
 version = "0.23.0"
 dependencies = [

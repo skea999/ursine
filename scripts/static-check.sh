@@ -45,7 +45,8 @@ repo_group() {
   if have shfmt; then run shfmt -d "$@"; else step "shfmt: not installed"; fi
   if have taplo; then
     run taplo fmt --check Cargo.toml src/ursine-api/Cargo.toml src/ursine-core/Cargo.toml \
-      src/ursine/Cargo.toml src/ursined/Cargo.toml rust-toolchain.toml deny.toml taplo.toml
+      src/ursine/Cargo.toml src/ursined/Cargo.toml src/ursinectl/Cargo.toml \
+      rust-toolchain.toml deny.toml taplo.toml
   else step "taplo: not installed"; fi
   if have actionlint; then run actionlint; else step "actionlint: not installed"; fi
   if have zizmor; then run zizmor .github/workflows; else step "zizmor: not installed (CI runs the official image)"; fi
