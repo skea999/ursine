@@ -6,6 +6,18 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-30 — ursinectl CLI released (v0.24.0)
+
+**Status**: DONE — `v0.24.0` published (4 assets), nix auto-pin `f8d3b4c`, tag CI 41116788684 green (version/lint/test/package/publish/verify-pin), main CI 41116780409 green.
+
+- **CLI decision (supersedes 2026-10-27 "thin client")**: `ursinectl` is an in-process host of `ursine-core` (same `Daemon::handle` as the GUI), hard root gate (`/proc/self/status` euid==0, no override, fails closed), chroot-capable (no daemon/socket/dinit; absolute paths resolve in the target). Auth: NoAuth rejects every `auth` request. Jobs under `/run/ursinectl/jobs/<pid>-<seq>` (per-process: the registry purges its dir at startup — fixed concurrent-run clobbering).
+- **Surface**: generic serde-driven `<module> <action> key=value...` — every API action reachable by construction (parity auto); values JSON-or-string, `key=@file`, `key=-`; secrets only `key=-` (stdin); unknown keys rejected; numbers coerce into string fields (`port=8080`); `--json`/`--yes`/`--as-user`/`--config`; job mutations stream the log to stdout and exit with the job's code; exit codes 0/1/2. Crontab/theming of root stages per-process (`/root`, direct tool, no `su`).
+- **Parity rule (binding)** updated in AGENTS/workflow/ursine: every feature ships daemon + GUI + CLI in the same task.
+- **Tests: 381 workspace-wide (95 CLI)** — 21 unit (incl. drift guards: ALL_ACTIONS registry, USAGE coverage, exactly-one-sample, destructive table), 24 E2E (real binary: exit codes, job path with real apk job, crontab round-trip/boundaries/@file, unsafe configs, non-root gates), 46 in-process (19 per-module dispatch sweeps over the 100-action SAMPLES table, wrong-module rejection sweep, audit sweep, response-shape contract, protocol/auth boundaries, byte-exact log cursors, stream poll-boundary/UTF-8 reassembly), 4 samples; core 194 (staging guard). Test-support code lives only in `tests/` (proved absent from the product binary via `strings`).
+- **Product bugs found by tests**: fixed staging/temp names raced across concurrent writers (ENOENT + wrong-payload install risk) → per-process names; three static-gate findings (typos/ec/taplo); rustdoc `argv[0]` broken link (first tag attempt failed lint; tag re-cut on `967fa11`).
+- **Gates**: static-check ALL PASS, docs PASS, default+all-features matrices 381 green, install.sh staged smoke installs ursinectl to `/usr/local/bin`.
+- Next: VM smoke of 0.24.0 (install tarball → `ursinectl system status`, caps, apk job stream, crontab; chroot install flow) + push the ursinectl guide in docs when requested.
+
 ## Session 2026-10-30 — log search + crontab released (v0.23.0)
 
 **Status**: DONE — `v0.23.0` published (4 assets + checksums), nix auto-pin `1cf222b`, tag CI 41055001521 green incl. package/publish/verify-pin.

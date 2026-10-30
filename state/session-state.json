@@ -15,7 +15,9 @@
     "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
-    "CRONTAB + LOG SEARCH (2026-10-29/30): DONE released — commits cf78b64 (feature) + caaa527 (review fixes) + 05c3395 (release bump); v0.23.0 published, pin 1cf222b, tag CI green. Next: user VM smoke (crontab flavors, tail -f, search jump).",
+    "URSINECTL (2026-10-30): DONE released — v0.24.0 published (pin f8d3b4c, tag CI green). In-process root-only CLI, 100-action parity by construction, 381 tests workspace (95 CLI). Next: user VM smoke (install tarball, system status, caps, apk job stream, crontab, chroot flow); ursinectl docs guide on request.",
+    "DAEMON 0.24.0 ON VM (user): install from the v0.24.0 release tarball (install.sh now ships ursinectl) or nix update + ursine-activate, restart ursined.",
+    "CRONTAB + LOG SEARCH: DONE released (v0.23.0, then included in v0.24.0). Next: user VM smoke.",
     "DAEMON 0.23.0 ON VM (user): install from the v0.23.0 release tarball (install.sh) or nix update + ursine-activate, restart ursined — then smoke Logs (search/follow), Crontab, Niri Outputs mode.",
     "LOG VIEWER (2026-10-29): DONE uncommitted — logs module + GUI Logs screen; gate green. Next: review + commit; user VM test.",
     "THEMING: released in v0.21.0/v0.22.0 (tags pushed). Remaining: top bar specs pending from the user (ursine-titlebar separate repo decision recorded).",
