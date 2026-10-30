@@ -729,6 +729,51 @@ mod tests {
     }
 
     #[test]
+    fn value_with_embedded_equals_is_preserved() {
+        // split_once('=') must cut only the first separator.
+        let a = build_action(
+            "connect_network",
+            &[("device".to_string(), "a=b".to_string())],
+        )
+        .unwrap();
+        assert_eq!(
+            a,
+            Action::ConnectNetwork {
+                device: "a=b".into()
+            }
+        );
+    }
+
+    #[test]
+    fn at_prefix_without_a_path_is_rejected() {
+        assert!(build_action("crontab_set", &[("content".to_string(), "@".to_string())]).is_err());
+    }
+
+    #[test]
+    fn scalar_type_garbage_is_rejected_not_coerced() {
+        // pause is a bool: a non-boolean word must fail both passes.
+        let err = build_action(
+            "pause_printer",
+            &[
+                ("name".to_string(), "p".to_string()),
+                ("pause".to_string(), "banana".to_string()),
+            ],
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid arguments"), "{err}");
+        // A negative number cannot fill a u64 field.
+        let err = build_action(
+            "job_output",
+            &[
+                ("job_id".to_string(), "ffffffffffffffff".to_string()),
+                ("offset".to_string(), "-1".to_string()),
+            ],
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid arguments"), "{err}");
+    }
+
+    #[test]
     fn number_in_string_field_is_coerced_not_rejected() {
         // Users type port=8080; JSON yields a number, the field is String.
         let a = build_action(

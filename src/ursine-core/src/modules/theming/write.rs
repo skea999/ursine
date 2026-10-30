@@ -91,7 +91,10 @@ pub(super) fn write_owned(
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| ApiError::internal("theming path has no file name"))?;
-    let tmp = dir.join(format!(".{file_name}.ursine-tmp"));
+    // Per-process temp name: two concurrent writers (GUI + ursinectl) must
+    // never delete each other's in-flight file. The stale cleanup below can
+    // then only touch this process's own leftovers (crash + pid reuse).
+    let tmp = dir.join(format!(".{file_name}.ursine-tmp-{}", std::process::id()));
     // A stale temp from a crashed run must not block the target forever.
     if std::fs::symlink_metadata(&tmp).is_ok() {
         let _ = std::fs::remove_file(&tmp);

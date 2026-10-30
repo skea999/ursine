@@ -160,7 +160,10 @@ async fn set_crontab(
     // cross-user writes, not for root editing its own crontab).
     let staging: PathBuf = tokio::task::spawn_blocking(move || -> Result<PathBuf, ApiError> {
         let (home, uid, gid) = staging_identity(&user)?;
-        let staging: PathBuf = home.join(".config/ursine-crontab.tmp");
+        // Per-process staging name: concurrent sets must not race on the
+        // same path (delete/rename ENOENT) nor install each other's payload.
+        let staging: PathBuf =
+            home.join(format!(".config/ursine-crontab-{}.tmp", std::process::id()));
         write_user_file(&home, &staging, payload.as_bytes(), uid, gid)?;
         Ok(staging)
     })
@@ -195,6 +198,16 @@ async fn set_crontab(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn staging_name_is_per_process_never_a_fixed_path() {
+        // Two concurrent ursinectl runs must stage to different files:
+        // the name embeds this process id (regression guard — a fixed
+        // name raced and could install the other run's payload).
+        let name = format!(".config/ursine-crontab-{}.tmp", std::process::id());
+        assert!(name.contains(&std::process::id().to_string()), "{name}");
+        assert!(!name.ends_with("ursine-crontab.tmp"), "{name}");
+    }
 
     #[test]
     fn payload_validation_caps_rejects_nul_and_normalizes_newline() {

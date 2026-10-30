@@ -6,7 +6,7 @@
 
 pub mod common;
 
-use ursine_api::{Action, ModuleId, ResponseBody};
+use ursine_api::{Action, ErrorCode, ModuleId, ResponseBody};
 use ursine_core::auth::PeerInfo;
 use ursine_core::dispatch::Daemon;
 
@@ -249,8 +249,7 @@ async fn module_switch_auto_allows_the_module() {
     match call(&daemon, &token, ModuleId::Crontab, Action::CrontabGet).await {
         Ok(view) => assert!(view.get("crontab").is_some(), "{view}"),
         Err(e) => assert!(
-            e.code != ursine_api::ErrorCode::Unavailable
-                || !e.message.contains("disabled by configuration"),
+            e.code != ErrorCode::Unavailable || !e.message.contains("disabled by configuration"),
             "switch must not block: {e:?}"
         ),
     }
@@ -329,7 +328,7 @@ async fn config_init_refuses_to_overwrite() {
     let err = call(&daemon, &token, ModuleId::Config, Action::Init)
         .await
         .unwrap_err();
-    assert!(err.code == ursine_api::ErrorCode::Conflict, "{err:?}");
+    assert!(err.code == ErrorCode::Conflict, "{err:?}");
 }
 
 #[tokio::test]
@@ -381,7 +380,7 @@ async fn job_output_is_bound_to_the_starting_principal() {
         .unwrap();
     // The root principal must NOT read alice's job…
     let forbidden = daemon.jobs.output(&root, &started.job_id, 0).unwrap_err();
-    assert_eq!(forbidden.code, ursine_api::ErrorCode::Forbidden);
+    assert_eq!(forbidden.code, ErrorCode::Forbidden);
     assert!(
         forbidden.message.contains("another session"),
         "{forbidden:?}"
@@ -407,10 +406,7 @@ async fn job_output_rejects_malformed_ids() {
     let root = ursine_api::Principal::local("root", vec!["wheel".into()]);
     for bad in ["", "zz", "short", "000000000000000g", "../../etc/passwd"] {
         let err = daemon.jobs.output(&root, bad, 0).unwrap_err();
-        assert!(
-            err.code == ursine_api::ErrorCode::Invalid,
-            "id {bad:?}: {err:?}"
-        );
+        assert!(err.code == ErrorCode::Invalid, "id {bad:?}: {err:?}");
     }
 }
 
@@ -592,7 +588,7 @@ macro_rules! dispatch_per_module {
                     (common::Dispatch::Gate, Err(e)) => {
                         assert_eq!(
                             e.code,
-                            ursine_api::ErrorCode::Unavailable,
+                            ErrorCode::Unavailable,
                             "{}: gate must be Unavailable: {e:?}",
                             s.action
                         );
@@ -638,3 +634,564 @@ dispatch_per_module!(dispatch_niri => ModuleId::Niri);
 dispatch_per_module!(dispatch_theming => ModuleId::Theming);
 dispatch_per_module!(dispatch_logs => ModuleId::Logs, setup write_log_fixture);
 dispatch_per_module!(dispatch_crontab => ModuleId::Crontab);
+
+// ---- depth: cross-module legality, audit sweep, shapes, boundaries ----
+
+/// Every module id (for the cross-module legality sweep).
+const ALL_MODULES: &[ModuleId] = &[
+    ModuleId::System,
+    ModuleId::Config,
+    ModuleId::Capabilities,
+    ModuleId::PackagesNix,
+    ModuleId::PackagesApk,
+    ModuleId::PackagesFlatpak,
+    ModuleId::Printers,
+    ModuleId::Scanners,
+    ModuleId::Firewall,
+    ModuleId::Services,
+    ModuleId::Disks,
+    ModuleId::Bluetooth,
+    ModuleId::Network,
+    ModuleId::Snapshots,
+    ModuleId::Users,
+    ModuleId::Niri,
+    ModuleId::Theming,
+    ModuleId::Logs,
+    ModuleId::Crontab,
+];
+
+/// Every sample action, called in a DIFFERENT module, must fail: either
+/// the capability gate (checked first) or the pair-legality check. An `Ok`
+/// here would mean an action executes outside its module — the strongest
+/// dispatch invariant there is.
+#[tokio::test]
+async fn every_sample_action_is_rejected_in_the_wrong_module() {
+    let (daemon, token) = build();
+    write_log_fixture();
+    for (idx, s) in common::SAMPLES.iter().enumerate() {
+        // Deterministically pick a module that is not the sample's own.
+        let wrong = ALL_MODULES[(idx + 1) % ALL_MODULES.len()];
+        if wrong == s.module {
+            continue;
+        }
+        let action = sample_action(s);
+        let result = call(&daemon, &token, wrong, action).await;
+        let err = match result {
+            Ok(value) => panic!(
+                "{} executed in module {}: {value}",
+                s.action,
+                wrong.as_str()
+            ),
+            Err(e) => e,
+        };
+        if err.code == ErrorCode::Invalid {
+            assert!(
+                err.message.contains("not valid for module"),
+                "{} in {}: {err:?}",
+                s.action,
+                wrong.as_str()
+            );
+        } else {
+            // Gate-first modules answer Unavailable before the pair check.
+            assert_eq!(
+                err.code,
+                ErrorCode::Unavailable,
+                "{} in {}: {err:?}",
+                s.action,
+                wrong.as_str()
+            );
+        }
+    }
+}
+
+/// Every action the sweep runs must be audited (`job_output` is the one
+/// documented exemption; the Skip samples never execute).
+#[tokio::test]
+async fn every_audited_sample_leaves_a_trace() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = scratch("audit-sweep");
+    let audit_path = dir.join("audit.jsonl");
+    let cfg = dir.join("config.toml");
+    std::fs::write(&cfg, format!("audit_path = \"{}\"\n", audit_path.display())).unwrap();
+    std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let daemon = ursinectl::daemon::build(&cfg).unwrap();
+    let token = ursinectl::issue_token(&daemon);
+    let peer = root_peer();
+
+    write_log_fixture();
+    let mut ran: Vec<&str> = Vec::new();
+    for s in common::SAMPLES {
+        if matches!(s.dispatch, common::Dispatch::Skip) || s.action == "job_output" {
+            continue;
+        }
+        let action = sample_action(s);
+        let _ = ursinectl::call(&daemon, &token, &peer, s.module, action, None).await;
+        ran.push(s.action);
+    }
+
+    let body = std::fs::read_to_string(&audit_path).expect("audit file written");
+    let mut audited: Vec<String> = Vec::new();
+    for line in body.lines().filter(|l| !l.is_empty()) {
+        let entry: serde_json::Value = serde_json::from_str(line)
+            .unwrap_or_else(|e| panic!("audit line must be JSON: {e}: {line}"));
+        audited.push(entry["action"].as_str().unwrap_or_default().to_string());
+    }
+    for action in &ran {
+        assert!(
+            audited.iter().any(|a| a == action),
+            "action {action:?} missing from audit: {audited:?}"
+        );
+    }
+    assert!(
+        !audited.iter().any(|a| a == "job_output"),
+        "job_output polls must never be audited: {audited:?}"
+    );
+    // Skipped samples never executed → never audited.
+    for absent in ["init", "set_module_switch", "refresh_apk", "upgrade_apk"] {
+        assert!(
+            !audited.iter().any(|a| a == absent),
+            "{absent} was not run but appears in audit"
+        );
+    }
+}
+
+/// Exact response shapes for the reads every frontend consumes.
+#[tokio::test]
+async fn response_shapes_match_the_contract() {
+    let (daemon, token) = build();
+    write_log_fixture();
+
+    let status = call(&daemon, &token, ModuleId::System, Action::Status)
+        .await
+        .unwrap();
+    assert_eq!(status["protocol_version"], 3, "{status}");
+    assert!(status["version"].is_string(), "{status}");
+    assert!(status["auth"].is_string(), "{status}");
+
+    let cfg = call(&daemon, &token, ModuleId::Config, Action::GetConfig)
+        .await
+        .unwrap();
+    assert!(
+        cfg["path"].is_string() && cfg["exists"].is_boolean(),
+        "{cfg}"
+    );
+    let modules = cfg["modules"].as_object().expect("modules object");
+    // Every configurable module key present (GUI settings renders them all).
+    for key in [
+        "packages_nix",
+        "packages_apk",
+        "packages_flatpak",
+        "printers",
+        "scanners",
+        "firewall",
+        "services",
+        "disks",
+        "bluetooth",
+        "network",
+        "snapshots",
+        "users",
+        "niri",
+        "theming",
+        "crontab",
+    ] {
+        assert!(modules.contains_key(key), "missing module key {key}: {cfg}");
+    }
+
+    let caps = call(&daemon, &token, ModuleId::Capabilities, Action::List)
+        .await
+        .unwrap();
+    let arr = caps.as_array().expect("caps array");
+    assert!(arr.len() >= 15, "capability list thin: {caps}");
+    for c in arr {
+        assert!(c["capability"].is_string(), "{c}");
+        assert!(c["available"].is_boolean(), "{c}");
+        // Cockpit contract: unavailable ⇒ reason + fix, available ⇒ neither.
+        if c["available"] == false {
+            assert!(
+                c["reason"].as_str().is_some_and(|r| !r.is_empty()),
+                "unavailable without reason: {c}"
+            );
+            assert!(
+                c["fix"].as_str().is_some_and(|f| !f.is_empty()),
+                "unavailable without fix: {c}"
+            );
+        } else {
+            assert!(c["reason"].is_null(), "available with reason: {c}");
+            assert!(c["fix"].is_null(), "available with fix: {c}");
+        }
+    }
+
+    let list = call(&daemon, &token, ModuleId::Logs, Action::LogList)
+        .await
+        .unwrap();
+    let files = list.as_array().expect("log list array");
+    let ours = files
+        .iter()
+        .find(|f| f["path"] == common::LOG_FIXTURE)
+        .expect("fixture listed");
+    assert!(ours["size"].is_u64() && ours["modified"].is_u64(), "{ours}");
+
+    let search = call(
+        &daemon,
+        &token,
+        ModuleId::Logs,
+        Action::LogSearch {
+            file: common::LOG_FIXTURE.to_string(),
+            query: "Needle".into(),
+            limit: 10,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(search["truncated_scan"].is_boolean(), "{search}");
+    let hit = &search["hits"].as_array().unwrap()[0];
+    assert!(hit["line_no"].is_u64() && hit["offset"].is_u64(), "{hit}");
+    assert!(hit["line"].is_string(), "{hit}");
+
+    let view = call(&daemon, &token, ModuleId::Crontab, Action::CrontabGet)
+        .await
+        .unwrap();
+    assert!(
+        view["crontab"].is_null() || view["crontab"].is_string(),
+        "{view}"
+    );
+
+    let apk = call(&daemon, &token, ModuleId::PackagesApk, Action::ListApk)
+        .await
+        .unwrap();
+    assert!(apk["packages"].is_array(), "{apk}");
+    let repos = call(
+        &daemon,
+        &token,
+        ModuleId::PackagesApk,
+        Action::ListApkRepositories,
+    )
+    .await
+    .unwrap();
+    assert!(repos["repositories"].is_array(), "{repos}");
+}
+
+/// Wire-protocol boundaries of the shared envelope (raw handle — the CLI
+/// never takes this path, the daemon socket does).
+#[tokio::test]
+async fn protocol_and_auth_boundaries() {
+    let (daemon, token) = build();
+    let peer = root_peer();
+
+    // Wrong protocol version.
+    let req = ursine_api::Request {
+        v: 999,
+        id: Some(1),
+        token: Some(token.clone()),
+        body: ursine_api::RequestBody::Call {
+            module: ModuleId::System,
+            action: Action::Status,
+            as_user: None,
+        },
+    };
+    let resp = daemon.handle(req, &peer).await;
+    match resp.body {
+        ResponseBody::Err { error } => {
+            assert!(error.message.contains("protocol version"), "{error:?}");
+        }
+        other => panic!("want err, got {other:?}"),
+    }
+
+    // Missing token.
+    let req = ursine_api::Request {
+        v: ursine_api::PROTOCOL_VERSION,
+        id: Some(2),
+        token: None,
+        body: ursine_api::RequestBody::Call {
+            module: ModuleId::System,
+            action: Action::Status,
+            as_user: None,
+        },
+    };
+    let resp = daemon.handle(req, &peer).await;
+    assert!(
+        matches!(resp.body, ResponseBody::Err { ref error } if error.code == ErrorCode::Unauthorized)
+    );
+
+    // Garbage token.
+    let req = ursine_api::Request {
+        v: ursine_api::PROTOCOL_VERSION,
+        id: Some(3),
+        token: Some(ursine_api::SessionToken::new("deadbeefdeadbeef")),
+        body: ursine_api::RequestBody::Call {
+            module: ModuleId::System,
+            action: Action::Status,
+            as_user: None,
+        },
+    };
+    let resp = daemon.handle(req, &peer).await;
+    assert!(
+        matches!(resp.body, ResponseBody::Err { ref error } if error.code == ErrorCode::Unauthorized)
+    );
+
+    // The CLI's authenticator rejects every auth attempt outright.
+    let req = ursine_api::Request {
+        v: ursine_api::PROTOCOL_VERSION,
+        id: Some(4),
+        token: None,
+        // Any credential works as input: the CLI's NoAuth rejects all of
+        // them unconditionally (value kept short: it is not a secret).
+        body: ursine_api::RequestBody::Auth {
+            user: "root".into(),
+            password: "x".into(),
+        },
+    };
+    let resp = daemon.handle(req, &peer).await;
+    assert!(
+        matches!(resp.body, ResponseBody::Err { ref error } if error.code == ErrorCode::Unauthorized),
+        "NoAuth must reject: {:?}",
+        resp.body
+    );
+}
+
+/// Cross-user scoping split: nix profile actions ACCEPT a foreign `as_user`
+/// (they are profile-scoped), crontab/theming REJECT it — verified above.
+#[tokio::test]
+async fn nix_accepts_foreign_as_user_while_gated() {
+    let (daemon, token) = build();
+    let err = ursinectl::call(
+        &daemon,
+        &token,
+        &root_peer(),
+        ModuleId::PackagesNix,
+        Action::ListInstalled,
+        Some("someone-else".into()),
+    )
+    .await
+    .unwrap_err();
+    // The scope check let it through; the capability gate (nix absent) fired.
+    assert_eq!(err.code, ErrorCode::Unavailable, "{err:?}");
+    assert!(!err.message.contains("as_user is only valid"), "{err:?}");
+}
+
+/// Exact byte semantics of the three log cursors over a known file.
+#[tokio::test]
+async fn log_cursors_serve_exact_byte_ranges() {
+    let (daemon, token) = build();
+    let name = format!("ursine-ctl-cursor-{}.log", std::process::id());
+    let path = std::path::Path::new("/var/log").join(&name);
+    std::fs::write(&path, b"L1\nL2\nL3\n").unwrap();
+
+    // End: whole file.
+    let end = call(
+        &daemon,
+        &token,
+        ModuleId::Logs,
+        Action::LogRead {
+            file: name.clone(),
+            lines: 10,
+            cursor: ursine_api::LogCursor::End,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(end["content"], "L1\nL2\nL3\n", "{end}");
+    assert_eq!(end["start"], 0, "{end}");
+    assert_eq!(end["end"], 9, "{end}");
+    assert_eq!(end["size"], 9, "{end}");
+    assert_eq!(end["has_before"], false, "{end}");
+
+    // Before: the last line, ending at the file end.
+    let prev = call(
+        &daemon,
+        &token,
+        ModuleId::Logs,
+        Action::LogRead {
+            file: name.clone(),
+            lines: 1,
+            cursor: ursine_api::LogCursor::Before { offset: 9 },
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(prev["content"], "L3\n", "{prev}");
+    assert_eq!(prev["start"], 6, "{prev}");
+    assert_eq!(prev["end"], 9, "{prev}");
+    assert_eq!(prev["has_before"], true, "{prev}");
+
+    // From: complete lines starting at a mid-file offset (follow loop).
+    let from = call(
+        &daemon,
+        &token,
+        ModuleId::Logs,
+        Action::LogRead {
+            file: name.clone(),
+            lines: 10,
+            cursor: ursine_api::LogCursor::From { offset: 3 },
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(from["content"], "L2\nL3\n", "{from}");
+    assert_eq!(from["start"], 3, "{from}");
+    assert_eq!(from["end"], 9, "{from}");
+    assert_eq!(from["has_before"], true, "{from}");
+
+    // Missing file → typed NotFound, not a panic.
+    let err = call(
+        &daemon,
+        &token,
+        ModuleId::Logs,
+        Action::LogRead {
+            file: "definitely-missing-9f8e.log".into(),
+            lines: 10,
+            cursor: ursine_api::LogCursor::End,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Search limit enforcement and the empty-result contract.
+#[tokio::test]
+async fn log_search_limit_and_miss_contract() {
+    let (daemon, token) = build();
+    let name = format!("ursine-ctl-search-{}.log", std::process::id());
+    let path = std::path::Path::new("/var/log").join(&name);
+    std::fs::write(&path, "aaa\nbbb\naaa\n").unwrap();
+
+    let hits = call(
+        &daemon,
+        &token,
+        ModuleId::Logs,
+        Action::LogSearch {
+            file: name.clone(),
+            query: "aaa".into(),
+            limit: 1,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(hits["hits"].as_array().unwrap().len(), 1, "limit=1: {hits}");
+    assert_eq!(hits["hits"][0]["line_no"], 1, "{hits}");
+
+    let miss = call(
+        &daemon,
+        &token,
+        ModuleId::Logs,
+        Action::LogSearch {
+            file: name.clone(),
+            query: "zzz-not-there".into(),
+            limit: 10,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(miss["hits"].as_array().unwrap().len(), 0, "{miss}");
+    assert_eq!(miss["truncated_scan"], false, "{miss}");
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Config switches cycle through all three states with the live gate
+/// following each transition (Off blocks, On forces, Auto decides).
+#[tokio::test]
+async fn config_switch_cycle_drives_the_live_gate() {
+    let (daemon, token) = build_with_config("switch-cycle", "");
+
+    for (value, blocked) in [
+        (ursine_api::TriState::Off, true),
+        (ursine_api::TriState::On, false),
+        (ursine_api::TriState::Auto, false),
+    ] {
+        let set = call(
+            &daemon,
+            &token,
+            ModuleId::Config,
+            Action::SetModuleSwitch {
+                module: ModuleId::Crontab,
+                value,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            set["modules"]["crontab"],
+            serde_json::to_value(value).unwrap()
+        );
+
+        let result = call(&daemon, &token, ModuleId::Crontab, Action::CrontabGet).await;
+        if blocked {
+            let err = result.unwrap_err();
+            assert!(
+                err.message.contains("disabled by configuration"),
+                "Off must block: {err:?}"
+            );
+        } else {
+            result.unwrap_or_else(|e| panic!("On/Auto must allow: {e:?}"));
+        }
+    }
+}
+
+/// A worker error closes the job without an exit code: the streamer must
+/// surface it as a failure (exit code 1) after delivering the log.
+#[tokio::test]
+async fn stream_job_reports_worker_error_as_failure() {
+    let (daemon, token) = build();
+    let principal = ursine_api::Principal::local("root", vec!["wheel".into()]);
+    let started = daemon
+        .jobs
+        .start(
+            ModuleId::PackagesApk,
+            "install_apk",
+            &principal,
+            None,
+            |sink| async move {
+                sink.append(b"about to fail\n");
+                Err(ursine_api::ApiError::internal("worker boom"))
+            },
+        )
+        .unwrap();
+    let mut buf: Vec<u8> = Vec::new();
+    let code = ursinectl::stream_job(&daemon, &token, &root_peer(), &started.job_id, &mut buf)
+        .await
+        .unwrap();
+    assert_eq!(code, 1, "worker error must exit non-zero");
+    let text = String::from_utf8(buf).unwrap();
+    assert!(text.contains("about to fail"), "{text}");
+}
+
+/// Poll-boundary correctness: bytes written across two polls are delivered
+/// exactly once each (offset resume) and a multi-byte UTF-8 sequence split
+/// between polls is reassembled losslessly.
+#[tokio::test]
+async fn stream_job_resumes_across_polls_without_loss_or_duplication() {
+    let (daemon, token) = build();
+    let principal = ursine_api::Principal::local("root", vec!["wheel".into()]);
+    let started = daemon
+        .jobs
+        .start(
+            ModuleId::PackagesApk,
+            "install_apk",
+            &principal,
+            None,
+            |sink| async move {
+                // Cross the streamer's 300 ms poll cadence twice.
+                sink.append(b"part1\n");
+                sink.append(&[b'a', 0xC3]); // torn multi-byte char at the boundary
+                tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+                sink.append(&[0xA9, b'\n']); // completes 'é'
+                sink.append(b"part2\n");
+                tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+                Ok(0)
+            },
+        )
+        .unwrap();
+    let mut buf: Vec<u8> = Vec::new();
+    let code = ursinectl::stream_job(&daemon, &token, &root_peer(), &started.job_id, &mut buf)
+        .await
+        .unwrap();
+    assert_eq!(code, 0);
+    let text = String::from_utf8(buf).expect("stream must be lossless UTF-8");
+    assert_eq!(text.matches("part1").count(), 1, "no duplication: {text:?}");
+    assert_eq!(text.matches("part2").count(), 1, "no duplication: {text:?}");
+    assert!(text.contains("a\u{e9}"), "torn char reassembled: {text:?}");
+}

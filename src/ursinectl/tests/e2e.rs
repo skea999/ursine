@@ -9,6 +9,16 @@
 use std::io::Write as _;
 use std::process::{Command, Output, Stdio};
 
+/// Root's crontab is a single global resource: tests that SET it must
+/// serialize or they last-wins over each other's payloads.
+static CRONTAB_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn lock_crontab() -> std::sync::MutexGuard<'static, ()> {
+    CRONTAB_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn bin() -> Command {
     Command::new(env!("CARGO_BIN_EXE_ursinectl"))
 }
@@ -66,6 +76,8 @@ fn status_prints_version_json() {
     assert!(out.status.success(), "{}", stderr(&out));
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
     assert!(v.get("version").is_some(), "{v}");
+    // Wire contract every frontend depends on.
+    assert_eq!(v["protocol_version"], 3, "{v}");
 }
 
 #[test]
@@ -98,6 +110,7 @@ fn secret_on_argv_is_refused_before_anything_else() {
 
 #[test]
 fn crontab_round_trip_as_root() {
+    let _serial = lock_crontab();
     // Set a known crontab, read it back, then clear it.
     let payload = "# ursinectl-e2e\n* * * * * /bin/true\n";
     let out = run_stdin(&["crontab", "crontab_set", "content=-", "--yes"], payload);
@@ -226,6 +239,28 @@ fn config_init_get_roundtrip_e2e() {
     assert_eq!(v["exists"], true, "{v}");
 
     // Persist a switch and read it back through a fresh call.
+    // Full cycle: Off blocks the live gate, Auto unblocks it, and the
+    // switch persists in the file for the next invocation.
+    let out = run(&[
+        "--config",
+        cfg_str,
+        "config",
+        "set_module_switch",
+        "module=crontab",
+        "value=false",
+    ]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = run(&["--json", "--config", cfg_str, "config", "get_config"]);
+    let v: serde_json::Value = serde_json::from_str(stdout(&out).trim()).unwrap();
+    assert_eq!(v["modules"]["crontab"], false, "{v}");
+    let out = run(&["--config", cfg_str, "crontab", "crontab_get"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("module disabled by configuration"),
+        "{}",
+        stderr(&out)
+    );
+
     let out = run(&[
         "--config",
         cfg_str,
@@ -238,6 +273,8 @@ fn config_init_get_roundtrip_e2e() {
     let out = run(&["--json", "--config", cfg_str, "config", "get_config"]);
     let v: serde_json::Value = serde_json::from_str(stdout(&out).trim()).unwrap();
     assert_eq!(v["modules"]["crontab"], "auto", "{v}");
+    let out = run(&["--config", cfg_str, "crontab", "crontab_get"]);
+    assert!(out.status.success(), "Auto must unblock: {}", stderr(&out));
 }
 
 #[test]
@@ -352,4 +389,116 @@ fn crontab_set_without_stdin_still_needs_yes_and_valid_fields() {
     let out = run(&["crontab", "crontab_set", "content=x", "nonsense=1", "--yes"]);
     assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
     assert!(stderr(&out).contains("unknown field"), "{}", stderr(&out));
+}
+
+// ---- deep E2E: the full job path, payload boundaries, unsafe configs ----
+
+#[test]
+fn apk_job_mutation_streams_log_and_exits_with_job_code() {
+    // The whole production path in one command: parse -> --yes gate ->
+    // dispatch -> real job spawned -> log streamed to stdout -> CLI exit
+    // code equals the job's exit code. `apk del` of a package that does
+    // not exist fails fast against the local db (no network).
+    let out = run(&[
+        "apk",
+        "remove_apk",
+        "package=ursine-no-such-pkg-xyz",
+        "--yes",
+    ]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        !stdout(&out).is_empty(),
+        "the job log must reach stdout (terminal-text contract)"
+    );
+}
+
+#[test]
+fn crontab_payload_boundaries_are_enforced_by_the_daemon() {
+    // Over the 256 KiB cap: rejected at dispatch (exit 1), never staged.
+    let big = "x".repeat(300 * 1024);
+    let out = run_stdin(&["crontab", "crontab_set", "content=-", "--yes"], &big);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(stderr(&out).contains("too large"), "{}", stderr(&out));
+
+    // NUL byte inside the payload: rejected, never handed to crontab.
+    let out = run_stdin(
+        &["crontab", "crontab_set", "content=-", "--yes"],
+        "line one\0line two\n",
+    );
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(stderr(&out).contains("NUL"), "{}", stderr(&out));
+}
+
+#[test]
+fn crontab_set_from_at_file_roundtrip() {
+    let _serial = lock_crontab();
+    let dir = scratch("e2e-crontab-file");
+    let cron = dir.join("payload.cron");
+    let payload = "# from-file\n* * * * * /bin/true\n";
+    std::fs::write(&cron, payload).unwrap();
+
+    let out = run(&[
+        "crontab",
+        "crontab_set",
+        &format!("content=@{}", cron.display()),
+        "--yes",
+    ]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = run(&["--json", "crontab", "crontab_get"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(stdout(&out).trim()).unwrap();
+    assert_eq!(v["crontab"].as_str().unwrap(), payload, "{v}");
+
+    // Clear again so parallel tests never see a dirty root crontab.
+    let out = run_stdin(&["crontab", "crontab_set", "content=-", "--yes"], "");
+    assert!(out.status.success(), "{}", stderr(&out));
+}
+
+#[test]
+fn unsafe_config_files_are_refused_before_any_call() {
+    use std::os::unix::fs::PermissionsExt as _;
+    // World-writable config: the privilege-boundary guard rejects it
+    // (exit 1 from daemon construction, before dispatch).
+    let dir = scratch("e2e-cfg-0666");
+    let cfg = dir.join("config.toml");
+    std::fs::write(&cfg, "[modules]\ncrontab = false\n").unwrap();
+    std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o666)).unwrap();
+    let out = run(&["--config", cfg.to_str().unwrap(), "crontab", "crontab_get"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(stderr(&out).contains("writable"), "{}", stderr(&out));
+
+    // Symlinked config: refused as "not a regular file".
+    let dir2 = scratch("e2e-cfg-symlink");
+    let target = dir2.join("real.toml");
+    std::fs::write(&target, "").unwrap();
+    let link = dir2.join("link.toml");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let out = run(&["--config", link.to_str().unwrap(), "crontab", "crontab_get"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("not a regular file"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn non_root_mutation_is_refused_at_the_gate_before_anything() {
+    let bin_path = env!("CARGO_BIN_EXE_ursinectl");
+    let out = Command::new("su")
+        .args([
+            "-s",
+            "/bin/sh",
+            "nobody",
+            "-c",
+            &format!("{bin_path} crontab crontab_set content=x --yes"),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2), "stderr: {}", stderr(&out));
+    assert!(
+        stderr(&out).contains("must run as root"),
+        "{}",
+        stderr(&out)
+    );
 }
