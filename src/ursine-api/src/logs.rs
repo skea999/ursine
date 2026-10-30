@@ -44,6 +44,30 @@ pub fn default_log_lines() -> u32 {
     200
 }
 
+/// Default number of search hits returned per query.
+pub fn default_log_search_limit() -> u32 {
+    50
+}
+
+/// One search hit: the whole line (preview-capped) and where it lives.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LogHit {
+    /// 1-based line number in the file.
+    pub line_no: u64,
+    /// Byte offset of the line start (jump cursor).
+    pub offset: u64,
+    /// Line preview, capped by the daemon.
+    pub line: String,
+}
+
+/// Result of `LogSearch`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LogSearchResult {
+    pub hits: Vec<LogHit>,
+    /// The scan hit its byte cap: results cover the first N bytes only.
+    pub truncated_scan: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,7 +98,22 @@ mod tests {
     }
 
     #[test]
-    fn default_lines_is_200() {
+    fn defaults_are_200_lines_50_hits() {
         assert_eq!(default_log_lines(), 200);
+        assert_eq!(default_log_search_limit(), 50);
+    }
+
+    #[test]
+    fn search_result_roundtrips() {
+        let result = LogSearchResult {
+            hits: vec![LogHit {
+                line_no: 7,
+                offset: 128,
+                line: "kernel: something failed".into(),
+            }],
+            truncated_scan: true,
+        };
+        let s = serde_json::to_string(&result).unwrap();
+        assert_eq!(serde_json::from_str::<LogSearchResult>(&s).unwrap(), result);
     }
 }

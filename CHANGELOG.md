@@ -4,6 +4,11 @@
 
 ### Added
 
+- Crontab section: view/replace the session user's crontab through the
+  `crontab` tool (works on busybox/Alpine, cronie and Debian/vixie),
+  editor seeded with the current crontab, save behind confirmation.
+- Log viewer search: case-insensitive substring scan with clickable hits
+  (line number + jump-to-chunk), 4 MiB scan cap.
 - Log viewer: dynamic `/var/log` discovery (fresh scan — drop-in files
   appear on Refresh), plain-text tail with an editable line count
   (default 200), "Load previous" chunks, and a follow toggle (`tail -f`

@@ -4,7 +4,7 @@
 use cosmic::iced::Length;
 use cosmic::widget::{button, column, dropdown, row, scrollable, text, text_input, toggler};
 use cosmic::Element;
-use ursine_api::{default_log_lines, LogFile};
+use ursine_api::{default_log_lines, LogFile, LogHit};
 
 use crate::app::Message;
 
@@ -34,6 +34,11 @@ pub struct LogsState {
     pub lines_input: String,
     pub count: u32,
     pub error: Option<String>,
+    // Search (SPEC-logs): query, hits, jump targets.
+    pub search_input: String,
+    pub hits: Vec<LogHit>,
+    pub searching: bool,
+    pub message: Option<String>,
 }
 
 impl Default for LogsState {
@@ -52,6 +57,10 @@ impl Default for LogsState {
             lines_input: count.to_string(),
             count,
             error: None,
+            search_input: String::new(),
+            hits: Vec::new(),
+            searching: false,
+            message: None,
         }
     }
 }
@@ -86,6 +95,9 @@ impl LogsState {
 
         if let Some(error) = &self.error {
             items.push(text(error.clone()).into());
+        }
+        if let Some(message) = &self.message {
+            items.push(text(message.clone()).into());
         }
         if self.busy {
             items.push(text("Reading…").into());
@@ -137,6 +149,46 @@ impl LogsState {
             .as_ref()
             .and_then(|sel| self.files.iter().position(|f| &f.path == sel));
         items.push(dropdown(file_items, selected_index, Message::LogsFileSelected).into());
+
+        // Search: substring query over the whole file (daemon scans, jump
+        // loads the chunk around the hit).
+        items.push(
+            row(vec![
+                text("Search:").into(),
+                text_input("keyword", &self.search_input)
+                    .on_input(Message::LogSearchQueryChanged)
+                    .width(Length::Fill)
+                    .into(),
+                button::text("Search")
+                    .on_press_maybe(
+                        (!self.busy
+                            && !self.searching
+                            && self.selected.is_some()
+                            && !self.search_input.trim().is_empty())
+                        .then_some(Message::LogSearchRun),
+                    )
+                    .into(),
+            ])
+            .spacing(8)
+            .into(),
+        );
+        if self.searching {
+            items.push(text("Searching…").into());
+        }
+        if !self.hits.is_empty() {
+            let hit_rows: Vec<Element<'_, Message>> = self
+                .hits
+                .iter()
+                .enumerate()
+                .map(|(index, hit)| {
+                    button::text(format!("#{}  {}", hit.line_no, hit.line))
+                        .on_press(Message::LogSearchJump(index))
+                        .width(Length::Fill)
+                        .into()
+                })
+                .collect();
+            items.push(column(hit_rows).spacing(2).into());
+        }
 
         if let Some(selected) = &self.selected {
             let status = format!(

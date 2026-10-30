@@ -42,11 +42,13 @@ pub enum Capability {
     /// A supported desktop shell (Wayle/DankMaterialShell) config or binary
     /// exists for the target user (uniform theming source).
     Theming,
+    /// The `crontab` tool exists (busybox/cronie/vixie — all provide it).
+    Crontab,
 }
 
 impl Capability {
     /// Every capability the daemon probes, in display order.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::Btrbk,
         Self::Btrfs,
         Self::Nix,
@@ -63,6 +65,7 @@ impl Capability {
         Self::Niri,
         Self::Dinit,
         Self::Theming,
+        Self::Crontab,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -83,6 +86,7 @@ impl Capability {
             Self::Niri => "niri",
             Self::Dinit => "dinit",
             Self::Theming => "theming",
+            Self::Crontab => "crontab",
         }
     }
 }
@@ -130,10 +134,11 @@ mod tests {
 
     #[test]
     fn all_capabilities_are_listed_once() {
-        assert_eq!(Capability::ALL.len(), 16);
+        assert_eq!(Capability::ALL.len(), 17);
         assert!(Capability::ALL.contains(&Capability::Apk));
         assert!(Capability::ALL.contains(&Capability::Flatpak));
         assert!(Capability::ALL.contains(&Capability::Theming));
+        assert!(Capability::ALL.contains(&Capability::Crontab));
     }
 
     #[test]

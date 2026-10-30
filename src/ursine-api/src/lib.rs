@@ -8,6 +8,7 @@ pub mod action;
 pub mod bluetooth;
 pub mod capability;
 pub mod config;
+pub mod crontab;
 pub mod disk;
 pub mod envelope;
 pub mod error;
@@ -33,12 +34,16 @@ pub use action::Action;
 pub use bluetooth::{BluetoothAdapter, BluetoothDevice, BluetoothOp, BluetoothView};
 pub use capability::{Capability, CapabilityReport};
 pub use config::{ModulesConfig, TriState, UrsineConfig};
+pub use crontab::{max_crontab_bytes, CrontabView};
 pub use disk::Disk;
 pub use envelope::{Request, RequestBody, Response, ResponseBody, PROTOCOL_VERSION};
 pub use error::{ApiError, ErrorCode};
 pub use firewall::{FirewallStatus, FirewallZone};
 pub use job::{JobOutput, JobStarted, JobStatus};
-pub use logs::{default_log_lines, LogChunk, LogCursor, LogFile};
+pub use logs::{
+    default_log_lines, default_log_search_limit, LogChunk, LogCursor, LogFile, LogHit,
+    LogSearchResult,
+};
 pub use module::ModuleId;
 pub use network::{NetworkDevice, NetworkView, WifiNetwork};
 pub use niri::{

@@ -42,6 +42,8 @@ pub enum ModuleId {
     Theming,
     /// Log viewer over `/var/log` (SPEC-logs).
     Logs,
+    /// User crontab management (SPEC-crontab).
+    Crontab,
 }
 
 impl ModuleId {
@@ -66,6 +68,7 @@ impl ModuleId {
             Self::Niri => "niri",
             Self::Theming => "theming",
             Self::Logs => "logs",
+            Self::Crontab => "crontab",
         }
     }
 }

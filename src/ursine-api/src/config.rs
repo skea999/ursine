@@ -88,6 +88,9 @@ pub struct ModulesConfig {
     /// Uniform desktop theming propagation (SPEC-theming).
     #[serde(default)]
     pub theming: TriState,
+    /// Crontab management (SPEC-crontab).
+    #[serde(default)]
+    pub crontab: TriState,
 }
 
 impl Default for ModulesConfig {
@@ -107,6 +110,7 @@ impl Default for ModulesConfig {
             users: TriState::Auto,
             niri: TriState::Auto,
             theming: TriState::Auto,
+            crontab: TriState::Auto,
         }
     }
 }

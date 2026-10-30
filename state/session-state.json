@@ -15,6 +15,7 @@
     "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
+    "CRONTAB + LOG SEARCH (2026-10-29): DONE uncommitted — SPEC-crontab + search in SPEC-logs; gates green. Next: review, commit, then user VM test (crontab flavors + tail -f + search).",
     "DAEMON 0.22.0 ON VM (user): run ursine-activate (or install.sh from the 0.22.0 tarball) to replace /usr/local/sbin/ursined and restart — fixes `unknown variant logs`, then smoke the Logs screen.",
     "LOG VIEWER (2026-10-29): DONE uncommitted — logs module + GUI Logs screen; gate green. Next: review + commit; user VM test.",
     "THEMING (2026-10-27): DONE uncommitted — module+GUI+review-closed (4 lenses, ~45 findings fixed incl. 3 blockers: firefox path escape, give_tree symlink chown, apply confirmation); gate 261 tests + clippy/fmt + static PASS + docs PASS + live DMS probe. Next: commit; top bar specs pending from user.",

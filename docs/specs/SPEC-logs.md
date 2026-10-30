@@ -42,8 +42,14 @@ Status: **planned → implementing** (user decision 2026-10-29).
 ## GUI
 
 - Sidebar entry **Logs** (always available — no capability needed).
-- File list (path + size) with Refresh; selecting re-tails.
+- File dropdown (path + size) with Refresh; selecting re-tails.
 - Controls: line-count input (default `200`) + apply, **Load previous**
   (disabled until `has_before`), **Follow** toggler (snap-to-bottom on
   append, auto-refresh ~700 ms, stops on toggle/screen change/sign-out).
-- Body: monospace text box (same widget style as the package job log).
+- **Search**: query box + Search → case-insensitive substring hits
+  (`LogSearch`: 4 MiB scan cap with `truncated_scan`, default 50 hits,
+  500 max, 400-char previews with line numbers); clicking a hit replaces
+  the body with the chunk around it (offset-anchored `From` read) and
+  keeps previous/follow working from the new cursor.
+- Body: monospace text box with a side scrollbar (same widget style as
+  the package job log).

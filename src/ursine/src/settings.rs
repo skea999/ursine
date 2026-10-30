@@ -77,6 +77,10 @@ const MODULE_SWITCHES: &[ModuleSwitch] = &[
         module: ModuleId::Theming,
         title: "Theming",
     },
+    ModuleSwitch {
+        module: ModuleId::Crontab,
+        title: "Crontab",
+    },
 ];
 
 impl SettingsState {
@@ -216,6 +220,7 @@ fn module_switch(config: &ConfigSnapshot, module: ModuleId) -> TriState {
         ModuleId::Users => config.modules.users,
         ModuleId::Niri => config.modules.niri,
         ModuleId::Theming => config.modules.theming,
+        ModuleId::Crontab => config.modules.crontab,
         // Log viewer: read-only, always auto (no switch).
         ModuleId::Logs | ModuleId::System | ModuleId::Config | ModuleId::Capabilities => {
             TriState::Auto

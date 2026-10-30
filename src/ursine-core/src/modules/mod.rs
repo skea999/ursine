@@ -6,6 +6,7 @@ use serde_json::json;
 use ursine_api::{Action, ApiError, Capability, ModuleId, Principal, Response, UrsineConfig};
 
 pub mod bluetooth;
+pub mod crontab;
 pub mod disks;
 pub mod firewall;
 pub mod logs;
@@ -54,6 +55,7 @@ fn required_caps(module: ModuleId) -> &'static [Capability] {
         ModuleId::Users => &[Capability::Accountsservice],
         ModuleId::Niri => &[Capability::Niri],
         ModuleId::Theming => &[Capability::Theming],
+        ModuleId::Crontab => &[Capability::Crontab],
         ModuleId::Services
         | ModuleId::System
         | ModuleId::Config
@@ -132,6 +134,8 @@ pub async fn handle(
         (ModuleId::Theming, action) => theming::handle(action, ctx).await,
 
         (ModuleId::Logs, action) => logs::handle(action, ctx).await,
+
+        (ModuleId::Crontab, action) => crontab::handle(action, ctx).await,
 
         _ => Err(ApiError::invalid(format!(
             "action {} is not valid for module {}",
@@ -220,6 +224,9 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::ThemeApply { .. } => "theme_apply",
         Action::LogList => "log_list",
         Action::LogRead { .. } => "log_read",
+        Action::LogSearch { .. } => "log_search",
+        Action::CrontabGet => "crontab_get",
+        Action::CrontabSet { .. } => "crontab_set",
         Action::GetFirewall => "get_firewall",
         Action::SetDefaultFirewallZone { .. } => "set_default_firewall_zone",
         Action::AddFirewallService { .. } => "add_firewall_service",

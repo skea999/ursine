@@ -4,11 +4,13 @@
 //! Reads only — no mutation — so `LogRead` is not audited (high-frequency
 //! follow polls; the same precedent as `job_output` in dispatch).
 
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufRead, Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use ursine_api::{Action, ApiError, ErrorCode, LogChunk, LogCursor, LogFile};
+use ursine_api::{
+    Action, ApiError, ErrorCode, LogChunk, LogCursor, LogFile, LogHit, LogSearchResult,
+};
 
 /// The only root that may be read (SPEC-logs security).
 const LOG_ROOT: &str = "/var/log";
@@ -20,6 +22,12 @@ const READ_CAP: u64 = 512 * 1024;
 const COMPRESSED: [&str; 5] = [".gz", ".xz", ".bz2", ".zip", ".zst"];
 /// Max directory depth under `/var/log` (cups/, samba/, …).
 const MAX_DEPTH: u32 = 3;
+/// Hard clamp for one search query.
+const MAX_SEARCH_LIMIT: u32 = 500;
+/// Bytes scanned per search before the result is marked truncated.
+const SEARCH_SCAN_CAP: u64 = 4 * 1024 * 1024;
+/// Preview cap for one hit line.
+const HIT_LINE_CHARS: usize = 400;
 
 /// Route a logs action (blocking work runs off the async executor).
 pub async fn handle(
@@ -31,6 +39,14 @@ pub async fn handle(
             let list = blocking(list_logs).await?;
             serde_json::to_value(list)
                 .map_err(|e| ApiError::internal(format!("encode log list: {e}")))
+        }
+        Action::LogSearch { file, query, limit } => {
+            let file = file.clone();
+            let query = query.clone();
+            let limit = *limit;
+            let result = blocking(move || search_file(&file, &query, limit)).await?;
+            serde_json::to_value(result)
+                .map_err(|e| ApiError::internal(format!("encode log search: {e}")))
         }
         Action::LogRead {
             file,
@@ -322,6 +338,59 @@ fn line_spans(buf: &[u8]) -> Vec<(usize, usize)> {
         spans.push((start, buf.len() - start));
     }
     spans
+}
+
+/// Substring search (case-insensitive) over a `/var/log` file.
+fn search_file(rel: &str, query: &str, limit: u32) -> Result<LogSearchResult, ApiError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err(ApiError::invalid("search query is empty"));
+    }
+    let limit = limit.clamp(1, MAX_SEARCH_LIMIT) as usize;
+    let path = resolve_under_logroot(rel)?;
+    let file = std::fs::File::open(&path)
+        .map_err(|e| ApiError::internal(format!("open {}: {e}", path.display())))?;
+    let needle = query.to_lowercase();
+    let mut reader = std::io::BufReader::new(file);
+    let mut raw: Vec<u8> = Vec::new();
+    let mut offset: u64 = 0;
+    let mut line_no: u64 = 0;
+    let mut scanned: u64 = 0;
+    let mut truncated_scan = false;
+    let mut hits = Vec::new();
+    loop {
+        raw.clear();
+        let read = reader
+            .read_until(b'\n', &mut raw)
+            .map_err(|e| ApiError::internal(format!("read {}: {e}", path.display())))?;
+        if read == 0 {
+            break;
+        }
+        scanned += read as u64;
+        let line_start = offset;
+        offset += read as u64;
+        line_no += 1;
+        if scanned > SEARCH_SCAN_CAP {
+            truncated_scan = true;
+            break;
+        }
+        let text = String::from_utf8_lossy(&raw);
+        if text.to_lowercase().contains(&needle) {
+            let preview: String = text.chars().take(HIT_LINE_CHARS).collect();
+            hits.push(LogHit {
+                line_no,
+                offset: line_start,
+                line: preview.trim_end_matches('\n').to_string(),
+            });
+            if hits.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(LogSearchResult {
+        hits,
+        truncated_scan,
+    })
 }
 
 #[cfg(test)]

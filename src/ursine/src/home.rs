@@ -33,6 +33,7 @@ enum Panel {
     Packages,
     Theming,
     Logs,
+    Crontab,
     Snapshots,
     Users,
     Niri,
@@ -139,6 +140,13 @@ const MODULES: &[ModuleEntry] = &[
         any: false,
         panel: Some(Panel::Logs),
     },
+    ModuleEntry {
+        title: "Crontab",
+        module: Some(ModuleId::Crontab),
+        requires: &[Capability::Crontab],
+        any: false,
+        panel: Some(Panel::Crontab),
+    },
 ];
 
 impl HomeState {
@@ -226,7 +234,8 @@ impl HomeState {
                 | Panel::Bluetooth
                 | Panel::Network
                 | Panel::Theming
-                | Panel::Logs,
+                | Panel::Logs
+                | Panel::Crontab,
             ) => {
                 let available = !Self::is_manually_off(entry, modules)
                     && if entry.any {
@@ -254,6 +263,7 @@ impl HomeState {
                     Some(Panel::Network) => Message::OpenNetwork,
                     Some(Panel::Theming) => Message::OpenTheming,
                     Some(Panel::Logs) => Message::OpenLogs,
+                    Some(Panel::Crontab) => Message::OpenCrontab,
                     None => unreachable!(),
                 };
                 let open = button::text("Open").on_press_maybe(available.then_some(open_message));
@@ -293,6 +303,7 @@ fn module_mode(modules: &ModulesConfig, module: ModuleId) -> TriState {
         ModuleId::Users => modules.users,
         ModuleId::Niri => modules.niri,
         ModuleId::Theming => modules.theming,
+        ModuleId::Crontab => modules.crontab,
         // Log viewer: read-only, always auto (no switch).
         ModuleId::Logs | ModuleId::System | ModuleId::Config | ModuleId::Capabilities => {
             TriState::Auto

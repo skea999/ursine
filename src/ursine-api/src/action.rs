@@ -422,6 +422,22 @@ pub enum Action {
         lines: u32,
         cursor: crate::logs::LogCursor,
     },
+    /// Substring search over a `/var/log` file (case-insensitive).
+    LogSearch {
+        /// Path relative to `/var/log`.
+        file: String,
+        query: String,
+        #[serde(default = "crate::logs::default_log_search_limit")]
+        limit: u32,
+    },
+
+    // -- crontab (SPEC-crontab) --
+    /// Current crontab of the session user (`None` when absent).
+    CrontabGet,
+    /// Replace the session user's crontab (empty string clears it).
+    CrontabSet {
+        content: String,
+    },
 }
 
 /// Wire default for `ThemeApply.show_minimize` (trio on).

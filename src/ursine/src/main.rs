@@ -8,6 +8,7 @@
 mod app;
 mod bluetooth;
 mod client;
+mod crontab;
 mod disks;
 mod firewall;
 mod home;

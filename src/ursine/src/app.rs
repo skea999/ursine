@@ -4,12 +4,14 @@ use cosmic::iced::Length;
 use cosmic::{Element, Task};
 use ursine_api::{
     validate_installable, Action, ApiError, ApkPackage, ApkUpdate, Capability, CapabilityReport,
-    ErrorCode, FlatpakPackage, JobOutput, JobStatus, LogChunk, LogCursor, LogFile, ModuleId,
-    SessionToken, ThemeApplyReport, ThemeSnapshot, ThemingStatus, TriState,
+    CrontabView, ErrorCode, FlatpakPackage, JobOutput, JobStatus, LogChunk, LogCursor, LogFile,
+    LogSearchResult, ModuleId, SessionToken, ThemeApplyReport, ThemeSnapshot, ThemingStatus,
+    TriState,
 };
 
 use crate::bluetooth::BluetoothState;
 use crate::client::{self, AuthSession, ConfigSnapshot, SearchPage};
+use crate::crontab::CrontabState;
 use crate::disks::DisksState;
 use crate::firewall::FirewallState;
 use crate::home::HomeState;
@@ -118,6 +120,7 @@ enum Screen {
     Network,
     Theming,
     Logs,
+    Crontab,
 }
 
 pub struct App {
@@ -140,6 +143,7 @@ pub struct App {
     network: NetworkState,
     theming: ThemingState,
     logs: LogsState,
+    crontab: CrontabState,
     screen: Screen,
     session: Option<Session>,
     /// Bumped on sign-in/sign-out so late async results cannot repopulate a
@@ -450,6 +454,28 @@ pub enum Message {
     LogLoadPrevious,
     /// Toggle follow (`tail -f`).
     LogFollowToggled(bool),
+    /// Search query changed (text).
+    LogSearchQueryChanged(String),
+    /// Run the search on the selected file.
+    LogSearchRun,
+    /// `log_search` finished for `file`.
+    LogSearchLoaded(u64, String, Result<LogSearchResult, ApiError>),
+    /// Jump to a hit (index into the current hits).
+    LogSearchJump(usize),
+    /// Open the crontab editor.
+    OpenCrontab,
+    /// `crontab_get` finished.
+    CrontabLoaded(u64, Result<CrontabView, ApiError>),
+    /// Editor action: sync the plain-text body from the editor buffer.
+    CrontabEdited,
+    /// Ask to confirm the save (writes behind confirm).
+    CrontabSaveRequested,
+    /// User confirmed: replace the crontab.
+    CrontabSaveConfirmed,
+    /// User cancelled the confirmation.
+    CrontabSaveCancelled,
+    /// `crontab_set` finished.
+    CrontabSaved(u64, Result<CrontabView, ApiError>),
     SignOut,
 }
 
@@ -492,6 +518,7 @@ impl cosmic::Application for App {
             network: NetworkState::default(),
             theming: ThemingState::default(),
             logs: LogsState::default(),
+            crontab: CrontabState::default(),
             screen: Screen::Home,
             session: None,
             epoch: 0,
@@ -597,6 +624,26 @@ impl cosmic::Application for App {
                 if follow {
                     return self.follow_log_poll();
                 }
+            }
+            Message::LogSearchQueryChanged(value) => self.logs.search_input = value,
+            Message::LogSearchRun => return self.run_log_search(),
+            Message::LogSearchLoaded(epoch, file, result) => {
+                return self.finish_log_search(epoch, &file, result);
+            }
+            Message::LogSearchJump(index) => return self.jump_log_hit(index),
+            Message::OpenCrontab => {
+                self.screen = Screen::Crontab;
+                return self.load_crontab();
+            }
+            Message::CrontabLoaded(epoch, result) => {
+                return self.finish_crontab_loaded(epoch, result)
+            }
+            Message::CrontabEdited => self.crontab.body = self.crontab.editor.text(),
+            Message::CrontabSaveRequested => self.crontab.confirm = true,
+            Message::CrontabSaveConfirmed => return self.save_crontab(),
+            Message::CrontabSaveCancelled => self.crontab.confirm = false,
+            Message::CrontabSaved(epoch, result) => {
+                return self.finish_crontab_saved(epoch, result)
             }
             Message::RefreshNetwork => return self.load_network(),
             Message::NetworkLoaded(epoch, result) => return self.finish_network(epoch, result),
@@ -1335,6 +1382,7 @@ impl cosmic::Application for App {
                     Screen::Network => self.network.view(),
                     Screen::Theming => self.theming.view(),
                     Screen::Logs => self.logs.view(),
+                    Screen::Crontab => self.crontab.view(),
                 };
                 cosmic::iced::widget::row(vec![self.sidebar(), content])
                     .width(Length::Fill)
@@ -2678,7 +2726,7 @@ impl App {
     fn sidebar(&self) -> Element<'_, Message> {
         use cosmic::widget::{button, column, container, scrollable, text};
 
-        let entries: [(Screen, &str); 15] = [
+        let entries: [(Screen, &str); 16] = [
             (Screen::Home, "Overview"),
             (Screen::Packages, "Package manager"),
             (Screen::Printers, "Printers"),
@@ -2693,6 +2741,7 @@ impl App {
             (Screen::Niri, "Niri desktop"),
             (Screen::Theming, "Theming"),
             (Screen::Logs, "Logs"),
+            (Screen::Crontab, "Crontab"),
             (Screen::Settings, "Settings"),
         ];
         let mut items: Vec<Element<'_, Message>> = vec![
@@ -2743,6 +2792,7 @@ impl App {
             Screen::Network => Message::OpenNetwork,
             Screen::Theming => Message::OpenTheming,
             Screen::Logs => Message::OpenLogs,
+            Screen::Crontab => Message::OpenCrontab,
         }
     }
 
@@ -2757,6 +2807,7 @@ impl App {
     fn screen_available(&self, screen: Screen) -> bool {
         match screen {
             Screen::Home | Screen::Settings | Screen::Logs => true,
+            Screen::Crontab => self.cap_available(Capability::Crontab),
             Screen::Packages => {
                 self.cap_available(Capability::Nix)
                     || self.cap_available(Capability::Apk)
@@ -3670,6 +3721,8 @@ impl App {
         self.logs.end = 0;
         self.logs.size = 0;
         self.logs.has_before = false;
+        self.logs.hits.clear();
+        self.logs.message = None;
         self.tail_log()
     }
 
@@ -3839,6 +3892,192 @@ impl App {
                 y: Some(1.0),
             },
         )
+    }
+
+    /// Substring search over the selected file (whole file, capped scan).
+    fn run_log_search(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some(file) = self.logs.selected.clone() else {
+            return Task::none();
+        };
+        let query = self.logs.search_input.trim().to_string();
+        if query.is_empty() || self.logs.searching {
+            return Task::none();
+        }
+        self.logs.searching = true;
+        self.logs.error = None;
+        self.logs.message = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            let result = client::log_search(token, file.clone(), query, 50).await;
+            Message::LogSearchLoaded(epoch, file, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_log_search(
+        &mut self,
+        epoch: u64,
+        file: &str,
+        result: Result<LogSearchResult, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.logs.searching = false;
+        // Results belong to the file they were asked for.
+        if self.logs.selected.as_deref() != Some(file) {
+            return Task::none();
+        }
+        match result {
+            Ok(found) => {
+                let empty = found.hits.is_empty();
+                let truncated = found.truncated_scan;
+                let count = found.hits.len();
+                self.logs.hits = found.hits;
+                self.logs.message = if empty {
+                    Some("No matches.".into())
+                } else if truncated {
+                    Some("Search stopped at 4 MiB (older lines not scanned).".into())
+                } else {
+                    Some(format!("{count} matches."))
+                };
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.logs.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    /// Load the chunk that contains the hit (same replace path as a tail).
+    fn jump_log_hit(&mut self, index: usize) -> Task<cosmic::Action<Message>> {
+        let Some(hit) = self.logs.hits.get(index).cloned() else {
+            return Task::none();
+        };
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some(file) = self.logs.selected.clone() else {
+            return Task::none();
+        };
+        self.logs.busy = true;
+        self.logs.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        let lines = self.logs.count;
+        Task::future(async move {
+            let result = client::log_read(
+                token,
+                file.clone(),
+                lines,
+                LogCursor::From { offset: hit.offset },
+            )
+            .await;
+            // Tail phase replaces the body with the chunk (offset-anchored).
+            Message::LogsReadLoaded(epoch, file, LogPhase::Tail, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    /// Load the session user's crontab into the editor.
+    fn load_crontab(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.crontab.busy || self.crontab.action_busy {
+            return Task::none();
+        }
+        self.crontab.busy = true;
+        self.crontab.error = None;
+        self.crontab.message = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move { Message::CrontabLoaded(epoch, client::crontab_get(token).await) })
+            .map(cosmic::Action::App)
+    }
+
+    fn finish_crontab_loaded(
+        &mut self,
+        epoch: u64,
+        result: Result<CrontabView, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.crontab.busy = false;
+        match result {
+            Ok(view) => {
+                self.crontab.had_crontab = view.crontab.is_some();
+                let body = view.crontab.unwrap_or_default();
+                self.crontab.editor = cosmic::widget::text_editor::Content::with_text(&body);
+                self.crontab.body = body;
+                self.crontab.loaded = true;
+                self.crontab.confirm = false;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.crontab.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn save_crontab(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.crontab.action_busy {
+            return Task::none();
+        }
+        self.crontab.body = self.crontab.editor.text();
+        let content = self.crontab.body.clone();
+        self.crontab.action_busy = true;
+        self.crontab.confirm = false;
+        self.crontab.error = None;
+        self.crontab.message = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            Message::CrontabSaved(epoch, client::crontab_set(token, content).await)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_crontab_saved(
+        &mut self,
+        epoch: u64,
+        result: Result<CrontabView, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.crontab.action_busy = false;
+        match result {
+            Ok(view) => {
+                self.crontab.had_crontab = view.crontab.is_some();
+                let body = view.crontab.unwrap_or_default();
+                self.crontab.editor = cosmic::widget::text_editor::Content::with_text(&body);
+                self.crontab.body = body;
+                self.crontab.loaded = true;
+                self.crontab.message = Some("Crontab saved.".into());
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.crontab.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
     }
 
     fn network_action(
@@ -4518,6 +4757,7 @@ impl App {
         self.network = NetworkState::default();
         self.theming = ThemingState::default();
         self.logs = LogsState::default();
+        self.crontab = CrontabState::default();
         self.screen = Screen::Home;
         self.login.password.clear();
         self.login.error = None;

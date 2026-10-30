@@ -429,6 +429,44 @@ pub async fn log_read(
     serde_json::from_value(value).map_err(|e| ApiError::internal(format!("decode log chunk: {e}")))
 }
 
+/// Substring search inside a `/var/log` file.
+pub async fn log_search(
+    token: SessionToken,
+    file: String,
+    query: String,
+    limit: u32,
+) -> Result<ursine_api::LogSearchResult, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Logs,
+        Action::LogSearch { file, query, limit },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value).map_err(|e| ApiError::internal(format!("decode log search: {e}")))
+}
+
+/// Current crontab of the session user.
+pub async fn crontab_get(token: SessionToken) -> Result<ursine_api::CrontabView, ApiError> {
+    let value = call(token, ModuleId::Crontab, Action::CrontabGet, None).await?;
+    serde_json::from_value(value).map_err(|e| ApiError::internal(format!("decode crontab: {e}")))
+}
+
+/// Replace the session user's crontab.
+pub async fn crontab_set(
+    token: SessionToken,
+    content: String,
+) -> Result<ursine_api::CrontabView, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Crontab,
+        Action::CrontabSet { content },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value).map_err(|e| ApiError::internal(format!("decode crontab: {e}")))
+}
+
 /// Detect the winning shell source and per-target availability.
 pub async fn theming_status(token: SessionToken) -> Result<ursine_api::ThemingStatus, ApiError> {
     let value = call(token, ModuleId::Theming, Action::ThemeDetect, None).await?;

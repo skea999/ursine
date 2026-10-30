@@ -254,6 +254,9 @@ Configuration only; image acquisition is intentionally out of scope
 - [ ] `logs` module: dynamic `/var/log` discovery, tail with configurable
   line count (default 200), load-previous chunks, follow (`tail -f`
   polling), path-escape hardened; GUI sidebar section.
+- [x] Search inside a log file (substring, click-to-jump).
+- [x] Crontab section (SPEC-crontab): view/replace the session user's
+  crontab via the portable `crontab <file>` form (busybox/cronie/vixie).
 
 ### v2 cross-cutting
 

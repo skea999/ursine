@@ -321,7 +321,7 @@ impl Daemon {
         // Everything else (StoreGc, system, capabilities, config) acts on the
         // daemon or the whole store and must not carry a target.
         let profile_scoped = module == ModuleId::PackagesNix && uses_profile(&action);
-        let user_scoped = profile_scoped || module == ModuleId::Theming;
+        let user_scoped = profile_scoped || matches!(module, ModuleId::Theming | ModuleId::Crontab);
         // Theming writes config files: only the caller's own home (no
         // cross-user theming from the wire — the GUI never sends a target).
         let theming_foreign_target = module == ModuleId::Theming
@@ -330,11 +330,11 @@ impl Daemon {
                 .is_some_and(|target| target != &principal.user);
         let as_user_error = if as_user.is_some() && !user_scoped {
             Some(ApiError::invalid(
-                "as_user is only valid for profile-scoped packages_nix or theming actions",
+                "as_user is only valid for profile-scoped packages_nix, theming or crontab actions",
             ))
         } else if theming_foreign_target {
             Some(ApiError::invalid(
-                "theming only applies to your own account",
+                "theming and crontab only apply to your own account",
             ))
         } else if as_user
             .as_ref()
@@ -562,6 +562,72 @@ mod tests {
             !audit.contains("job_output"),
             "poll leaked into audit:\n{audit}"
         );
+    }
+
+    /// End-to-end tail -f chain: End chunk, append to the file, From chunk
+    /// sees exactly the new lines (the GUI follow loop's wire contract).
+    #[tokio::test]
+    async fn log_read_follow_sees_appended_lines() {
+        use std::io::Write as _;
+        let (_clock, d) = daemon(&tmp_dir("log-follow"));
+        let token = token(&d).await;
+        let file = "ursine-test-follow.log";
+        let path = std::path::Path::new("/var/log").join(file);
+        let _ = std::fs::remove_file(&path);
+        std::fs::write(&path, b"one\ntwo\n").unwrap();
+
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(9),
+            token: Some(token.clone()),
+            body: RequestBody::Call {
+                module: ModuleId::Logs,
+                action: Action::LogRead {
+                    file: file.into(),
+                    lines: 10,
+                    cursor: ursine_api::LogCursor::End,
+                },
+                as_user: None,
+            },
+        };
+        let resp = d.handle(call, &peer()).await;
+        let first: ursine_api::LogChunk = match resp.body {
+            ResponseBody::Ok { result } => serde_json::from_value(result).unwrap(),
+            other => panic!("want ok, got {other:?}"),
+        };
+        assert_eq!(first.content, "one\ntwo\n");
+        assert!(!first.has_before);
+
+        // Simulate the running app appending a line (tail -f moment).
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"three\n")
+            .unwrap();
+
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(10),
+            token: Some(token.clone()),
+            body: RequestBody::Call {
+                module: ModuleId::Logs,
+                action: Action::LogRead {
+                    file: file.into(),
+                    lines: 10,
+                    cursor: ursine_api::LogCursor::From { offset: first.end },
+                },
+                as_user: None,
+            },
+        };
+        let resp = d.handle(call, &peer()).await;
+        let second: ursine_api::LogChunk = match resp.body {
+            ResponseBody::Ok { result } => serde_json::from_value(result).unwrap(),
+            other => panic!("want ok, got {other:?}"),
+        };
+        assert_eq!(second.content, "three\n");
+        assert_eq!(second.end, first.end + 6);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[tokio::test]

@@ -73,7 +73,7 @@ where
 }
 
 /// Resolve the target user to (home, uid, gid); rejects root/system users.
-fn target_identity(user: &str) -> Result<(PathBuf, u32, u32), ApiError> {
+pub(crate) fn target_identity(user: &str) -> Result<(PathBuf, u32, u32), ApiError> {
     let passwd = read_or_empty(Path::new("/etc/passwd"));
     identity_from_passwd(&passwd, user)
 }
@@ -224,6 +224,18 @@ fn baseline_show_minimize(home: &Path) -> bool {
         }
     }
     true
+}
+
+/// Atomic, user-owned file write shared with sibling modules (crontab
+/// staging): path must stay under `home` (enforced by the writer).
+pub(crate) fn write_user_file(
+    home: &Path,
+    path: &Path,
+    bytes: &[u8],
+    uid: u32,
+    gid: u32,
+) -> Result<(), ApiError> {
+    write::write_owned(home, path, bytes, uid, gid)
 }
 
 /// Read the winning source's config into a snapshot.
