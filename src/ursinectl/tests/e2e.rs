@@ -146,3 +146,210 @@ fn non_root_is_refused() {
         stderr(&out)
     );
 }
+
+// ---- deeper E2E coverage ----
+
+fn scratch(tag: &str) -> std::path::PathBuf {
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../artifacts/test-ursinectl")
+        .join(tag);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn api_error_exits_1_and_prints_fix() {
+    // Nix is not installed in the CI container → capability gate fires:
+    // an API error is exit 1 (usage errors are exit 2).
+    let out = run(&["nix", "search", "query=niri"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(stderr(&out).contains("error:"), "{}", stderr(&out));
+    assert!(stderr(&out).contains("fix:"), "{}", stderr(&out));
+    assert!(stdout(&out).is_empty(), "errors belong on stderr");
+}
+
+#[test]
+fn json_flag_is_one_compact_line_pretty_is_multiline() {
+    let compact = run(&["--json", "system", "status"]);
+    assert!(compact.status.success(), "{}", stderr(&compact));
+    let text = stdout(&compact);
+    assert!(!text.trim_end().contains('\n'), "compact: {text:?}");
+    serde_json::from_str::<serde_json::Value>(text.trim()).unwrap();
+
+    let pretty = run(&["system", "status"]);
+    assert!(pretty.status.success(), "{}", stderr(&pretty));
+    assert!(stdout(&pretty).contains("\n  "), "pretty must be indented");
+}
+
+#[test]
+fn module_switch_off_via_config_file_blocks_module() {
+    let dir = scratch("e2e-mod-off");
+    let cfg = dir.join("config.toml");
+    std::fs::write(&cfg, "[modules]\ncrontab = false\n").unwrap();
+    let cfg_str = cfg.to_str().unwrap();
+    let out = run(&["--config", cfg_str, "crontab", "crontab_get"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("module disabled by configuration"),
+        "{}",
+        stderr(&out)
+    );
+    // …while the same command with the default config still works.
+    let out = run(&["crontab", "crontab_get"]);
+    assert!(
+        out.status.success(),
+        "default config must not carry the switch: {}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn config_init_get_roundtrip_e2e() {
+    let dir = scratch("e2e-init");
+    let cfg = dir.join("config.toml");
+    let cfg_str = cfg.to_str().unwrap();
+
+    let out = run(&["--config", cfg_str, "config", "init"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(cfg.exists());
+    let body = std::fs::read_to_string(&cfg).unwrap();
+    assert!(body.contains("[modules]"), "{body}");
+
+    // Second init → Conflict → exit 1, not a silent overwrite.
+    let out = run(&["--config", cfg_str, "config", "init"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+
+    let out = run(&["--json", "--config", cfg_str, "config", "get_config"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(stdout(&out).trim()).unwrap();
+    assert_eq!(v["exists"], true, "{v}");
+
+    // Persist a switch and read it back through a fresh call.
+    let out = run(&[
+        "--config",
+        cfg_str,
+        "config",
+        "set_module_switch",
+        "module=crontab",
+        "value=auto",
+    ]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = run(&["--json", "--config", cfg_str, "config", "get_config"]);
+    let v: serde_json::Value = serde_json::from_str(stdout(&out).trim()).unwrap();
+    assert_eq!(v["modules"]["crontab"], "auto", "{v}");
+}
+
+#[test]
+fn as_user_foreign_target_is_rejected_e2e() {
+    let out = run(&["crontab", "crontab_get", "--as-user", "definitely-not-root"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(stderr(&out).contains("own account"), "{}", stderr(&out));
+}
+
+#[test]
+fn as_user_outside_user_scoped_module_is_usage_error() {
+    // as_user is validated by dispatch (API error, exit 1) — not by the CLI.
+    let out = run(&["logs", "log_list", "--as-user", "bob"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("as_user is only valid"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn capabilities_list_is_reachable_e2e() {
+    let out = run(&["--json", "caps", "list"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(stdout(&out).trim()).unwrap();
+    let arr = v.as_array().expect("caps list is an array");
+    assert!(arr.iter().any(|c| c["capability"] == "crontab"), "{v}");
+    assert!(arr
+        .iter()
+        .any(|c| c["capability"] == "btrbk" && c["available"] == false));
+}
+
+#[test]
+fn logs_search_and_read_e2e() {
+    let name = format!("ursine-e2e-{}.log", std::process::id());
+    let path = std::path::Path::new("/var/log").join(&name);
+    std::fs::write(&path, "alpha\nbeta gamma\ndelta\n").unwrap();
+
+    let out = run(&[
+        "--json",
+        "logs",
+        "log_read",
+        &format!("file={name}"),
+        "lines=10",
+        "cursor={\"mode\":\"end\"}",
+    ]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(stdout(&out).trim()).unwrap();
+    assert!(v["content"].as_str().unwrap().contains("beta gamma"), "{v}");
+
+    let out = run(&[
+        "--json",
+        "logs",
+        "log_search",
+        &format!("file={name}"),
+        "query=GAMMA",
+        "limit=5",
+    ]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(stdout(&out).trim()).unwrap();
+    assert_eq!(v["hits"].as_array().unwrap().len(), 1, "{v}");
+
+    // Escape is an API error (exit 1), never a read.
+    let out = run(&[
+        "logs",
+        "log_read",
+        "file=../etc/shadow",
+        "cursor={\"mode\":\"end\"}",
+    ]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+
+    // A malformed value for a typed field → usage error (exit 2).
+    let out = run(&["logs", "log_read", "file=x", "cursor=banana"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("invalid arguments"),
+        "{}",
+        stderr(&out)
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn non_root_can_read_help_and_version() {
+    // The gate protects side effects only: help/version are pure output.
+    let bin_path = env!("CARGO_BIN_EXE_ursinectl");
+    for flag in ["--help", "--version"] {
+        let out = Command::new("su")
+            .args([
+                "-s",
+                "/bin/sh",
+                "nobody",
+                "-c",
+                &format!("{bin_path} {flag}"),
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{flag} as nobody: {}",
+            stderr(&out)
+        );
+    }
+}
+
+#[test]
+fn crontab_set_without_stdin_still_needs_yes_and_valid_fields() {
+    // Unknown field → usage exit 2 (fail before any side effect).
+    let out = run(&["crontab", "crontab_set", "content=x", "nonsense=1", "--yes"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(stderr(&out).contains("unknown field"), "{}", stderr(&out));
+}

@@ -198,8 +198,24 @@ pub fn build_action(action: &str, pairs: &[(String, String)]) -> Result<Action, 
         };
         map.insert(key.clone(), value);
     }
-    serde_json::from_value(serde_json::Value::Object(map))
-        .map_err(|e| format!("invalid arguments for action {action:?}: {e}"))
+    let provided = map.clone();
+    let value: Action = serde_json::from_value(serde_json::Value::Object(map))
+        .map_err(|e| format!("invalid arguments for action {action:?}: {e}"))?;
+    // serde ignores unknown fields (wire back-compat); a typo'd key on the
+    // CLI would otherwise vanish silently (`dry_ru=true` == not dry-run).
+    let encoded =
+        serde_json::to_value(&value).map_err(|e| format!("encode action {action:?}: {e}"))?;
+    if let Some(obj) = encoded.as_object() {
+        for (key, val) in &provided {
+            if key == "action" || val.is_null() {
+                continue;
+            }
+            if !obj.contains_key(key) {
+                return Err(format!("unknown field {key:?} for action {action:?}"));
+            }
+        }
+    }
+    Ok(value)
 }
 
 /// `key=-` reads one line from stdin; anything else is refused for secrets.
@@ -495,6 +511,325 @@ mod tests {
         )
         .unwrap();
         assert_eq!(a, Action::SetScannerDiscovery { enabled: false });
+    }
+
+    /// Every wire action name (mirror of `action_name` in ursine-core):
+    /// the drift guards below fail when the API grows an action the CLI
+    /// help or tag parser does not know about.
+    const ALL_ACTIONS: &[&str] = &[
+        "add_firewall_port",
+        "add_firewall_service",
+        "add_printer",
+        "add_printer_manual",
+        "bluetooth_action",
+        "cancel_printer_jobs",
+        "connect_network",
+        "connect_wifi",
+        "create_snapshot",
+        "create_user",
+        "crontab_get",
+        "crontab_set",
+        "delete_snapshot",
+        "delete_snapshots",
+        "delete_user",
+        "diff_closures",
+        "disconnect_network",
+        "generations",
+        "get_bluetooth",
+        "get_btrbk_config",
+        "get_config",
+        "get_firewall",
+        "get_network",
+        "get_niri_config",
+        "get_scanner_config",
+        "init",
+        "init_btrbk_config",
+        "install",
+        "install_apk",
+        "install_flatpak",
+        "job_output",
+        "list",
+        "list_apk",
+        "list_apk_repositories",
+        "list_apk_updates",
+        "list_disks",
+        "list_flatpak",
+        "list_flatpak_remotes",
+        "list_groups",
+        "list_installed",
+        "list_printers",
+        "list_scanners",
+        "list_services",
+        "list_snapshots",
+        "list_users",
+        "log_list",
+        "log_read",
+        "log_search",
+        "mount_disk",
+        "pause_printer",
+        "preview_apk_install",
+        "printer_jobs",
+        "prune_generations",
+        "refresh",
+        "refresh_apk",
+        "reload_firewall",
+        "remove",
+        "remove_all",
+        "remove_apk",
+        "remove_firewall_port",
+        "remove_firewall_service",
+        "remove_flatpak",
+        "remove_flatpak_orphans",
+        "remove_printer",
+        "remove_regex",
+        "remove_scanner_device",
+        "restore_snapshot",
+        "rollback",
+        "scan_bluetooth",
+        "search",
+        "search_apk",
+        "search_flatpak",
+        "service_action",
+        "set_bluetooth_power",
+        "set_btrbk_config",
+        "set_default_firewall_zone",
+        "set_default_printer",
+        "set_groups",
+        "set_module_switch",
+        "set_niri_section",
+        "set_password",
+        "set_printer_options",
+        "set_scanner_device",
+        "set_scanner_discovery",
+        "set_wifi_enabled",
+        "stats",
+        "status",
+        "store_gc",
+        "theme_apply",
+        "theme_detect",
+        "theme_get",
+        "unmount_disk",
+        "update_flatpak",
+        "update_flatpak_app",
+        "upgrade",
+        "upgrade_apk",
+        "upgrade_apk_package",
+        "upgrade_regex",
+        "validate_niri_config",
+        "wipe_history",
+    ];
+
+    #[test]
+    fn every_wire_action_is_a_valid_serde_tag() {
+        // The CLI parses actions through the wire serde tag: every name in
+        // the registry must resolve to a known variant (missing fields are
+        // fine — an unknown variant is not).
+        for name in ALL_ACTIONS {
+            match serde_json::from_value::<Action>(serde_json::json!({
+                "action": name
+            })) {
+                // All-optional payload: parses from the tag alone.
+                Ok(_) => {}
+                // Required fields: the ONLY acceptable failure is a missing
+                // field — an unknown variant would mean the CLI cannot
+                // reach that action at all.
+                Err(err) => {
+                    let msg = err.to_string();
+                    assert!(
+                        !msg.contains("unknown variant"),
+                        "action tag {name:?} is not reachable from the CLI: {msg}"
+                    );
+                    assert!(
+                        msg.contains("missing field"),
+                        "action tag {name:?} failed for an unexpected reason: {msg}"
+                    );
+                }
+            }
+        }
+        let err = serde_json::from_value::<Action>(serde_json::json!({
+            "action": "frobnicate"
+        }))
+        .unwrap_err();
+        assert!(err.to_string().contains("unknown variant"));
+    }
+
+    #[test]
+    fn usage_documents_every_wire_action() {
+        let tokens: Vec<&str> = USAGE
+            .split(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'))
+            .filter(|t| !t.is_empty())
+            .collect();
+        for name in ALL_ACTIONS {
+            assert!(
+                tokens.contains(name),
+                "action {name:?} missing from ursinectl --help"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_field_is_rejected_not_silently_dropped() {
+        // dry_run is required for wipe_history: provide it plus a typo.
+        let err = build_action(
+            "wipe_history",
+            &[
+                ("dry_run".into(), "true".into()),
+                ("dry_ru".into(), "true".into()),
+            ],
+        )
+        .unwrap_err();
+        assert!(err.contains("unknown field"), "{err}");
+        let err = build_action(
+            "search",
+            &[("query".into(), "x".into()), ("queryy".into(), "x".into())],
+        )
+        .unwrap_err();
+        assert!(err.contains("unknown field"), "{err}");
+        // Known fields still work, including Option + explicit null skip.
+        assert!(build_action("rollback", &[("generation".into(), "42".into())]).is_ok());
+    }
+
+    #[test]
+    fn tri_state_rejects_garbage() {
+        let err = build_action(
+            "set_module_switch",
+            &[
+                ("module".into(), "logs".into()),
+                ("value".into(), "banana".into()),
+            ],
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid tri-state"), "{err}");
+    }
+
+    #[test]
+    fn destructive_classification_is_exhaustive() {
+        use Action::{
+            CancelPrinterJobs, CrontabSet, DeleteSnapshot, DeleteSnapshots, DeleteUser, ListApk,
+            PruneGenerations, Remove, RemoveAll, RemoveApk, RemoveFirewallPort,
+            RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans, RemovePrinter, RemoveRegex,
+            RemoveScannerDevice, RestoreSnapshot, Rollback, Search, SetPassword, StoreGc,
+            ThemeApply, UnmountDisk, UpdateFlatpak, UpdateFlatpakApp, Upgrade, UpgradeApk,
+            UpgradeApkPackage, UpgradeRegex, WipeHistory,
+        };
+        let destructive = [
+            Remove {
+                package: "x".into(),
+            },
+            RemoveAll,
+            RemoveRegex {
+                pattern: "x".into(),
+                dry_run: false,
+            },
+            UpgradeRegex {
+                pattern: "x".into(),
+                dry_run: false,
+            },
+            WipeHistory {
+                older_than: None,
+                dry_run: false,
+            },
+            Rollback { generation: None },
+            StoreGc,
+            PruneGenerations {
+                keep: 1,
+                dry_run: false,
+                expected_current: None,
+                expected_delete: None,
+            },
+            RemoveApk {
+                package: "x".into(),
+            },
+            UpgradeApk,
+            UpgradeApkPackage {
+                package: "x".into(),
+            },
+            RemoveFlatpak {
+                app_id: "x".into(),
+                system: false,
+            },
+            UpdateFlatpak { system: false },
+            UpdateFlatpakApp {
+                app_id: "x".into(),
+                system: false,
+            },
+            RemoveFlatpakOrphans { system: false },
+            RestoreSnapshot {
+                snapshot: "s".into(),
+                target: "t".into(),
+                dry_run: false,
+            },
+            DeleteSnapshot {
+                snapshot: "s".into(),
+            },
+            DeleteSnapshots { sources: vec![] },
+            DeleteUser {
+                uid: 1000,
+                remove_files: false,
+            },
+            SetPassword {
+                uid: 1000,
+                new_password: String::new(),
+            },
+            CrontabSet {
+                content: String::new(),
+            },
+            ThemeApply {
+                show_minimize: true,
+            },
+            RemovePrinter { name: "p".into() },
+            CancelPrinterJobs { printer: None },
+            RemoveScannerDevice { name: "d".into() },
+            RemoveFirewallService {
+                zone: "z".into(),
+                service: "s".into(),
+            },
+            RemoveFirewallPort {
+                zone: "z".into(),
+                port: "53".into(),
+            },
+            UnmountDisk {
+                device: "/dev/sda1".into(),
+            },
+        ];
+        for action in &destructive {
+            assert!(is_destructive(action), "must require --yes: {action:?}");
+        }
+        // Previews/dry-runs and reads never gate on --yes.
+        let benign = [
+            WipeHistory {
+                older_than: None,
+                dry_run: true,
+            },
+            RemoveRegex {
+                pattern: "x".into(),
+                dry_run: true,
+            },
+            UpgradeRegex {
+                pattern: "x".into(),
+                dry_run: true,
+            },
+            PruneGenerations {
+                keep: 1,
+                dry_run: true,
+                expected_current: None,
+                expected_delete: None,
+            },
+            RestoreSnapshot {
+                snapshot: "s".into(),
+                target: "t".into(),
+                dry_run: true,
+            },
+            Upgrade {
+                package: None,
+                all: true,
+            },
+            ListApk,
+            Search { query: "x".into() },
+        ];
+        for action in &benign {
+            assert!(!is_destructive(action), "must NOT gate: {action:?}");
+        }
     }
 
     /// Scratch dir under `artifacts/` (host temp is off-limits by policy).
