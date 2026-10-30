@@ -14,8 +14,6 @@ use ursine_api::{
 
 /// The only root that may be read (SPEC-logs security).
 const LOG_ROOT: &str = "/var/log";
-/// Hard clamp for the requested line count.
-const MAX_LINES: u32 = 10_000;
 /// Bytes read per call (keeps one line's worth of history cheap).
 const READ_CAP: u64 = 512 * 1024;
 /// Never tail compressed/rotated archives as text.
@@ -175,7 +173,7 @@ fn resolve_under_logroot(rel: &str) -> Result<PathBuf, ApiError> {
 
 /// Read one chunk according to `cursor` (SPEC-logs).
 fn read_chunk(rel: &str, lines: u32, cursor: LogCursor) -> Result<LogChunk, ApiError> {
-    let lines = lines.clamp(1, MAX_LINES) as usize;
+    let lines = lines.clamp(1, ursine_api::max_log_lines()) as usize;
     let path = resolve_under_logroot(rel)?;
     let mut file = std::fs::File::open(&path)
         .map_err(|e| ApiError::internal(format!("open {}: {e}", path.display())))?;
@@ -280,7 +278,22 @@ fn read_chunk(rel: &str, lines: u32, cursor: LogCursor) -> Result<LogChunk, ApiE
             // Complete lines only: a partial tail waits for the next poll.
             let last_newline = buf.iter().rposition(|b| *b == b'\n');
             let Some(last_newline) = last_newline else {
-                return Ok(empty_chunk(offset, offset, size));
+                // No newline at all: an unterminated tail (last line of the
+                // file, or a line still being written) is delivered whole so
+                // search jumps to it actually show content; the cursor
+                // advances past these bytes (no duplicates on the next poll).
+                if buf.is_empty() {
+                    return Ok(empty_chunk(offset, offset, size));
+                }
+                let content = String::from_utf8_lossy(&buf).into_owned();
+                let end = offset + buf.len() as u64;
+                return Ok(LogChunk {
+                    content,
+                    start: offset,
+                    end,
+                    size,
+                    has_before: offset > 0,
+                });
             };
             let mut complete = last_newline + 1;
             let mut seen = 0usize;
@@ -360,7 +373,10 @@ fn search_file(rel: &str, query: &str, limit: u32) -> Result<LogSearchResult, Ap
     let mut hits = Vec::new();
     loop {
         raw.clear();
-        let read = reader
+        // Per-line bound: a pathological single-line file must never be
+        // buffered whole (fresh `take` each iteration).
+        let read = (&mut reader)
+            .take(SEARCH_SCAN_CAP)
             .read_until(b'\n', &mut raw)
             .map_err(|e| ApiError::internal(format!("read {}: {e}", path.display())))?;
         if read == 0 {
@@ -371,6 +387,14 @@ fn search_file(rel: &str, query: &str, limit: u32) -> Result<LogSearchResult, Ap
         offset += read as u64;
         line_no += 1;
         if scanned > SEARCH_SCAN_CAP {
+            truncated_scan = true;
+            break;
+        }
+        if raw.contains(&0) {
+            // Same contract as chunk reads: this is not a text log.
+            return Err(ApiError::invalid("not a text log (binary content)"));
+        }
+        if raw.len() as u64 >= SEARCH_SCAN_CAP && raw.last() != Some(&b'\n') {
             truncated_scan = true;
             break;
         }

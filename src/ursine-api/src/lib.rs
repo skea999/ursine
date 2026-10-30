@@ -41,8 +41,8 @@ pub use error::{ApiError, ErrorCode};
 pub use firewall::{FirewallStatus, FirewallZone};
 pub use job::{JobOutput, JobStarted, JobStatus};
 pub use logs::{
-    default_log_lines, default_log_search_limit, LogChunk, LogCursor, LogFile, LogHit,
-    LogSearchResult,
+    default_log_lines, default_log_search_limit, max_log_lines, LogChunk, LogCursor, LogFile,
+    LogHit, LogSearchResult,
 };
 pub use module::ModuleId;
 pub use network::{NetworkDevice, NetworkView, WifiNetwork};

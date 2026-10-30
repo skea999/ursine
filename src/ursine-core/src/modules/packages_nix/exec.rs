@@ -444,6 +444,34 @@ pub async fn run_as_user_argv(
     }
 }
 
+/// Like [`run_as_user_argv`] but with an explicit byte budget: output over
+/// `max_bytes` is rejected instead of silently truncated (crontab reads —
+/// a truncated read followed by a save would destroy the tail).
+pub async fn run_as_user_argv_bounded(
+    user: &str,
+    program: &str,
+    argv: &[&str],
+    timeout: Duration,
+    max_bytes: usize,
+) -> Result<CommandOutcome, ApiError> {
+    let cmd = su_argv_command(user, program, argv)?;
+    let output = run_command(cmd, timeout, OutputPolicy::Complete(max_bytes), None).await?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if output.status.success() {
+        Ok(CommandOutcome { stdout, stderr })
+    } else {
+        Err(ApiError::internal(format!(
+            "command failed: {}",
+            if stderr.trim().is_empty() {
+                stdout.trim()
+            } else {
+                stderr.trim()
+            }
+        )))
+    }
+}
+
 /// Read a per-user file as that user. Output is capped at 1 MiB plus the
 /// existence marker; callers must treat larger content as invalid.
 pub async fn run_as_user_read_file(user: &str, path: &str) -> Result<CommandOutcome, ApiError> {

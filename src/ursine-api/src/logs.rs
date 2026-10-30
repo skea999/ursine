@@ -49,6 +49,11 @@ pub fn default_log_search_limit() -> u32 {
     50
 }
 
+/// Hard clamp for the requested tail line count (GUI input bound too).
+pub fn max_log_lines() -> u32 {
+    10_000
+}
+
 /// One search hit: the whole line (preview-capped) and where it lives.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogHit {

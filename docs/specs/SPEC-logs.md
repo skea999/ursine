@@ -1,6 +1,6 @@
 # SPEC — Log viewer (`logs`)
 
-Status: **planned → implementing** (user decision 2026-10-29).
+Status: **implemented** (user decision 2026-10-29).
 
 ## Requirements (user)
 
@@ -19,7 +19,7 @@ Status: **planned → implementing** (user decision 2026-10-29).
   small; follows the `job_output` polling precedent — no daemon streaming):
   - `Action::LogList` → `Vec<LogFile>`: path relative to `/var/log`, size,
     mtime; scanned fresh on every call (dynamic discovery); compressed
-    (`.gz/.xz/.bz2/.zip`) and non-regular entries skipped.
+    (`.gz/.xz/.bz2/.zst/.zip`) and non-regular entries skipped; directory walk capped at depth 3, path resolution at depth 8.
   - `Action::LogRead { file, lines, cursor }` with
     `LogCursor::End | Before { offset } | From { offset }` →
     `LogChunk { content, start, end, size, has_before }`:

@@ -95,10 +95,10 @@ pub fn check_capability(sys: &dyn Sysinfo, cap: Capability) -> bool {
         Capability::Dinit => {
             sys.read_trimmed(Path::new("/proc/1/comm")).as_deref() == Some("dinit")
         }
+        Capability::Crontab => sys.cmd_in_path("crontab"),
         // Uniform theming: ANY normal login user (uid 1000..60000, aligned
         // with the module's identity check) has a supported shell config.
         // `theming.detect` refines per target user at call time.
-        Capability::Crontab => sys.cmd_in_path("crontab"),
         Capability::Theming => passwd_homes(
             &sys.read_trimmed(Path::new("/etc/passwd"))
                 .unwrap_or_default(),

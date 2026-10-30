@@ -93,7 +93,8 @@ impl CrontabState {
                 row(vec![
                     button::suggested("Confirm save")
                         .on_press_maybe(
-                            (!self.action_busy).then_some(Message::CrontabSaveConfirmed),
+                            (!self.action_busy && !self.busy)
+                                .then_some(Message::CrontabSaveConfirmed),
                         )
                         .into(),
                     button::text("Cancel")

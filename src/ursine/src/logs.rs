@@ -182,7 +182,7 @@ impl LogsState {
                 .enumerate()
                 .map(|(index, hit)| {
                     button::text(format!("#{}  {}", hit.line_no, hit.line))
-                        .on_press(Message::LogSearchJump(index))
+                        .on_press_maybe((!self.busy).then_some(Message::LogSearchJump(index)))
                         .width(Length::Fill)
                         .into()
                 })

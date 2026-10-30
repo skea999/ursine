@@ -3753,8 +3753,11 @@ impl App {
             self.logs.error = Some("Line count must be a number.".into());
             return Task::none();
         };
-        if !(1..=10_000).contains(&count) {
-            self.logs.error = Some("Line count must be between 1 and 10000.".into());
+        if !(1..=ursine_api::max_log_lines()).contains(&count) {
+            self.logs.error = Some(format!(
+                "Line count must be between 1 and {}.",
+                ursine_api::max_log_lines()
+            ));
             return Task::none();
         }
         self.logs.count = count;
@@ -3829,6 +3832,11 @@ impl App {
         }
         // Stale response for another file (user switched while in flight).
         if self.logs.selected.as_deref() != Some(file) {
+            return Task::none();
+        }
+        // A jump/previous read went out while this follow poll was in
+        // flight: its stale append would regress `end` — drop it.
+        if phase == LogPhase::Follow && self.logs.busy {
             return Task::none();
         }
         let chunk = match result {
@@ -3912,7 +3920,13 @@ impl App {
         let token = session.token.clone();
         let epoch = self.epoch;
         Task::future(async move {
-            let result = client::log_search(token, file.clone(), query, 50).await;
+            let result = client::log_search(
+                token,
+                file.clone(),
+                query,
+                ursine_api::default_log_search_limit(),
+            )
+            .await;
             Message::LogSearchLoaded(epoch, file, result)
         })
         .map(cosmic::Action::App)
@@ -3938,10 +3952,14 @@ impl App {
                 let truncated = found.truncated_scan;
                 let count = found.hits.len();
                 self.logs.hits = found.hits;
-                self.logs.message = if empty {
+                // The scan bound is reported even with zero hits (a "clean
+                // miss" may simply be past the 4 MiB window).
+                self.logs.message = if truncated {
+                    Some(format!(
+                        "Search stopped at 4 MiB ({count} matches in the scanned range)."
+                    ))
+                } else if empty {
                     Some("No matches.".into())
-                } else if truncated {
-                    Some("Search stopped at 4 MiB (older lines not scanned).".into())
                 } else {
                     Some(format!("{count} matches."))
                 };
@@ -3958,6 +3976,9 @@ impl App {
 
     /// Load the chunk that contains the hit (same replace path as a tail).
     fn jump_log_hit(&mut self, index: usize) -> Task<cosmic::Action<Message>> {
+        if self.logs.busy {
+            return Task::none();
+        }
         let Some(hit) = self.logs.hits.get(index).cloned() else {
             return Task::none();
         };
@@ -4011,6 +4032,11 @@ impl App {
         if epoch != self.epoch {
             return Task::none();
         }
+        // A save is in flight: a late get must not overwrite the editor
+        // with pre-save content.
+        if self.crontab.action_busy {
+            return Task::none();
+        }
         self.crontab.busy = false;
         match result {
             Ok(view) => {
@@ -4035,7 +4061,7 @@ impl App {
         let Some(session) = &self.session else {
             return Task::none();
         };
-        if self.crontab.action_busy {
+        if self.crontab.action_busy || self.crontab.busy {
             return Task::none();
         }
         self.crontab.body = self.crontab.editor.text();

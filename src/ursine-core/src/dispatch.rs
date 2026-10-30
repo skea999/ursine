@@ -322,9 +322,10 @@ impl Daemon {
         // daemon or the whole store and must not carry a target.
         let profile_scoped = module == ModuleId::PackagesNix && uses_profile(&action);
         let user_scoped = profile_scoped || matches!(module, ModuleId::Theming | ModuleId::Crontab);
-        // Theming writes config files: only the caller's own home (no
-        // cross-user theming from the wire — the GUI never sends a target).
-        let theming_foreign_target = module == ModuleId::Theming
+        // Theming writes config files and crontab edits a personal crontab:
+        // only the caller's own identity (no cross-user edits from the wire —
+        // the GUI never sends a target).
+        let theming_foreign_target = matches!(module, ModuleId::Theming | ModuleId::Crontab)
             && as_user
                 .as_ref()
                 .is_some_and(|target| target != &principal.user);
@@ -386,10 +387,18 @@ impl Daemon {
             },
         };
 
-        // Read-only high-frequency polls stay out of the audit: `job_output`
+        // High-frequency read polls stay out of the audit: `job_output`
         // (start/completion are audited by the job registry) and `log_read`
-        // (follow polls every ~700 ms). Everything else is recorded.
-        if !matches!(&action, Action::JobOutput { .. } | Action::LogRead { .. }) {
+        // in `From` mode (the ~700 ms follow loop). User-initiated reads
+        // (`End`/`Before`, search, crontab, everything else) are recorded.
+        let follow_poll = matches!(
+            &action,
+            Action::LogRead {
+                cursor: ursine_api::LogCursor::From { .. },
+                ..
+            }
+        );
+        if !matches!(&action, Action::JobOutput { .. }) && !follow_poll {
             let outcome = Outcome::from_result(&result);
             self.audit.record(
                 &principal,
@@ -562,6 +571,30 @@ mod tests {
             !audit.contains("job_output"),
             "poll leaked into audit:\n{audit}"
         );
+    }
+
+    #[tokio::test]
+    async fn crontab_rejects_foreign_as_user() {
+        let (_clock, d) = daemon(&tmp_dir("crontab-xuser"));
+        let token = token(&d).await;
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(5),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::Crontab,
+                action: Action::CrontabGet,
+                as_user: Some("someone-else".into()),
+            },
+        };
+        let resp = d.handle(call, &peer()).await;
+        match resp.body {
+            ResponseBody::Err { error } => {
+                assert_eq!(error.code, ErrorCode::Invalid, "{}", error.message);
+                assert!(error.message.contains("own account"), "{}", error.message);
+            }
+            other => panic!("want err, got {other:?}"),
+        }
     }
 
     /// End-to-end tail -f chain: End chunk, append to the file, From chunk

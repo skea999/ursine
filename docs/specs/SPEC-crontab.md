@@ -9,8 +9,11 @@ every distro we support: **Alpine (busybox crond), cronie, and
 Debian/Ubuntu (vixie-cron)** — the three only differ behind the `crontab`
 binary, so all operations go through it:
 
-- `crontab -l` → current crontab (absence = "no crontab" → empty editor
-  with an explanatory hint, not an error);
+- `crontab -l` → current crontab, read with a byte budget matching the set
+  cap (an oversized crontab is an error, never a silent truncation);
+  absence = "no crontab" → empty editor with an explanatory hint, not an
+  error; a missing trailing newline is appended on save (all
+  implementations accept a final newline);
 - stage the payload in the target user's home (atomic, user-owned, 256 KiB
   cap, NUL rejected) → `crontab <file>` (the portable replace form all
   three implementations accept; empty body clears the crontab).
@@ -31,5 +34,7 @@ binary, so all operations go through it:
 
 ## Tests
 
-- Payload validation (cap, NUL) unit tests; view round-trip; GUI view
-  states; `no crontab` mapping exercised when a `crontab` binary exists.
+- Payload validation (256 KiB cap, NUL, trailing-newline normalization)
+  unit tests; view round-trip; GUI view states; `no crontab` mapping via
+  the pure outcome mapper (covers every implementation's wording);
+  oversized reads are rejected (bounded `crontab -l`), never truncated.
