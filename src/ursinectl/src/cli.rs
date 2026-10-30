@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use ursine_api::Action;
 
-/// Parsed command line (everything after argv[0]).
+/// Parsed command line (everything after argv\[0\]).
 #[derive(Debug)]
 pub enum Cmd {
     Help(Option<String>),
@@ -93,7 +93,7 @@ EXAMPLES:
   ursinectl logs log_read file=pmelog.log lines=200
 ";
 
-/// Parse argv (without argv[0]).
+/// Parse argv (without argv\[0\]).
 pub fn parse(args: &[String]) -> Result<Cmd, String> {
     let mut json = false;
     let mut yes = false;
