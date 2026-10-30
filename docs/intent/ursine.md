@@ -42,7 +42,7 @@ FeralOS has no control center; Nix has no GUI on any distro; the FeralOS desktop
 |-----|---------|
 | **v1** | Backend skeleton (socket, PAM handshake, capabilities, audit) + **GUI libcosmic** (mandatory in v1): packages **nix** (the unique gap), users (accountsservice), snapshots (btrfs/btrbk), niri config editor |
 | **v2** | Packages **apk** + **flatpak**; modules printers (CUPS), scanners (SANE), bluetooth (BlueZ), network (NetworkManager), firewall (firewalld), disks (UDisks2). No OIDC in v2 |
-| **v3** | **OIDC + web interface + thin CLI** (web is the LAST GUI frontend; CLI `ursinectl` is a thin `ursine-api` client for headless/scriptable admin, decided 2026-10-27) |
+| **v3** | **OIDC + web interface** (web is the LAST GUI frontend). CLI `ursinectl` moved forward: in-process root-only host of `ursine-core` (works in chroot installs; no socket/daemon needed) — decided 2026-10-30, see `docs/specs/SPEC-ursinectl.md` (supersedes the 2026-10-27 "thin client" plan). |
 | **v4** | **Incus UI** |
 | **v5** | **ZFS + Pirateus** (FeralOS hyperconverged storage stack) |
 | **v6** | **Support for other distros** (package-manager/init abstraction; glibc revisited here) |

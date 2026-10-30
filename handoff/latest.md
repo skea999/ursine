@@ -6,6 +6,16 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-10-30 — log search + crontab released (v0.23.0)
+
+**Status**: DONE — `v0.23.0` published (4 assets + checksums), nix auto-pin `1cf222b`, tag CI 41055001521 green incl. package/publish/verify-pin.
+
+- Commits: `cf78b64` log search + crontab section; `caaa527` Tier-2 review fixes (rebased onto pin `a346e4f`); `05c3395` `chore(release): 0.23.0` (workspace was still 0.22.1 — first tag cut without the bump failed the CI version gate, package/publish skipped; tag re-cut on `05c3395`).
+- Tier-2 review (security/code/requirements), all confirmed findings fixed: crontab cross-user `as_user` rejected in dispatch (+ test); bounded `crontab -l` (oversize = error, never silent truncation a save would propagate); trusted absolute tool path (user PATH cannot plant a fake `crontab`); search per-line bound + NUL rejection + unterminated-tail delivery; follow supersession (jump gated on `!busy`, stale Follow polls dropped); `log_read` audited for End/Before (only From-mode follow polls exempt); spawn_blocking staging; save/get race gates; shared `max_log_lines()`/`default_log_search_limit()`; truncated-scan note wins over "No matches"; SPEC-logs/SPEC-crontab updated.
+- Niri resolution question answered: already implemented — Niri → Outputs (mode like `3440x1440@60.000`, position X/Y, scale, transform, VRR, "Add output section"); `niri validate` + atomic write; niri live-reloads the file. No new work.
+- Gate at release: 285 tests (44 GUI / 42 API / 6 integration / 193 core + 1 ignored), clippy `-D warnings`, fmt, docs PASS.
+- Next: VM smoke on 0.23.0 — install release tarball or nix update + `ursine-activate`; check Logs (search jump, tail -f, load-previous), Crontab on busybox `crontab` (wording of "no crontab" message), Niri Outputs mode edit.
+
 ## Session 2026-10-27 — uniform theming implemented + review-closed (uncommitted)
 
 **Status**: gate green — 261 tests (core 179+1 probe, GUI 40, API 36, integration 6), clippy `-D warnings`, fmt, static-check PASS, docs PASS, live probe against the real DMS config on this VM PASS. Uncommitted; top bar specs pending from the user.

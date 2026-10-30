@@ -305,7 +305,10 @@ Not required by the intent table but compatible:
 
 ## Explicitly out of v1/v2
 
-- OIDC, web interface and thin CLI (`ursinectl`) → v3.
+- OIDC, web interface → v3. (`ursinectl` CLI: was v3-thin-client; user
+  decision 2026-10-30 — in-process root-only host of `ursine-core`, chroot
+  capable, `docs/specs/SPEC-ursinectl.md`; can land any time after the
+  current milestone.)
 - Incus UI → v4.
 - ZFS/Pirateus → v5.
 - Multi-distro abstraction/glibc → v6.
