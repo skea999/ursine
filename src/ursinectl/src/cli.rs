@@ -84,7 +84,7 @@ MODULES (wire name; short alias in parentheses):
   crontab             crontab_get, crontab_set
 
 EXAMPLES:
-  ursinectl status
+  ursinectl system status
   ursinectl caps list
   ursinectl nix search query=niri
   ursinectl apk install_apk package=niri --yes
@@ -388,6 +388,122 @@ mod tests {
             dry_run: true
         }));
         assert!(!is_destructive(&Action::ListApk));
+    }
+
+    #[test]
+    fn equals_forms_and_option_edge_cases() {
+        let Cmd::Run(opts) = parse(&args(&[
+            "--as-user=bob",
+            "--config=/tmp/x.toml",
+            "nix",
+            "generations",
+        ]))
+        .unwrap() else {
+            panic!("want run");
+        };
+        assert_eq!(opts.as_user.as_deref(), Some("bob"));
+        assert_eq!(opts.config, PathBuf::from("/tmp/x.toml"));
+        assert!(parse(&args(&["--nope"])).is_err());
+        assert!(parse(&args(&["--as-user"])).is_err());
+        assert!(parse(&args(&["--config"])).is_err());
+        assert!(parse(&args(&[])).is_err());
+        assert!(parse(&args(&["only-module"])).is_ok(), "module help");
+        assert!(parse(&args(&["a", "b", "c"])).is_err());
+    }
+
+    #[test]
+    fn duplicate_and_empty_keys_are_rejected() {
+        assert!(build_action(
+            "search",
+            &[("query".into(), "a".into()), ("query".into(), "b".into())]
+        )
+        .is_err());
+        assert!(build_action("search", &[(String::new(), "x".into())]).is_err());
+    }
+
+    #[test]
+    fn at_file_expands_to_string_content() {
+        let dir = manifest_artifacts("cli-at");
+        let file = dir.join("cron.txt");
+        std::fs::write(&file, "* * * * * true\n").unwrap();
+        let a = build_action(
+            "crontab_set",
+            &[("content".into(), format!("@{}", file.display()))],
+        )
+        .unwrap();
+        assert_eq!(
+            a,
+            Action::CrontabSet {
+                content: "* * * * * true\n".into()
+            }
+        );
+    }
+
+    #[test]
+    fn json_object_values_reach_typed_actions() {
+        // LogCursor is internally tagged: {"mode":"end"} / {"mode":"before",...}.
+        let a = build_action(
+            "log_read",
+            &[
+                ("file".into(), "pmesg".into()),
+                ("cursor".into(), "{\"mode\":\"end\"}".into()),
+            ],
+        )
+        .unwrap();
+        assert!(matches!(a, Action::LogRead { .. }));
+        let a = build_action(
+            "log_read",
+            &[
+                ("file".into(), "pmesg".into()),
+                (
+                    "cursor".into(),
+                    "{\"mode\":\"before\",\"offset\":123}".into(),
+                ),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            a,
+            Action::LogRead {
+                file: "pmesg".into(),
+                lines: ursine_api::logs::default_log_lines(),
+                cursor: ursine_api::LogCursor::Before { offset: 123 },
+            }
+        );
+    }
+
+    #[test]
+    fn tri_state_and_bool_scalars() {
+        let a = build_action(
+            "set_module_switch",
+            &[
+                ("module".into(), "packages_nix".into()),
+                ("value".into(), "auto".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            a,
+            Action::SetModuleSwitch {
+                module: ursine_api::ModuleId::PackagesNix,
+                value: ursine_api::TriState::Auto,
+            }
+        );
+        let a = build_action(
+            "set_scanner_discovery",
+            &[("enabled".into(), "false".into())],
+        )
+        .unwrap();
+        assert_eq!(a, Action::SetScannerDiscovery { enabled: false });
+    }
+
+    /// Scratch dir under `artifacts/` (host temp is off-limits by policy).
+    fn manifest_artifacts(tag: &str) -> PathBuf {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../artifacts/test-ursinectl")
+            .join(tag);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
     }
 
     #[test]

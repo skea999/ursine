@@ -127,6 +127,9 @@ fn view_from_outcome(
     outcome: Result<ursine_api::CommandOutcome, ApiError>,
 ) -> Result<CrontabView, ApiError> {
     match outcome {
+        // Busybox keeps an emptied crontab readable with empty output and
+        // exit 0: an empty read is "no crontab", same as the stderr mapping.
+        Ok(outcome) if outcome.stdout.trim().is_empty() => Ok(CrontabView { crontab: None }),
         Ok(outcome) => Ok(CrontabView {
             crontab: Some(outcome.stdout),
         }),

@@ -1,9 +1,10 @@
 //! In-process daemon construction: same wiring as `ursined`, minus the
 //! socket and the PAM handshake (the root gate replaces authentication).
 //!
-//! Job logs live under `/run/ursinectl/jobs`, NOT `/run/ursine/jobs`: the
-//! registry purges "orphaned" logs at startup and must never touch the
-//! running daemon's job files.
+//! Job logs live under `/run/ursinectl/jobs/<pid>`, NOT `/run/ursine/jobs`:
+//! the registry purges "orphaned" logs at startup, and a per-PID
+//! subdirectory keeps concurrent CLI runs (and parallel tests) from
+//! wiping each other's logs. `/run` is tmpfs: leftovers die at reboot.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,6 +22,9 @@ use ursine_core::session::TokenStore;
 /// No authentication path exists in the CLI: the root gate replaced it.
 /// Any (hypothetical) `auth` request is rejected outright — the stub
 /// authenticator of `ursined` must never appear in a root binary.
+/// Monotonic suffix for per-invocation job directories.
+static JOB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 struct NoAuth;
 
 impl Authenticator for NoAuth {
@@ -42,7 +46,10 @@ pub fn build(config_path: &std::path::Path) -> Result<Daemon, String> {
     let audit = Arc::new(
         AuditLog::open(config.audit_path.clone(), clock.clone()).map_err(|e| e.to_string())?,
     );
-    let jobs_dir = PathBuf::from("/run/ursinectl/jobs");
+    // PID + counter: parallel tests share a process, and the registry's
+    // startup purge must never touch another live registry's files.
+    let seq = JOB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let jobs_dir = PathBuf::from(format!("/run/ursinectl/jobs/{}-{seq}", std::process::id()));
     let jobs =
         JobRegistry::new(jobs_dir, Arc::clone(&audit), clock.clone()).map_err(|e| e.to_string())?;
     let ttl = Duration::from_secs(u64::from(config.token_ttl_min) * 60);

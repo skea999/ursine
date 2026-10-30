@@ -98,3 +98,100 @@ async fn response_body_err_shape_is_preserved() {
     let resp = daemon.handle(req, &root_peer()).await;
     assert!(matches!(resp.body, ResponseBody::Err { .. }));
 }
+
+#[tokio::test]
+async fn stream_job_delivers_lines_and_exit_code() {
+    let (daemon, token) = build();
+    let principal = ursine_api::Principal::local("root", vec!["wheel".into()]);
+    // A job that writes two lines and exits 0, then a failing one.
+    let ok = daemon
+        .jobs
+        .start(
+            ModuleId::PackagesApk,
+            "install_apk",
+            &principal,
+            None,
+            |sink| async move {
+                sink.append(b"line one\nline two\n");
+                Ok(0)
+            },
+        )
+        .unwrap();
+    let mut buf: Vec<u8> = Vec::new();
+    let code = ursinectl::stream_job(&daemon, &token, &root_peer(), &ok.job_id, &mut buf)
+        .await
+        .unwrap();
+    assert_eq!(code, 0);
+    let text = String::from_utf8(buf).unwrap();
+    assert!(text.contains("line one"), "{text}");
+    assert!(text.contains("line two"), "{text}");
+
+    let bad = daemon
+        .jobs
+        .start(
+            ModuleId::PackagesApk,
+            "remove_apk",
+            &principal,
+            None,
+            |sink| async move {
+                sink.append(b"kaboom\n");
+                Ok(3)
+            },
+        )
+        .unwrap();
+    let mut buf: Vec<u8> = Vec::new();
+    let code = ursinectl::stream_job(&daemon, &token, &root_peer(), &bad.job_id, &mut buf)
+        .await
+        .unwrap();
+    assert_eq!(code, 3);
+    assert!(String::from_utf8(buf).unwrap().contains("kaboom"));
+}
+
+#[tokio::test]
+async fn unknown_job_id_is_an_error() {
+    let (daemon, token) = build();
+    let mut buf: Vec<u8> = Vec::new();
+    let err = ursinectl::stream_job(&daemon, &token, &root_peer(), "0000000000000000", &mut buf)
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("unknown job"), "{}", err.message);
+}
+
+#[tokio::test]
+async fn cross_user_crontab_is_rejected() {
+    let (daemon, token) = build();
+    // Root may not target another user's crontab (own-account rule).
+    let err = ursinectl::call(
+        &daemon,
+        &token,
+        &root_peer(),
+        ModuleId::Crontab,
+        Action::CrontabGet,
+        Some("definitely-not-a-user".into()),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        err.message.contains("own account"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn as_user_outside_user_scoped_modules_is_rejected() {
+    let (daemon, token) = build();
+    let err = ursinectl::call(
+        &daemon,
+        &token,
+        &root_peer(),
+        ModuleId::Logs,
+        Action::LogList,
+        Some("bob".into()),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        err.message.contains("as_user is only valid"),
+        "unexpected error: {err:?}"
+    );
+}
