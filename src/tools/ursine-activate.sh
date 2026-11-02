@@ -405,6 +405,14 @@ fi
 
 install_pam
 install_file "$PROFILE/bin/ursined" "$RUN_BIN" 0755
+# Root CLI ships with the profile since 0.25.x; install it next to the
+# other user-facing binaries so `sudo ursinectl` is on the secure path.
+# Older profiles without it still activate (warning only).
+if [ -x "$PROFILE/bin/ursinectl" ]; then
+  install_file "$PROFILE/bin/ursinectl" "${ROOT}/usr/local/bin/ursinectl" 0755
+else
+  log "warning: ursinectl not in profile (older install?) — root CLI not installed"
+fi
 
 case "$INIT" in
 systemd)

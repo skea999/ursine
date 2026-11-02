@@ -20,8 +20,8 @@
       chmod 0755 $out/bin/ursine-activate $out/bin/ursine-deactivate
     '';
 
-    # Internal unpacked release. The pinned tarball contains both binaries,
-    # packaging assets, install.sh and the activation scripts.
+    # Internal unpacked release. The pinned tarball contains the three
+    # binaries, packaging assets, install.sh and the activation scripts.
     release = pkgs.stdenvNoCC.mkDerivation {
       pname = "ursine-release";
       inherit (bin) version;
@@ -38,9 +38,12 @@
       '';
     };
 
+    # Root-side binaries: the daemon plus the root CLI (ursinectl), which
+    # shares the daemon package so every Ursine install carries it.
     daemonCore = pkgs.runCommand "ursined-core-${bin.version}" {} ''
       mkdir -p $out/bin $out/packaging
       install -Dm0755 ${release}/bin/ursined $out/bin/ursined
+      install -Dm0755 ${release}/bin/ursinectl $out/bin/ursinectl
       cp -R ${release}/packaging/. $out/packaging/
     '';
 
