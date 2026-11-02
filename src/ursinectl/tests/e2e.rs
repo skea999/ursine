@@ -278,10 +278,16 @@ fn config_init_get_roundtrip_e2e() {
 }
 
 #[test]
-fn as_user_foreign_target_is_rejected_e2e() {
+fn as_user_unknown_user_is_rejected_e2e() {
+    // Root may target other accounts — the target must exist (typed
+    // NotFound naming the user, exit 1).
     let out = run(&["crontab", "crontab_get", "--as-user", "definitely-not-root"]);
     assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
-    assert!(stderr(&out).contains("own account"), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("user definitely-not-root does not exist"),
+        "{}",
+        stderr(&out)
+    );
 }
 
 #[test]

@@ -121,7 +121,7 @@ fn identity_from_passwd(passwd: &str, user: &str) -> Result<(PathBuf, u32, u32),
         }
         return Ok((home, uid, gid));
     }
-    Err(ApiError::invalid(format!("unknown user {user}")))
+    Err(ApiError::invalid(format!("user {user} does not exist")))
 }
 
 /// Home prefixes a normal login user must never own.

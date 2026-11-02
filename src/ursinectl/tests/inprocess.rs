@@ -3,6 +3,7 @@
 
 #![allow(clippy::unwrap_used)] // tests
 #![allow(clippy::panic)] // test failure reporting
+#![allow(clippy::disallowed_methods)] // fixture setup spawns adduser/id/deluser
 
 pub mod common;
 
@@ -160,10 +161,11 @@ async fn unknown_job_id_is_an_error() {
     assert!(err.message.contains("unknown job"), "{}", err.message);
 }
 
+/// Root may target other accounts — but the account must EXIST (typed
+/// `NotFound` naming the user), not the old own-account rejection.
 #[tokio::test]
-async fn cross_user_crontab_is_rejected() {
+async fn root_foreign_target_requires_the_user_to_exist() {
     let (daemon, token) = build();
-    // Root may not target another user's crontab (own-account rule).
     let err = ursinectl::call(
         &daemon,
         &token,
@@ -174,10 +176,173 @@ async fn cross_user_crontab_is_rejected() {
     )
     .await
     .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
     assert!(
-        err.message.contains("own account"),
-        "unexpected error: {err:?}"
+        err.message
+            .contains("user definitely-not-a-user does not exist"),
+        "{err:?}"
     );
+
+    // Same contract on the theming side.
+    let err = ursinectl::call(
+        &daemon,
+        &token,
+        &root_peer(),
+        ModuleId::Theming,
+        Action::ThemeDetect,
+        Some("definitely-not-a-user".into()),
+    )
+    .await
+    .unwrap_err();
+    assert!(err.message.contains("does not exist"), "{err:?}");
+}
+
+/// The admin flow the CLI exists for: root manages ANOTHER user's
+/// crontab and runs theming against their home — after verifying the
+/// user exists. Cross-user crontab reads need a suid `crontab` (real
+/// systems ship it; the CI image's busybox does not — accepted outcomes
+/// below and verified on the target in the VM smoke).
+#[tokio::test]
+async fn root_manages_other_users_crontab_and_theming() {
+    use std::process::Command;
+    const FIXTURE: &str = "ursine-fix";
+
+    // Fixture account in the normal-login uid range (fresh container per
+    // run; unique name so no other test can collide).
+    let probe = Command::new("id").arg(FIXTURE).output().unwrap();
+    if !probe.status.success() {
+        let out = Command::new("adduser")
+            .args(["-D", "-u", "1549", "-s", "/bin/sh", FIXTURE])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "adduser failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    // Plant a minimal DMS source in the FOREIGN home so detect/get/apply
+    // have something real to resolve (settings keys + css defines are the
+    // documented minimum for dms::snapshot).
+    let home = std::path::Path::new("/home").join(FIXTURE);
+    let dms = home.join(".config/DankMaterialShell");
+    std::fs::create_dir_all(&dms).unwrap();
+    std::fs::write(
+        dms.join("settings.json"),
+        r#"{"fontFamily":"Sans","monoFontFamily":"Mono","currentThemeName":"Test"}"#,
+    )
+    .unwrap();
+    let css = home.join(".config/gtk-3.0");
+    std::fs::create_dir_all(&css).unwrap();
+    std::fs::write(
+        css.join("dank-colors.css"),
+        "@define-color window_bg_color #202020;\n\
+          @define-color window_fg_color #eeeeee;\n\
+          @define-color accent_bg_color #3a7bd5;\n",
+    )
+    .unwrap();
+
+    let (daemon, token) = build();
+    let target = Some(FIXTURE.to_string());
+
+    // Theming resolves the FOREIGN home: detect → source found.
+    let status = ursinectl::call(
+        &daemon,
+        &token,
+        &root_peer(),
+        ModuleId::Theming,
+        Action::ThemeDetect,
+        target.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status["available"], true, "foreign DMS source: {status}");
+    assert!(status["source"].is_string(), "{status}");
+
+    // Cross-user theme read: the snapshot comes from THEIR config.
+    let snapshot = ursinectl::call(
+        &daemon,
+        &token,
+        &root_peer(),
+        ModuleId::Theming,
+        Action::ThemeGet,
+        target.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(snapshot["name"], "Test", "{snapshot}");
+    assert_eq!(snapshot["source"], "dms", "{snapshot}");
+
+    // Cross-user theme WRITE: apply lands GTK settings in THEIR home.
+    let report = ursinectl::call(
+        &daemon,
+        &token,
+        &root_peer(),
+        ModuleId::Theming,
+        Action::ThemeApply {
+            show_minimize: true,
+        },
+        target.clone(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        report["results"].as_array().is_some_and(|r| !r.is_empty()),
+        "{report}"
+    );
+    assert!(
+        home.join(".config/gtk-3.0/settings.ini").is_file(),
+        "apply must write into the foreign home"
+    );
+
+    // Cross-user crontab READ: Ok on systems with a suid crontab tool;
+    // the CI image's busybox refuses non-root without the suid bit — that
+    // environment limit is accepted here and checked for real on FeralOS
+    // in the VM smoke.
+    let crontab = ursinectl::call(
+        &daemon,
+        &token,
+        &root_peer(),
+        ModuleId::Crontab,
+        Action::CrontabGet,
+        target,
+    )
+    .await;
+    match crontab {
+        Ok(view) => assert!(
+            view["crontab"].is_null() || view["crontab"].is_string(),
+            "{view}"
+        ),
+        Err(e) => {
+            assert_eq!(e.code, ErrorCode::Internal, "{e:?}");
+            assert!(e.message.contains("suid"), "{e:?}");
+        }
+    }
+
+    let _ = Command::new("deluser").arg(FIXTURE).output();
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// The own-account wire rule still binds every NON-root principal.
+#[tokio::test]
+async fn non_root_principal_is_still_own_account_only() {
+    let (daemon, _root_token) = build();
+    let (alice_token, _expiry) = daemon
+        .sessions
+        .issue(ursine_api::Principal::local("alice", vec!["wheel".into()]));
+    let err = ursinectl::call(
+        &daemon,
+        &alice_token,
+        &root_peer(),
+        ModuleId::Crontab,
+        Action::CrontabGet,
+        Some("bob".into()),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid, "{err:?}");
+    assert!(err.message.contains("own account"), "{err:?}");
 }
 
 #[tokio::test]
@@ -952,7 +1117,7 @@ async fn protocol_and_auth_boundaries() {
 /// Cross-user scoping split: nix profile actions ACCEPT a foreign `as_user`
 /// (they are profile-scoped), crontab/theming REJECT it — verified above.
 #[tokio::test]
-async fn nix_accepts_foreign_as_user_while_gated() {
+async fn nix_accepts_foreign_as_user_and_validates_it() {
     let (daemon, token) = build();
     let err = ursinectl::call(
         &daemon,
@@ -964,8 +1129,10 @@ async fn nix_accepts_foreign_as_user_while_gated() {
     )
     .await
     .unwrap_err();
-    // The scope check let it through; the capability gate (nix absent) fired.
-    assert_eq!(err.code, ErrorCode::Unavailable, "{err:?}");
+    // The scope check let the foreign target through (that is the point);
+    // the existence check — now running before any gate — named the miss.
+    assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
+    assert!(err.message.contains("does not exist"), "{err:?}");
     assert!(!err.message.contains("as_user is only valid"), "{err:?}");
 }
 

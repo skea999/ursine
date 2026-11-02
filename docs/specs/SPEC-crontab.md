@@ -22,8 +22,14 @@ binary, so all operations go through it:
 
 - Capability `crontab` (binary present) gates the module; module switch in
   Settings; Overview card; sidebar entry — parity rules apply.
-- `as_user`: session user only (same rule as theming — no cross-user edits
-  from the wire).
+- `as_user`: a NON-root caller may target only its own account (the wire
+  rule — the GUI never sends a target). **Root may target any existing
+  normal-login account** (the `ursinectl` admin flow, decided 2026-11-02):
+  a foreign target is validated BEFORE the capability gate and must exist
+  (typed `NotFound` naming the user; system accounts rejected). Portability:
+  non-root `crontab` requires a suid tool (real FeralOS images must ship
+  one — confirm in the VM smoke; the CI busybox does not, root runs the
+  trusted tool directly).
 - GUI: editor (text area) seeded with the CURRENT crontab on open
   (config-first), Refresh, Save behind a confirmation step, per-action
   busy/error/message states.

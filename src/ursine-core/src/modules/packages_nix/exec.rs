@@ -146,7 +146,8 @@ pub(super) fn validate_query(q: &str) -> Result<(), ApiError> {
 }
 
 /// Validate the target user: must exist AND be a normal user (uid >= 1000).
-pub(super) fn validate_target_user(user: &str) -> Result<(), ApiError> {
+/// Also called by dispatch for foreign `as_user` targets (root admin CLI).
+pub(crate) fn validate_target_user(user: &str) -> Result<(), ApiError> {
     if user == "root" {
         return Err(ApiError::forbidden());
     }
@@ -171,7 +172,7 @@ pub(super) fn validate_target_user(user: &str) -> Result<(), ApiError> {
     }
     Err(ApiError::new(
         ursine_api::ErrorCode::NotFound,
-        "unknown user",
+        format!("user {user} does not exist"),
     ))
 }
 

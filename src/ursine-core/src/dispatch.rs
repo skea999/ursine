@@ -323,9 +323,14 @@ impl Daemon {
         let profile_scoped = module == ModuleId::PackagesNix && uses_profile(&action);
         let user_scoped = profile_scoped || matches!(module, ModuleId::Theming | ModuleId::Crontab);
         // Theming writes config files and crontab edits a personal crontab:
-        // only the caller's own identity (no cross-user edits from the wire —
-        // the GUI never sends a target).
+        // a NON-root caller may only ever target its own identity (the GUI
+        // never sends a target; the wire rule is the review-hardened
+        // boundary against a wheel user editing someone else's files).
+        // Root is superuser: the admin CLI (`ursinectl`) manages other
+        // accounts; handlers validate that the target user EXISTS (typed
+        // NotFound) and is a normal login user.
         let theming_foreign_target = matches!(module, ModuleId::Theming | ModuleId::Crontab)
+            && principal.user != "root"
             && as_user
                 .as_ref()
                 .is_some_and(|target| target != &principal.user);
@@ -376,15 +381,26 @@ impl Daemon {
             principal: &principal,
         };
 
-        let result = match as_user_error {
-            Some(error) => Err(error),
-            None => match (module, &action) {
+        let result = if let Some(error) = as_user_error {
+            Err(error)
+        } else {
+            // A foreign `as_user` must name an existing normal-login
+            // account. Checked BEFORE the capability gate so a typo'd
+            // target always yields the same typed NotFound, whatever
+            // the module's tools are (root admin CLI: `--as-user`).
+            if user_scoped && target_user != principal.user {
+                if let Err(error) = modules::packages_nix::exec::validate_target_user(&target_user)
+                {
+                    return Response::err(id, error);
+                }
+            }
+            match (module, &action) {
                 (
                     ModuleId::Config,
                     Action::GetConfig | Action::SetModuleSwitch { .. } | Action::Init,
                 ) => self.handle_config_action(&principal, &action).await,
                 _ => modules::handle(module, &action, &ctx).await,
-            },
+            }
         };
 
         // High-frequency read polls stay out of the audit: `job_output`

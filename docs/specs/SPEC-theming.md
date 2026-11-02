@@ -23,10 +23,18 @@ propagator, never the source of truth.
 3. If neither config exists: capability `theming` is unavailable — the GUI
    section stays hidden/inactive. No writes, ever.
 
+`as_user`: a NON-root caller may target only its own account (the wire
+rule; the GUI never sends a target). **Root may target any existing
+normal-login account** (the `ursinectl` admin flow, decided 2026-11-02) —
+the target is validated BEFORE the capability gate and must exist (typed
+`NotFound` naming the user). Root itself is not a login user: theming
+always needs `--as-user`.
+
 Capability probe: ANY login user (uid 1000..60000, same range as the module's
 identity check) has a shell config; `theme_detect`/`theme_get`/`theme_apply`
-resolve the session principal (or `asUser` equal to it — cross-user theming is
-rejected on the wire).
+resolve the session principal (or `asUser` equal to it — cross-user theming
+is rejected on the wire for NON-root callers; root targets any existing
+login user, see above).
 
 ## Snapshot
 

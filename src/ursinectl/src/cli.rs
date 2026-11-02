@@ -39,6 +39,9 @@ USAGE: sudo ursinectl [--json] [--yes] [--as-user USER] [--config PATH] \\
   key=@path reads a file; key=- reads stdin.
   password/new_password MUST be key=- (never on the command line).
   Destructive actions require --yes.
+  --as-user USER targets another account: the user must EXIST (typed
+  error otherwise). theming/crontab/nix accept a foreign target only
+  when running as root; theming has no root fallback — pass --as-user.
 
 MODULES (wire name; short alias in parentheses):
   system              status, job_output
