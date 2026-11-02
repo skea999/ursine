@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.25.0] — 2026-11-02
+
+### Added
+
+- Root admin cross-user management: `ursinectl` run as root may target any
+  EXISTING normal-login account with `--as-user` for theming, crontab and
+  nix profile actions (e.g. `ursinectl theming theme_get --as-user gab`).
+  A foreign target is validated before any capability gate and must
+  exist — a typo yields a typed `NotFound` naming the user. Non-root
+  callers remain own-account only.
+
+### Fixed
+
+- "Unknown user" errors now name the account (`user X does not exist`)
+  in both the `su` path and the theming identity check.
+
 ## [0.24.0] — 2026-10-30
 
 ### Added
