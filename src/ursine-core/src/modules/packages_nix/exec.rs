@@ -692,6 +692,19 @@ fn su_pairs_command(user: &str, program: &str, args: &[(&str, &str)]) -> Result<
 /// Build `su -l -s /bin/sh <user> -c '<program 'arg' …>'` for an explicit
 /// argv; every element is single-quoted, so flags and names are literal.
 fn su_argv_command(user: &str, program: &str, argv: &[&str]) -> Result<Command, ApiError> {
+    // Root is the calling process (daemon/CLI): direct exec — no `su`,
+    // no shell. This is what makes the root-only CLI able to run nix/
+    // scanners/niri operations that default to the principal being root.
+    // Foreign root targets stay rejected: dispatch validates them with
+    // `validate_target_user` before any handler runs.
+    if user == "root" {
+        if !is_safe_atom(program) {
+            return Err(ApiError::invalid("invalid program"));
+        }
+        let mut cmd = Command::new(program);
+        cmd.args(argv);
+        return Ok(cmd);
+    }
     validate_target_user(user)?;
     if !is_safe_atom(program) {
         return Err(ApiError::invalid("invalid program"));
@@ -1034,6 +1047,17 @@ mod tests {
     #[test]
     fn target_user_rejects_root_and_system_users() {
         assert!(validate_target_user("root").is_err());
+        // …but the su chokepoint execs root DIRECTLY (no su): the root
+        // CLI defaults every untargeted profile op to its own account.
+        let cmd = su_argv_command("root", "nix", &["profile", "list"]).unwrap();
+        // tokio's Command has no accessors; its Debug shows the argv:
+        // `Command { std: "nix" "profile" "list", … }` — an su wrapper
+        // would instead start with the su binary path.
+        let dbg = format!("{cmd:?}");
+        assert!(dbg.contains("\"nix\" \"profile\" \"list\""), "{dbg}");
+        assert!(!dbg.contains("su_path") && !dbg.contains("/su\""), "{dbg}");
+        // Unknown non-root users are still rejected before any exec.
+        assert!(su_argv_command("no-such-user", "nix", &["profile", "list"]).is_err());
         // System users have low uids on every normal system.
         if std::fs::read_to_string("/etc/passwd").is_ok() {
             assert!(validate_target_user("bin").is_err());

@@ -316,6 +316,28 @@ async fn root_manages_other_users_crontab_and_theming() {
     let _ = std::fs::remove_dir_all(&home);
 }
 
+/// A NON-root principal must never target root's profile (escalation
+/// boundary): the dispatch-level validator still rejects root as a
+/// foreign target even though root execs directly at the chokepoint.
+#[tokio::test]
+async fn foreign_root_target_is_forbidden_for_non_root_principals() {
+    let (daemon, _root_token) = build();
+    let (alice_token, _expiry) = daemon
+        .sessions
+        .issue(ursine_api::Principal::local("alice", vec!["wheel".into()]));
+    let err = ursinectl::call(
+        &daemon,
+        &alice_token,
+        &root_peer(),
+        ModuleId::PackagesNix,
+        Action::ListInstalled,
+        Some("root".into()),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Forbidden, "{err:?}");
+}
+
 /// The own-account wire rule still binds every NON-root principal.
 #[tokio::test]
 async fn non_root_principal_is_still_own_account_only() {
