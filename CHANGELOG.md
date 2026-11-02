@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.25.1] — 2026-11-02
+
+### Changed
+
+- Crontab operations now use the portable `crontab -u <user>` form as
+  root: no `su` impersonation and no suid bit on the tool (works for the
+  GUI session user and for `--as-user` targets alike; payload staged
+  root-owned under `/run/ursine`). Busybox's "can't open" wording for a
+  user who never had a crontab maps to an empty view; permission errors
+  stay errors.
+
 ## [0.25.0] — 2026-11-02
 
 ### Added
