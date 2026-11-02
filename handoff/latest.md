@@ -8,7 +8,7 @@ See `AGENTS.md` for project context and milestone history.
 
 ## Session 2026-11-02 — cross-user admin via CLI (main, untagged)
 
-**Status**: DONE — released as `v0.25.0` (tag CI 41444681025 all green incl. package/publish/verify-pin; nix auto-pin `27d4451`; 4 assets). Static gate PASS, docs PASS, 382 tests.
+**Status**: DONE — released as `v0.25.0` (pin `27d4451`) then `v0.25.1` (crontab `-u` root-direct, no su/suid; tag CI 41468014254 all green incl. package/publish/verify-pin; 4 assets). Static gate PASS, docs PASS, 383 tests.
 
 - Root principals may now target any EXISTING normal-login account for theming/crontab/nix (dispatch validates the foreign target BEFORE the capability gate: typed `NotFound` naming the user); the own-account wire rule still binds every non-root principal (review-hardened boundary unchanged).
 - Existence errors name the user (`user X does not exist`) in both the su path and theming identity.
