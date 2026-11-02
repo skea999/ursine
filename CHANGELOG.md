@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.25.2] — 2026-11-02
+
+### Fixed
+
+- Nix-profile installs now ship `ursinectl`: the flake packaged only
+  `ursined` from the release tarball, so the documented nix flow never
+  got the root CLI. `ursine-activate` also installs it to
+  `/usr/local/bin` (on sudo's secure path) when the profile carries it;
+  older profiles warn and still activate.
+
 ## [0.25.1] — 2026-11-02
 
 ### Changed
