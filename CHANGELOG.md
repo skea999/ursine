@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.25.3] — 2026-11-02
+
+### Fixed
+
+- Root-default operations work from the root CLI: the exec chokepoint
+  rejected root as a target (`not allowed for this principal`), breaking
+  every nix profile / scanner / niri call that defaults to the calling
+  principal — found by the first VM smoke run. Root now execs directly
+  (no `su`, no shell); foreign root targets stay rejected for non-root
+  principals.
+
 ## [0.25.2] — 2026-11-02
 
 ### Fixed
