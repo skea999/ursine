@@ -10,20 +10,25 @@ use ursine_api::{Action, ApiError, Capability, Service, ServiceOp};
 use super::ModuleCtx;
 use crate::modules::packages_nix::exec;
 
-const RC_SERVICE: [&str; 3] = [
+// busybox-based FeralOS keeps some rc applets in /bin only (the VM smoke
+// found rc-status there) — cover /bin as well as the FHS sbin paths.
+const RC_SERVICE: [&str; 4] = [
     "/sbin/rc-service",
     "/usr/sbin/rc-service",
     "/usr/bin/rc-service",
+    "/bin/rc-service",
 ];
-const RC_UPDATE: [&str; 3] = [
+const RC_UPDATE: [&str; 4] = [
     "/sbin/rc-update",
     "/usr/sbin/rc-update",
     "/usr/bin/rc-update",
+    "/bin/rc-update",
 ];
-const RC_STATUS: [&str; 3] = [
+const RC_STATUS: [&str; 4] = [
     "/sbin/rc-status",
     "/usr/sbin/rc-status",
     "/usr/bin/rc-status",
+    "/bin/rc-status",
 ];
 const DINITCTL: [&str; 4] = [
     "/usr/bin/dinitctl",
@@ -255,6 +260,14 @@ async fn dinit_action(name: &str, op: ServiceOp) -> Result<(), ApiError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn openrc_candidates_cover_busybox_bin() {
+        // The VM smoke found rc-status only at /bin (busybox applet).
+        assert!(RC_STATUS.contains(&"/bin/rc-status"));
+        assert!(RC_SERVICE.contains(&"/bin/rc-service"));
+        assert!(RC_UPDATE.contains(&"/bin/rc-update"));
+    }
+
     use super::*;
 
     #[test]

@@ -391,17 +391,28 @@ pub(crate) async fn run_as_user_script(
     script: &str,
     timeout: Duration,
 ) -> Result<CommandOutcome, ApiError> {
-    validate_target_user(user)?;
+    if user != "root" {
+        validate_target_user(user)?;
+    }
     if script.contains('\'') || script.contains('\n') || script.contains('\0') {
         return Err(ApiError::invalid("invalid command script"));
     }
-    let mut cmd = Command::new(su_path()?);
-    cmd.arg("-l")
-        .arg("-s")
-        .arg("/bin/sh")
-        .arg(user)
-        .arg("-c")
-        .arg(script);
+    // Root = the calling process: run the script directly (no su; foreign
+    // root targets are rejected by dispatch before this point).
+    let cmd = if user == "root" {
+        let mut c = Command::new("/bin/sh");
+        c.arg("-c").arg(script);
+        c
+    } else {
+        let mut c = Command::new(su_path()?);
+        c.arg("-l")
+            .arg("-s")
+            .arg("/bin/sh")
+            .arg(user)
+            .arg("-c")
+            .arg(script);
+        c
+    };
     let output = run_command(cmd, timeout, OutputPolicy::Truncate, None).await?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -504,20 +515,29 @@ pub async fn run_as_user_argv_bounded(
 /// Read a per-user file as that user. Output is capped at 1 MiB plus the
 /// existence marker; callers must treat larger content as invalid.
 pub async fn run_as_user_read_file(user: &str, path: &str) -> Result<CommandOutcome, ApiError> {
-    validate_target_user(user)?;
+    if user != "root" {
+        validate_target_user(user)?;
+    }
     if !is_safe_quoted_value(path) {
         return Err(ApiError::invalid("invalid file path"));
     }
     let script = r#"PATH=/usr/bin:/bin
 if [ -e "$1" ]; then printf 1; cat -- "$1"; else printf 0; fi"#;
-    let mut cmd = Command::new(su_path()?);
-    cmd.arg("-s")
-        .arg("/bin/sh")
-        .arg(user)
-        .arg("-c")
-        .arg(script)
-        .arg("sh")
-        .arg(path);
+    let cmd = if user == "root" {
+        let mut c = Command::new("/bin/sh");
+        c.arg("-c").arg(script).arg("sh").arg(path);
+        c
+    } else {
+        let mut c = Command::new(su_path()?);
+        c.arg("-s")
+            .arg("/bin/sh")
+            .arg(user)
+            .arg("-c")
+            .arg(script)
+            .arg("sh")
+            .arg(path);
+        c
+    };
     let output = run_command(
         cmd,
         Duration::from_secs(30),
@@ -609,13 +629,21 @@ async fn run_user_script_capture(
     args: &[&str],
     input: &str,
 ) -> Result<CapturedOutput, ApiError> {
-    let mut cmd = Command::new(su_path()?);
-    cmd.arg("-s")
-        .arg("/bin/sh")
-        .arg(user)
-        .arg("-c")
-        .arg(script)
-        .arg("sh");
+    // Root = the calling process: same script, direct exec, no su.
+    let mut cmd = if user == "root" {
+        let mut c = Command::new("/bin/sh");
+        c.arg("-c").arg(script).arg("sh");
+        c
+    } else {
+        let mut c = Command::new(su_path()?);
+        c.arg("-s")
+            .arg("/bin/sh")
+            .arg(user)
+            .arg("-c")
+            .arg(script)
+            .arg("sh");
+        c
+    };
     for arg in args {
         if !is_safe_quoted_value(arg) {
             return Err(ApiError::invalid("invalid command argument"));
@@ -662,10 +690,25 @@ async fn run_as_user_limited(
 /// Flags are atoms; values are single-quoted (regex patterns and paths with
 /// spaces stay literal, shell metacharacters never reach the shell).
 fn su_pairs_command(user: &str, program: &str, args: &[(&str, &str)]) -> Result<Command, ApiError> {
-    validate_target_user(user)?;
     if !is_safe_atom(program) {
         return Err(ApiError::invalid("invalid program"));
     }
+    // Root = the calling process: direct exec, no su, no shell (pairs
+    // flatten to a plain argv; empty values are flags without a value).
+    if user == "root" {
+        let mut cmd = Command::new(program);
+        for (flag, value) in args {
+            if !is_safe_atom(flag) || (!value.is_empty() && !is_safe_quoted_value(value)) {
+                return Err(ApiError::invalid("invalid command argument"));
+            }
+            cmd.arg(flag);
+            if !value.is_empty() {
+                cmd.arg(value);
+            }
+        }
+        return Ok(cmd);
+    }
+    validate_target_user(user)?;
     let mut cmdline = String::from(program);
     for (flag, value) in args {
         if !is_safe_atom(flag) || (!value.is_empty() && !is_safe_quoted_value(value)) {
@@ -1058,6 +1101,20 @@ mod tests {
         assert!(!dbg.contains("su_path") && !dbg.contains("/su\""), "{dbg}");
         // Unknown non-root users are still rejected before any exec.
         assert!(su_argv_command("no-such-user", "nix", &["profile", "list"]).is_err());
+        // The pairs builder (nix list/search/upgrade) follows the same
+        // root shortcut: pairs flatten to a plain argv, no su.
+        let cmd = su_pairs_command(
+            "root",
+            "nix",
+            &[("profile", ""), ("list", ""), ("--json", "")],
+        )
+        .unwrap();
+        let dbg = format!("{cmd:?}");
+        assert!(
+            dbg.contains("\"nix\" \"profile\" \"list\" \"--json\""),
+            "{dbg}"
+        );
+        assert!(su_pairs_command("no-such-user", "nix", &[("profile", "")]).is_err());
         // System users have low uids on every normal system.
         if std::fs::read_to_string("/etc/passwd").is_ok() {
             assert!(validate_target_user("bin").is_err());
