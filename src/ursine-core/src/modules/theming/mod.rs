@@ -228,16 +228,6 @@ fn baseline_show_minimize(home: &Path) -> bool {
 
 /// Atomic, user-owned file write shared with sibling modules (crontab
 /// staging): path must stay under `home` (enforced by the writer).
-pub(crate) fn write_user_file(
-    home: &Path,
-    path: &Path,
-    bytes: &[u8],
-    uid: u32,
-    gid: u32,
-) -> Result<(), ApiError> {
-    write::write_owned(home, path, bytes, uid, gid)
-}
-
 /// Read the winning source's config into a snapshot.
 fn snapshot_for(source: ThemeSource, home: &Path) -> Result<ThemeSnapshot, ApiError> {
     match source {

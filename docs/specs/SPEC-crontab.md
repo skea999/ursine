@@ -26,10 +26,17 @@ binary, so all operations go through it:
   rule — the GUI never sends a target). **Root may target any existing
   normal-login account** (the `ursinectl` admin flow, decided 2026-11-02):
   a foreign target is validated BEFORE the capability gate and must exist
-  (typed `NotFound` naming the user; system accounts rejected). Portability:
-  non-root `crontab` requires a suid tool (real FeralOS images must ship
-  one — confirm in the VM smoke; the CI busybox does not, root runs the
-  trusted tool directly).
+  (typed `NotFound` naming the user; system accounts rejected).
+- Mechanism (user decision 2026-11-02): the daemon/CLI always run as
+  root, so EVERY target uses the portable **`crontab -u <user>`** form —
+  no `su` impersonation and no suid bit on the tool. The payload is
+  staged as root under `/run/ursine` (per-process name) and handed to
+  `crontab -u <user> <file>`. An absent crontab maps to an empty view on
+  every implementation (vixie/cronie "no crontab for X"; busybox
+  "can't open 'X': No such file …" — permission errors stay errors).
+  The tool abstracts the spool layout: the `crontab` binary and the
+  system crond always come from the same distro package (dcron, cronie,
+  busybox), so writes land where that system's crond reads.
 - GUI: editor (text area) seeded with the CURRENT crontab on open
   (config-first), Refresh, Save behind a confirmation step, per-action
   busy/error/message states.

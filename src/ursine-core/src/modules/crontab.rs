@@ -1,13 +1,16 @@
-//! User crontab management (SPEC-crontab): read and replace the session
-//! user's crontab through the `crontab` tool (busybox, cronie and vixie/
-//! Debian all provide it — the tool abstracts the spool layout).
+//! User crontab management (SPEC-crontab): read and replace a user's
+//! crontab through the `crontab` tool (busybox, cronie and vixie/Debian
+//! all provide it — the tool abstracts the spool layout).
+//!
+//! The daemon/CLI always run as root, so EVERY target goes through the
+//! portable `crontab -u <user>` form (user decision 2026-11-02): no `su`
+//! impersonation and no suid dependency on the tool.
 
 use std::path::{Path, PathBuf};
 
 use ursine_api::{Action, ApiError, CrontabView};
 
-use crate::modules::packages_nix::exec::{run_as_user_argv, run_as_user_argv_bounded};
-use crate::modules::theming::{target_identity, write_user_file};
+use crate::modules::packages_nix::exec::run_root_argv_bounded;
 
 /// Trusted absolute path for the tool: never a bare name resolved through
 /// the target user's login-shell PATH (a user-writable PATH could plant a
@@ -41,35 +44,44 @@ fn validate_content(content: &str) -> Result<String, ApiError> {
     }
 }
 
-/// Staging-file identity: root stages in its passwd home (uid/gid 0) —
-/// the normal-login-user guard in `target_identity` exists for cross-user
-/// writes, not for root editing its own crontab.
-fn staging_identity(user: &str) -> Result<(PathBuf, u32, u32), ApiError> {
-    if user != "root" {
-        return target_identity(user);
-    }
+/// The target must EXIST and be root or a normal-login account (uid
+/// 1000..60000) — system accounts never get a managed crontab.
+fn validate_crontab_target(user: &str) -> Result<(), ApiError> {
     let passwd = std::fs::read_to_string("/etc/passwd")
         .map_err(|e| ApiError::internal(format!("read /etc/passwd: {e}")))?;
     for line in passwd.lines() {
         let fields: Vec<&str> = line.split(':').collect();
-        if fields.len() >= 7 && fields.first() == Some(&"root") {
+        if fields.len() >= 3 && fields.first() == Some(&user) {
             let uid: u32 = fields
                 .get(2)
                 .and_then(|v| v.parse().ok())
-                .ok_or_else(|| ApiError::internal("bad root uid"))?;
-            let gid: u32 = fields
-                .get(3)
-                .and_then(|v| v.parse().ok())
-                .ok_or_else(|| ApiError::internal("bad root gid"))?;
-            let Some(home) = fields.get(5).map(|v| PathBuf::from(*v)) else {
-                continue;
+                .ok_or_else(|| ApiError::internal(format!("bad uid for {user}")))?;
+            return if uid == 0 || (1000..60000).contains(&uid) {
+                Ok(())
+            } else {
+                Err(ApiError::invalid("target is a system user"))
             };
-            if uid == 0 && home.is_absolute() {
-                return Ok((home, uid, gid));
-            }
         }
     }
-    Err(ApiError::internal("no root entry in /etc/passwd"))
+    Err(ApiError::new(
+        ursine_api::ErrorCode::NotFound,
+        format!("user {user} does not exist"),
+    ))
+}
+
+/// Root-owned staging file under `/run` (tmpfs: cleared at boot). The
+/// name embeds the process id so concurrent sets never race on a path
+/// nor hand the wrong payload to `crontab -u`.
+fn staging_path() -> Result<PathBuf, ApiError> {
+    let dir = Path::new("/run/ursine");
+    std::fs::create_dir_all(dir)
+        .map_err(|e| ApiError::internal(format!("create {}: {e}", dir.display())))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    }
+    Ok(dir.join(format!("crontab-{}.tmp", std::process::id())))
 }
 
 /// Route a crontab action (async exec helpers run inline, like niri's).
@@ -99,26 +111,16 @@ pub async fn handle(
 /// Reads are bounded: a crontab over the cap is an error, never a silent
 /// truncation (a truncated read + save would destroy the tail).
 async fn get_crontab(user: &str) -> Result<CrontabView, ApiError> {
+    validate_crontab_target(user)?;
     let tool = crontab_tool()?;
-    let outcome = if user == "root" {
-        // Root is the calling process (`ursinectl`): no `su`, direct exec.
-        crate::modules::packages_nix::exec::run_root_argv_bounded(
-            tool,
-            &["-l"],
-            std::time::Duration::from_secs(10),
-            ursine_api::max_crontab_bytes() + 1024,
-        )
-        .await
-    } else {
-        run_as_user_argv_bounded(
-            user,
-            tool,
-            &["-l"],
-            std::time::Duration::from_secs(10),
-            ursine_api::max_crontab_bytes() + 1024,
-        )
-        .await
-    };
+    // Portable root form: `crontab -u <user> -l` (busybox, cronie, vixie).
+    let outcome = run_root_argv_bounded(
+        tool,
+        &["-u", user, "-l"],
+        std::time::Duration::from_secs(10),
+        ursine_api::max_crontab_bytes() + 1024,
+    )
+    .await;
     view_from_outcome(outcome)
 }
 
@@ -133,10 +135,19 @@ fn view_from_outcome(
         Ok(outcome) => Ok(CrontabView {
             crontab: Some(outcome.stdout),
         }),
-        // Every implementation words it "no crontab for …".
+        // vixie/cronie: "no crontab for <user>".
         Err(error)
             if error.message.trim().ends_with("no crontab for user")
                 || error.message.contains("no crontab for") =>
+        {
+            Ok(CrontabView { crontab: None })
+        }
+        // busybox list for a user who never had a crontab: the spool file
+        // does not exist yet ("can't open '<user>': No such file …").
+        // Permission problems keep their own strerror and stay errors.
+        Err(error)
+            if error.message.contains("can't open")
+                && error.message.contains("No such file or directory") =>
         {
             Ok(CrontabView { crontab: None })
         }
@@ -144,9 +155,9 @@ fn view_from_outcome(
     }
 }
 
-/// Replace `user`'s crontab with `content` (empty clears it). The payload is
-/// staged in the user's home (owned by them) and handed to `crontab <file>`
-/// — the portable form supported by busybox, cronie and vixie alike.
+/// Replace `user`'s crontab with `content` (empty clears it). The payload
+/// is staged as root under `/run` and handed to `crontab -u <user> <file>`
+/// — the portable replace form supported by busybox, cronie and vixie.
 async fn set_crontab(
     ctx: &crate::modules::ModuleCtx<'_>,
     content: &str,
@@ -154,40 +165,28 @@ async fn set_crontab(
     let normalized = validate_content(content)?;
     let user = ctx.as_user.to_string();
     let payload = normalized.clone();
-    // Identity lookup + atomic write off the async executor (same policy
-    // as the theming writers).
-    // Root stages in its own home (the normal-login-user guard is for
-    // cross-user writes, not for root editing its own crontab).
+    let stage_user = user.clone();
+    // Target validation + staging write off the async executor (same
+    // policy as the theming writers).
     let staging: PathBuf = tokio::task::spawn_blocking(move || -> Result<PathBuf, ApiError> {
-        let (home, uid, gid) = staging_identity(&user)?;
-        // Per-process staging name: concurrent sets must not race on the
-        // same path (delete/rename ENOENT) nor install each other's payload.
-        let staging: PathBuf =
-            home.join(format!(".config/ursine-crontab-{}.tmp", std::process::id()));
-        write_user_file(&home, &staging, payload.as_bytes(), uid, gid)?;
+        validate_crontab_target(&stage_user)?;
+        let staging = staging_path()?;
+        std::fs::write(&staging, payload.as_bytes())
+            .map_err(|e| ApiError::internal(format!("stage {}: {e}", staging.display())))?;
         Ok(staging)
     })
     .await
     .map_err(|e| ApiError::internal(format!("crontab staging failed: {e}")))??;
     let staged = staging.to_string_lossy().into_owned();
     let tool = crontab_tool()?;
-    let result = if ctx.as_user == "root" {
-        crate::modules::packages_nix::exec::run_root_argv_bounded(
-            tool,
-            &[&staged],
-            std::time::Duration::from_secs(15),
-            ursine_api::max_crontab_bytes() + 1024,
-        )
-        .await
-    } else {
-        run_as_user_argv(
-            ctx.as_user,
-            tool,
-            &[&staged],
-            std::time::Duration::from_secs(15),
-        )
-        .await
-    };
+    // Portable root form: `crontab -u <user> <file>`.
+    let result = run_root_argv_bounded(
+        tool,
+        &["-u", &user, &staged],
+        std::time::Duration::from_secs(15),
+        ursine_api::max_crontab_bytes() + 1024,
+    )
+    .await;
     let _ = std::fs::remove_file(&staging);
     result?;
     Ok(CrontabView {
@@ -200,13 +199,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn staging_name_is_per_process_never_a_fixed_path() {
-        // Two concurrent ursinectl runs must stage to different files:
-        // the name embeds this process id (regression guard — a fixed
-        // name raced and could install the other run's payload).
-        let name = format!(".config/ursine-crontab-{}.tmp", std::process::id());
+    fn staging_path_is_per_process_under_run() {
+        // Two concurrent sets must stage to different files: the name
+        // embeds this process id and lives under /run (tmpfs, root-owned).
+        let path = staging_path().unwrap();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
         assert!(name.contains(&std::process::id().to_string()), "{name}");
-        assert!(!name.ends_with("ursine-crontab.tmp"), "{name}");
+        assert!(path.starts_with("/run/ursine"), "{}", path.display());
+    }
+
+    #[test]
+    fn absent_crontab_wordings_map_to_none() {
+        use ursine_api::CommandOutcome;
+        // vixie/cronie wording.
+        let vixie: Result<CommandOutcome, ApiError> =
+            Err(ApiError::internal("command failed: no crontab for gab"));
+        assert!(view_from_outcome(vixie).unwrap().crontab.is_none());
+        // busybox wording for a user who never had a crontab.
+        let busybox: Result<CommandOutcome, ApiError> = Err(ApiError::internal(
+            "command failed: crontab: can't open 'gab': No such file or directory",
+        ));
+        assert!(view_from_outcome(busybox).unwrap().crontab.is_none());
+        // A permission failure must NOT be swallowed as "no crontab".
+        let denied: Result<CommandOutcome, ApiError> = Err(ApiError::internal(
+            "command failed: crontab: can't open 'gab': Permission denied",
+        ));
+        assert!(view_from_outcome(denied).is_err());
+    }
+
+    #[test]
+    fn crontab_target_validation_covers_root_unknown_and_system_users() {
+        // Root is a valid crontab target (its own account).
+        validate_crontab_target("root").unwrap();
+        // Unknown users are a typed NotFound naming the user.
+        let err = validate_crontab_target("definitely-not-a-user").unwrap_err();
+        assert_eq!(err.code, ursine_api::ErrorCode::NotFound);
+        assert!(err.message.contains("does not exist"), "{err:?}");
+        // System accounts are rejected (uid < 1000 — `daemon` is uid 1
+        // on every distro we target).
+        let err = validate_crontab_target("daemon").unwrap_err();
+        assert!(err.message.contains("system user"), "{err:?}");
     }
 
     #[test]

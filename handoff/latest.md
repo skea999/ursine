@@ -14,7 +14,8 @@ See `AGENTS.md` for project context and milestone history.
 - Existence errors name the user (`user X does not exist`) in both the su path and theming identity.
 - Fixture-account integration test: plant a DMS source in another user's home → detect/get/apply theming (cross-user write proven: GTK `settings.ini` lands in their home); cross-user crontab read accepted with the CI busybox missing-suid limit documented — **VM smoke must confirm FeralOS ships a suid crontab** (else user crontabs fail system-wide).
 - SPEC-crontab/SPEC-theming/USAGE updated; decision recorded in session-state key_decisions.
-- Next: VM smoke on this machine — nix update (pin 0.25.0) or tarball install.sh, then `ursinectl theming theme_get --as-user <user>` / crontab cross-user / caps; also verify a non-root user's `crontab` works (suid question).
+- Crontab reworked (user directive): `crontab -u <user>` root-direct everywhere — no su, no suid dependency (busybox fresh-user list wording mapped to "no crontab"). Impersonation kept only for nix/flatpak/niri/gsettings/scanimage (rationale in session-state key_decisions).
+- Next: VM smoke on this machine — nix update (pin 0.25.0) or tarball install.sh, then `ursinectl theming theme_get --as-user <user>`, `ursinectl crontab crontab_get --as-user <user>` (works without suid now), caps, apk job stream.
 
 ## Session 2026-10-30 — ursinectl CLI released (v0.24.0)
 

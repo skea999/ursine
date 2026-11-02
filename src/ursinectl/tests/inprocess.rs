@@ -199,9 +199,8 @@ async fn root_foreign_target_requires_the_user_to_exist() {
 
 /// The admin flow the CLI exists for: root manages ANOTHER user's
 /// crontab and runs theming against their home — after verifying the
-/// user exists. Cross-user crontab reads need a suid `crontab` (real
-/// systems ship it; the CI image's busybox does not — accepted outcomes
-/// below and verified on the target in the VM smoke).
+/// user exists. Everything goes through `crontab -u <user>` root-direct
+/// (no su impersonation, no suid bit on the tool).
 #[tokio::test]
 async fn root_manages_other_users_crontab_and_theming() {
     use std::process::Command;
@@ -296,10 +295,8 @@ async fn root_manages_other_users_crontab_and_theming() {
         "apply must write into the foreign home"
     );
 
-    // Cross-user crontab READ: Ok on systems with a suid crontab tool;
-    // the CI image's busybox refuses non-root without the suid bit — that
-    // environment limit is accepted here and checked for real on FeralOS
-    // in the VM smoke.
+    // Cross-user crontab READ via `crontab -u <user>` root-direct: no su
+    // impersonation and no suid bit on the tool — works for any target.
     let crontab = ursinectl::call(
         &daemon,
         &token,
@@ -308,17 +305,12 @@ async fn root_manages_other_users_crontab_and_theming() {
         Action::CrontabGet,
         target,
     )
-    .await;
-    match crontab {
-        Ok(view) => assert!(
-            view["crontab"].is_null() || view["crontab"].is_string(),
-            "{view}"
-        ),
-        Err(e) => {
-            assert_eq!(e.code, ErrorCode::Internal, "{e:?}");
-            assert!(e.message.contains("suid"), "{e:?}");
-        }
-    }
+    .await
+    .expect("crontab -u must work for a fresh user");
+    assert!(
+        crontab["crontab"].is_null() || crontab["crontab"].is_string(),
+        "{crontab}"
+    );
 
     let _ = Command::new("deluser").arg(FIXTURE).output();
     let _ = std::fs::remove_dir_all(&home);
