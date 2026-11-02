@@ -6,6 +6,16 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-02 — cross-user admin via CLI (main, untagged)
+
+**Status**: DONE on main — commit `b163ea9`, CI 41441866906 all green (package/publish skipped: no tag). Static gate PASS, docs PASS, 382 tests.
+
+- Root principals may now target any EXISTING normal-login account for theming/crontab/nix (dispatch validates the foreign target BEFORE the capability gate: typed `NotFound` naming the user); the own-account wire rule still binds every non-root principal (review-hardened boundary unchanged).
+- Existence errors name the user (`user X does not exist`) in both the su path and theming identity.
+- Fixture-account integration test: plant a DMS source in another user's home → detect/get/apply theming (cross-user write proven: GTK `settings.ini` lands in their home); cross-user crontab read accepted with the CI busybox missing-suid limit documented — **VM smoke must confirm FeralOS ships a suid crontab** (else user crontabs fail system-wide).
+- SPEC-crontab/SPEC-theming/USAGE updated; decision recorded in session-state key_decisions.
+- Next: decide the tag (0.24.1?) or fold into the next release; VM smoke of 0.24.0 + this change.
+
 ## Session 2026-10-30 — ursinectl CLI released (v0.24.0)
 
 **Status**: DONE — `v0.24.0` published (4 assets), nix auto-pin `f8d3b4c`, tag CI 41116788684 green (version/lint/test/package/publish/verify-pin), main CI 41116780409 green.
