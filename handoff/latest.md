@@ -8,7 +8,7 @@ See `AGENTS.md` for project context and milestone history.
 
 ## Session 2026-11-02 — cross-user admin via CLI (main, untagged)
 
-**Status**: DONE — released as `v0.25.0` (pin `27d4451`), `v0.25.1` (crontab `-u`, CI 41468014254 green) and `v0.25.2` (nix ships ursinectl + activate installs it to /usr/local/bin; tag CI 41478935265 green incl. package/publish/verify-pin; 4 assets). VM smoke script ready at `artifacts/vm-smoke-0.25.1.sh` (rename/adjust version on use); sudo is denied to the agent — the user runs it.
+**Status**: DONE — releases `v0.25.0`…`v0.25.4` (pins `27d4451`, `2f4a695`, `2052bda`, `d744a21`; every tag CI green incl. package/publish/verify-pin). **VM smoke PASSED: 0 failures, 1 expected SKIP** on 0.25.4 (artifacts/vm-smoke-0.25.1.sh — read-only battery + refusal guards + as-found assertion). Findings fixed across the loop: nix packaging never shipped ursinectl (flake+activate), five su builders rejected root targets (root-direct sweep), OpenRC tools missing the busybox /bin paths, crontab via `crontab -u` (no su/suid). Gotchas learned: nix caches github HEAD for 1h (`tarball-ttl`) and profile entries pinned to a `rev` never move on upgrade.
 
 - Root principals may now target any EXISTING normal-login account for theming/crontab/nix (dispatch validates the foreign target BEFORE the capability gate: typed `NotFound` naming the user); the own-account wire rule still binds every non-root principal (review-hardened boundary unchanged).
 - Existence errors name the user (`user X does not exist`) in both the su path and theming identity.
