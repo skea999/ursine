@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.25.4] — 2026-11-02
+
+### Fixed
+
+- Second root-direct sweep: ALL five exec wrappers short-circuit root to
+  a direct exec (nix profile list/search/upgrade, theming gsettings,
+  niri config read/validate/write were still rejected as root).
+- Services: OpenRC tool candidates include /bin (busybox keeps
+  rc-status/rc-service/rc-update there on FeralOS) — "OpenRC not found"
+  despite a working runtime.
+
 ## [0.25.3] — 2026-11-02
 
 ### Fixed
