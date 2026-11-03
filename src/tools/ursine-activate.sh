@@ -236,6 +236,7 @@ ETC="${ROOT}/etc"
 VAR="${ROOT}/var"
 LIBEXEC="${ROOT}/usr/lib"
 BIN_DIR="${ROOT}/usr/local/sbin"
+MAN1_DIR="${ROOT}/usr/local/share/man/man1"
 RUN_BIN="$BIN_DIR/ursined"
 PAM_LINK="$ETC/pam.d/ursine"
 PAM_SOURCE="$PROFILE/packaging/pam.d/ursine"
@@ -412,6 +413,9 @@ if [ -x "$PROFILE/bin/ursinectl" ]; then
   install_file "$PROFILE/bin/ursinectl" "${ROOT}/usr/local/bin/ursinectl" 0755
 else
   log "warning: ursinectl not in profile (older install?) — root CLI not installed"
+fi
+if [ -f "$PROFILE/packaging/man/ursinectl.1" ]; then
+  install_file "$PROFILE/packaging/man/ursinectl.1" "$MAN1_DIR/ursinectl.1" 0644
 fi
 
 case "$INIT" in

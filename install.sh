@@ -22,6 +22,7 @@ DESTDIR_SET=0
 PREFIX=${PREFIX:-/usr/local}
 BINDIR=${BINDIR:-}
 SBINDIR=${SBINDIR:-}
+MANDIR=${MANDIR:-}
 LIBEXECDIR=${LIBEXECDIR:-}
 SYSCONFDIR=${SYSCONFDIR:-/etc}
 PAMDIR=${PAMDIR:-/etc/pam.d}
@@ -89,8 +90,8 @@ OPTIONS
 
 ENVIRONMENT
   DESTDIR, PREFIX, BINDIR, SBINDIR, LIBEXECDIR, SYSCONFDIR, PAMDIR,
-  LOCALSTATEDIR, UNITDIR, DINIT_CONFIG_DIR, BIN_SRC, INIT, START, ALLOW_STUB,
-  ALLOW_UNVERIFIED_AUTH.
+  MANDIR, LOCALSTATEDIR, UNITDIR, DINIT_CONFIG_DIR, BIN_SRC, INIT, START,
+  ALLOW_STUB, ALLOW_UNVERIFIED_AUTH.
 
 EXAMPLES
   sudo ./install.sh
@@ -281,6 +282,7 @@ LOCALSTATEDIR=$(trim_trailing_slash "$LOCALSTATEDIR")
 [ -n "$BINDIR" ] || BINDIR="$PREFIX/bin"
 [ -n "$SBINDIR" ] || SBINDIR="$PREFIX/sbin"
 [ -n "$LIBEXECDIR" ] || LIBEXECDIR="$PREFIX/lib"
+[ -n "$MANDIR" ] || MANDIR="$PREFIX/share/man"
 [ -n "$DINIT_CONFIG_DIR" ] || DINIT_CONFIG_DIR="$SYSCONFDIR/dinit.d/config"
 
 validate_path() {
@@ -303,7 +305,7 @@ validate_path() {
 }
 
 for path in "$PREFIX" "$BINDIR" "$SBINDIR" "$LIBEXECDIR" "$SYSCONFDIR" \
-  "$PAMDIR" "$LOCALSTATEDIR" "$DINIT_CONFIG_DIR"; do
+  "$PAMDIR" "$LOCALSTATEDIR" "$DINIT_CONFIG_DIR" "$MANDIR"; do
   validate_path "$path"
 done
 [ -z "$UNITDIR" ] || validate_path "$UNITDIR"
@@ -720,6 +722,13 @@ if [ -f "$BIN_SRC/ursinectl" ]; then
   install_file "$BIN_SRC/ursinectl" "$(target_path "$BINDIR/ursinectl")" 0755
 else
   warn "ursinectl not found in $BIN_SRC (root CLI not installed)"
+fi
+# Manual page ships with the packaging assets (best effort: binary-only
+# layouts without packaging/ still install the rest).
+if asset_dir=$(find_asset_dir) && [ -f "$asset_dir/man/ursinectl.1" ]; then
+  ensure_dir "$(target_path "$MANDIR/man1")" 0755
+  install_file "$asset_dir/man/ursinectl.1" "$(target_path "$MANDIR/man1/ursinectl.1")" 0644
+  info "installed: $(target_path "$MANDIR/man1/ursinectl.1")"
 fi
 install_file "$BIN_SRC/ursine" "$(target_path "$BINDIR/ursine")" 0755
 info "installed: $(target_path "$BINDIR/ursine")"

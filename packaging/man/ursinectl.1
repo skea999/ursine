@@ -1,0 +1,242 @@
+.TH URSINECTL 1 "November 2026" "Ursine 0.25.4" "Ursine Manual"
+.SH NAME
+ursinectl \- Ursine root control CLI (in-process, chroot-capable)
+.SH SYNOPSIS
+.B ursinectl
+.RB [ \-\-json ]
+.RB [ \-\-yes ]
+.RB [ \-\-as\-user
+.IR USER ]
+.RB [ \-\-config
+.IR PATH ]
+.I module
+.I action
+.RI [ key=value ...]
+.PP
+.B ursinectl
+.B \-\-help
+.RI [ module ]
+.br
+.B ursinectl
+.B \-\-version
+.SH DESCRIPTION
+.B ursinectl
+is the Ursine command-line interface for system administration. It hosts
+the same core as the
+.BR ursined (1)
+daemon in-process: no daemon, no socket and no service manager are
+required, so it also works inside a FeralOS chroot during installation.
+.PP
+Every invocation is root-only: the effective uid is checked before any
+side effect and there is no override. Invoke it through
+.B sudo
+or from a root shell. Every action is written to the shared audit log
+.RB ( /var/log/ursine/audit.jsonl )
+with principal
+.IR root .
+.PP
+This manual documents the complete command surface; keep it in parity
+with the CLI (any new action, option or exit-code change updates this
+page in the same change set).
+.SH OPTIONS
+.TP
+.B \-\-json
+Print the result as one compact JSON line (for scripts). Without it the
+result is pretty-printed JSON.
+.TP
+.BR \-y ", " \-\-yes
+Confirm a destructive action. Without it the CLI refuses the action and
+exits with status 2.
+.TP
+.BI \-\-as\-user " USER"
+Target another account for the user-scoped modules
+.RB ( packages_nix ,
+theming, crontab). The account must exist and be a normal login user;
+unknown accounts fail with a typed
+.I user <name> does not exist
+before any capability gate. Root may target any existing login account;
+non-root principals (the GUI) only their own.
+.TP
+.BI \-\-config " PATH"
+Configuration file; default
+.IR /etc/ursine/config.toml .
+Must be a regular file and not group/world-writable.
+.TP
+.BR \-h ", " \-\-help
+Print the usage, or the action list of a single module
+.RB ( ursinectl \-\-help
+.IR nix ).
+Does not require root.
+.TP
+.B \-\-version
+Print the version and exit. Does not require root.
+.SH VALUE SYNTAX
+Arguments are
+.IR key=value
+pairs.
+.TP
+\(bu
+Values are parsed as JSON when possible
+.RB ( dry_run=true ,
+.BR keep=3 ,
+.BR value={"...":...} ),
+otherwise they are plain strings.
+.TP
+\(bu
+.BI key= @path
+reads the value from a file;
+.BI key= \-
+reads it from stdin.
+.TP
+\(bu
+Unknown keys are rejected (exit 2); a typo never runs silently.
+.TP
+\(bu
+Secrets (
+.I password
+,
+.I new_password
+) must be passed as
+.BR key= \-
+(stdin). Values on the command line are refused (argv is visible in
+.IR /proc ).
+.SH COMMANDS
+Action names are the stable wire names (same as the API tag and the audit
+log). Run
+.B ursinectl \-\-help
+for the grouped list.
+.TP
+.B system
+.BR status ,
+.BR job_output .
+.TP
+.B config
+.BR init ,
+.BR get_config ,
+.BR set_module_switch .
+.TP
+.B capabilities
+.BR list ,
+.BR refresh .
+.TP
+.B packages_nix
+list_installed, search, install, remove, remove_all, remove_regex,
+upgrade, upgrade_regex, generations, rollback, wipe_history,
+diff_closures, store_gc, prune_generations.
+.TP
+.B packages_apk
+list_apk, search_apk, refresh_apk, list_apk_repositories, install_apk,
+preview_apk_install, remove_apk, upgrade_apk, list_apk_updates,
+upgrade_apk_package.
+.TP
+.B packages_flatpak
+list_flatpak, list_flatpak_remotes, search_flatpak, install_flatpak,
+remove_flatpak, update_flatpak, update_flatpak_app,
+remove_flatpak_orphans.
+.TP
+.B printers
+list_printers, printer_jobs, add_printer, add_printer_manual,
+remove_printer, set_default_printer, set_printer_options, pause_printer,
+cancel_printer_jobs.
+.TP
+.B scanners
+list_scanners, get_scanner_config, set_scanner_device,
+remove_scanner_device, set_scanner_discovery.
+.TP
+.B network
+get_network, set_wifi_enabled, connect_wifi, connect_network,
+disconnect_network.
+.TP
+.B bluetooth
+get_bluetooth, set_bluetooth_power, scan_bluetooth, bluetooth_action.
+.TP
+.B disks
+list_disks, mount_disk, unmount_disk.
+.TP
+.B services
+list_services, service_action.
+.TP
+.B firewall
+get_firewall, set_default_firewall_zone, add_firewall_service,
+remove_firewall_service, add_firewall_port, remove_firewall_port,
+reload_firewall.
+.TP
+.B snapshots
+list_snapshots, stats, create_snapshot, restore_snapshot,
+get_btrbk_config, init_btrbk_config, set_btrbk_config, delete_snapshot,
+delete_snapshots.
+.TP
+.B users
+list_users, create_user, delete_user, set_password, list_groups,
+set_groups.
+.TP
+.B niri
+get_niri_config, validate_niri_config, set_niri_section.
+.TP
+.B theming
+theme_detect, theme_get, theme_apply.
+.TP
+.B logs
+log_list, log_read, log_search (paths relative to
+.IR /var/log ;
+escapes and binary files are rejected).
+.TP
+.B crontab
+crontab_get, crontab_set. Operations run as root through the portable
+.B crontab \-u <user>
+form: no
+.B su
+impersonation and no suid bit on the tool.
+.SH DESTRUCTIVE ACTIONS
+Removing, deleting, rolling back, garbage collecting and applying
+restores/crontab/theme changes require
+.B \-\-yes
+(the CLI equivalent of the GUI confirmation). Dry-run and preview
+variants never do. Without the flag the CLI prints the refused action and
+exits with status 2.
+.SH BACKGROUND JOBS
+Package mutations answer with a job id; the CLI streams the job log to
+stdout as plain terminal text (never a percentage bar) and exits with the
+job's exit code. CLI job logs live under
+.IR /run/ursine/cli-jobs .
+.SH EXIT STATUS
+.TP
+.B 0
+Success (including a background mutation that exited 0).
+.TP
+.B 1
+Action/API error: capability gate, validation, job failure. The message
+goes to stderr with a
+.B fix:
+hint when available.
+.TP
+.B 2
+Usage error: bad arguments, unknown module/action/field, missing
+.BR \-\-yes ,
+or the root gate.
+.SH FILES
+.TP
+.I /etc/ursine/config.toml
+Module switches and daemon paths (shared with ursined).
+.TP
+.I /var/log/ursine/audit.jsonl
+Append-only audit log; every CLI action is recorded.
+.TP
+.I /run/ursine/cli-jobs/
+Background-job logs of the CLI (tmpfs, per-process subdirectories).
+.TP
+.I /usr/local/bin/ursinectl
+Installed binary (install.sh, or the nix profile via ursine-activate).
+.SH NOTES
+Inside a chroot all absolute paths resolve against the chroot root, so
+.B ursinectl caps list
+works as a health probe of the target system with no services running.
+.SH SEE ALSO
+.BR ursined (1),
+the guide
+.I docs/guides/ursinectl.md
+and the design contract
+.IR docs/specs/SPEC-ursinectl.md .
+.SH AUTHORS
+The Ursine project. Report issues at
+.IR https://github.com/skea999/ursine .
