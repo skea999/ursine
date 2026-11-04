@@ -141,16 +141,31 @@ pub enum Action {
     ListFlatpak {
         system: bool,
     },
-    /// Configured Flatpak remotes.
-    ListFlatpakRemotes,
+    /// Configured Flatpak remotes. `system` selects the installation;
+    /// `None` keeps the legacy both-installations listing.
+    ListFlatpakRemotes {
+        #[serde(default)]
+        system: Option<bool>,
+    },
     /// Search the configured Flatpak remotes.
     SearchFlatpak {
         query: String,
         system: bool,
     },
-    /// Install a Flatpak application from `flathub`.
+    /// Install a Flatpak application from a configured remote (default
+    /// `flathub`).
     InstallFlatpak {
         app_id: String,
+        system: bool,
+        #[serde(default)]
+        remote: Option<String>,
+    },
+    /// Resolve one ref on a remote: name, version and download/installed
+    /// size for the install confirmation.
+    GetFlatpakInfo {
+        app_id: String,
+        #[serde(default)]
+        remote: Option<String>,
         system: bool,
     },
     /// Remove a Flatpak application.
@@ -464,6 +479,44 @@ mod tests {
         assert_eq!(apk["action"], "install_apk");
         let flatpak = serde_json::to_value(Action::ListFlatpak { system: true }).unwrap();
         assert_eq!(flatpak["action"], "list_flatpak");
+    }
+
+    #[test]
+    fn flatpak_actions_default_new_fields_for_older_clients() {
+        // Old clients omit `remote` / `system`: the wire must still parse.
+        let install: Action = serde_json::from_value(serde_json::json!({
+            "action": "install_flatpak",
+            "app_id": "org.mozilla.firefox",
+            "system": true,
+        }))
+        .unwrap();
+        assert_eq!(
+            install,
+            Action::InstallFlatpak {
+                app_id: "org.mozilla.firefox".into(),
+                system: true,
+                remote: None,
+            }
+        );
+        let remotes: Action =
+            serde_json::from_value(serde_json::json!({ "action": "list_flatpak_remotes" }))
+                .unwrap();
+        assert_eq!(remotes, Action::ListFlatpakRemotes { system: None });
+        let with_remote: Action = serde_json::from_value(serde_json::json!({
+            "action": "install_flatpak",
+            "app_id": "org.mozilla.firefox",
+            "system": false,
+            "remote": "flathub-beta",
+        }))
+        .unwrap();
+        assert_eq!(
+            with_remote,
+            Action::InstallFlatpak {
+                app_id: "org.mozilla.firefox".into(),
+                system: false,
+                remote: Some("flathub-beta".into()),
+            }
+        );
     }
 
     #[test]

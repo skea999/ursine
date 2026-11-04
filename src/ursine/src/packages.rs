@@ -3,7 +3,7 @@
 use cosmic::iced::Length;
 use cosmic::widget::{button, column, dropdown, row, scrollable, settings, text, text_input};
 use cosmic::Element;
-use ursine_api::{ApkPackage, ApkUpdate, FlatpakPackage, FlatpakRemote};
+use ursine_api::{ApkPackage, ApkUpdate, FlatpakInfo, FlatpakPackage, FlatpakRemote};
 
 use crate::app::Message;
 use crate::package_row::package_row;
@@ -12,6 +12,14 @@ use crate::package_row::package_row;
 pub enum PackageKind {
     Apk,
     Flatpak,
+}
+
+/// A Flatpak install waiting for confirmation, with the remote lookup that
+/// feeds the size rows (failed lookup still allows the install).
+pub struct PendingInstall {
+    pub app_id: String,
+    pub info: Option<FlatpakInfo>,
+    pub info_error: Option<String>,
 }
 
 impl PackageKind {
@@ -40,6 +48,8 @@ pub struct PackagesState {
     pub system: bool,
     pub query: String,
     pub install: String,
+    /// Selected Flatpak remote for installs (empty = daemon default).
+    pub install_remote: String,
     pub busy: bool,
     pub action_busy: bool,
     pub searching: bool,
@@ -48,6 +58,7 @@ pub struct PackagesState {
     pub pending_remove: Option<(PackageKind, String, String)>,
     pub pending_update: Option<PackageKind>,
     pub pending_orphans: bool,
+    pub pending_install: Option<PendingInstall>,
 }
 
 impl Default for PackagesState {
@@ -62,6 +73,7 @@ impl Default for PackagesState {
             system: true,
             query: String::new(),
             install: String::new(),
+            install_remote: String::new(),
             busy: false,
             action_busy: false,
             searching: false,
@@ -70,6 +82,7 @@ impl Default for PackagesState {
             pending_remove: None,
             pending_update: None,
             pending_orphans: false,
+            pending_install: None,
         }
     }
 }
@@ -96,6 +109,7 @@ impl PackagesState {
         self.pending_remove = None;
         self.pending_update = None;
         self.pending_orphans = false;
+        self.pending_install = None;
     }
 
     pub fn apply_apk(&mut self, packages: Vec<ApkPackage>) {
@@ -113,7 +127,38 @@ impl PackagesState {
     }
 
     pub fn apply_flatpak_remotes(&mut self, remotes: Vec<FlatpakRemote>) {
+        // Keep the selection when it still exists in this scope, otherwise
+        // prefer flathub, else the first configured remote.
+        let stale = !self.install_remote.is_empty()
+            && !remotes.iter().any(|r| r.name == self.install_remote);
+        if self.install_remote.is_empty() || stale {
+            self.install_remote = remotes
+                .iter()
+                .find(|r| r.name == "flathub")
+                .or_else(|| remotes.first())
+                .map(|r| r.name.clone())
+                .unwrap_or_default();
+        }
         self.flatpak_remotes = remotes;
+    }
+
+    /// Remote names in display order (the daemon lists one row per remote).
+    pub fn remote_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for remote in &self.flatpak_remotes {
+            if !names.contains(&remote.name) {
+                names.push(remote.name.clone());
+            }
+        }
+        names
+    }
+
+    pub fn selected_remote(&self) -> Option<String> {
+        if self.install_remote.is_empty() {
+            None
+        } else {
+            Some(self.install_remote.clone())
+        }
     }
 
     pub fn apply_flatpak(&mut self, packages: Vec<FlatpakPackage>) {
@@ -274,23 +319,40 @@ impl PackagesState {
                     ])
                     .spacing(8),
                 ))
-                .add(settings::item(
-                    "Direct install",
-                    row(vec![
-                        text_input(
-                            match kind {
-                                PackageKind::Apk => "niri",
-                                PackageKind::Flatpak => "org.mozilla.firefox",
-                            },
-                            self.install.clone(),
-                        )
-                        .on_input(Message::PackageInstallChanged)
-                        .into(),
+                .add({
+                    let mut install_row: Vec<Element<'_, Message>> = vec![text_input(
+                        match kind {
+                            PackageKind::Apk => "niri",
+                            PackageKind::Flatpak => "org.mozilla.firefox",
+                        },
+                        self.install.clone(),
+                    )
+                    .on_input(Message::PackageInstallChanged)
+                    .into()];
+                    if kind == PackageKind::Flatpak {
+                        let names = self.remote_names();
+                        if !names.is_empty() {
+                            let selected =
+                                names.iter().position(|name| *name == self.install_remote);
+                            let choices = names.clone();
+                            install_row.push(
+                                dropdown(names, selected, move |index| {
+                                    Message::PackageInstallRemoteChanged(
+                                        choices.get(index).cloned().unwrap_or_default(),
+                                    )
+                                })
+                                .into(),
+                            );
+                        }
+                    }
+                    install_row.push(
                         button::text("Install")
                             .on_press_maybe(
                                 (!self.action_busy).then_some(Message::PackageInstallRequested),
                             )
                             .into(),
+                    );
+                    install_row.push(
                         button::text("Preview APK")
                             .on_press_maybe(
                                 (kind == PackageKind::Apk
@@ -299,9 +361,9 @@ impl PackagesState {
                                     .then_some(Message::ApkPreviewRequested),
                             )
                             .into(),
-                    ])
-                    .spacing(8),
-                ))
+                    );
+                    settings::item("Direct install", row(install_row).spacing(8))
+                })
                 .into(),
         );
 
@@ -383,6 +445,74 @@ impl PackagesState {
             }
         }
         items.push(list.into());
+
+        if let Some(pending) = &self.pending_install {
+            let mut confirm = settings::section()
+                .title("Confirm Flatpak install")
+                .add(settings::item("Application", text(pending.app_id.clone())))
+                .add(settings::item(
+                    "Remote",
+                    text(if self.install_remote.is_empty() {
+                        "flathub".to_string()
+                    } else {
+                        self.install_remote.clone()
+                    }),
+                ));
+            match (&pending.info, &pending.info_error) {
+                (Some(info), _) => {
+                    confirm = confirm
+                        .add(settings::item(
+                            "Version",
+                            text(if info.version.is_empty() {
+                                "unknown".to_string()
+                            } else {
+                                info.version.clone()
+                            }),
+                        ))
+                        .add(settings::item(
+                            "Download size",
+                            text(if info.download_size.is_empty() {
+                                "unknown".to_string()
+                            } else {
+                                info.download_size.clone()
+                            }),
+                        ))
+                        .add(settings::item(
+                            "Installed size",
+                            text(if info.installed_size.is_empty() {
+                                "unknown".to_string()
+                            } else {
+                                info.installed_size.clone()
+                            }),
+                        ));
+                }
+                (_, Some(error)) => {
+                    confirm = confirm.add(settings::item(
+                        "Sizes",
+                        text(format!("unavailable ({error})")),
+                    ));
+                }
+                _ => {}
+            }
+            items.push(
+                confirm
+                    .add(settings::item(
+                        "Actions",
+                        row(vec![
+                            button::destructive("Install")
+                                .on_press_maybe(
+                                    (!self.action_busy).then_some(Message::PackageInstallConfirmed),
+                                )
+                                .into(),
+                            button::text("Cancel")
+                                .on_press(Message::PackageInstallCancelled)
+                                .into(),
+                        ])
+                        .spacing(8),
+                    ))
+                    .into(),
+            );
+        }
 
         if let Some((kind, name, _id)) = &self.pending_remove {
             items.push(

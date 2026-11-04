@@ -293,6 +293,13 @@ pub const SAMPLES: &[Sample] = &[
     },
     Sample {
         module: ursine_api::ModuleId::PackagesFlatpak,
+        action: "get_flatpak_info",
+        pairs: &[("app_id", "org.x.Y"), ("system", "true")],
+        destructive: false,
+        dispatch: Dispatch::Gate,
+    },
+    Sample {
+        module: ursine_api::ModuleId::PackagesFlatpak,
         action: "remove_flatpak",
         pairs: &[("app_id", "org.x.Y"), ("system", "true")],
         destructive: true,
@@ -812,6 +819,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "get_btrbk_config",
     "get_config",
     "get_firewall",
+    "get_flatpak_info",
     "get_network",
     "get_niri_config",
     "get_scanner_config",

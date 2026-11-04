@@ -4,9 +4,9 @@ use cosmic::iced::Length;
 use cosmic::{Element, Task};
 use ursine_api::{
     validate_installable, Action, ApiError, ApkPackage, ApkUpdate, Capability, CapabilityReport,
-    CrontabView, ErrorCode, FlatpakPackage, JobOutput, JobStatus, LogChunk, LogCursor, LogFile,
-    LogSearchResult, ModuleId, SessionToken, ThemeApplyReport, ThemeSnapshot, ThemingStatus,
-    TriState,
+    CrontabView, ErrorCode, FlatpakInfo, FlatpakPackage, JobOutput, JobStatus, LogChunk, LogCursor,
+    LogFile, LogSearchResult, ModuleId, SessionToken, ThemeApplyReport, ThemeSnapshot,
+    ThemingStatus, TriState,
 };
 
 use crate::bluetooth::BluetoothState;
@@ -256,10 +256,14 @@ pub enum Message {
     PrinterActionFinished(u64, String, Result<serde_json::Value, ApiError>),
     PackageQueryChanged(String),
     PackageInstallChanged(String),
+    PackageInstallRemoteChanged(String),
     PackageScopeChanged(usize),
     PackageSearchRequested,
     PackageInstallRequested,
     PackageInstallDirect(String),
+    PackageInstallInfoLoaded(u64, String, Result<FlatpakInfo, ApiError>),
+    PackageInstallConfirmed,
+    PackageInstallCancelled,
     PackageRefresh,
     PackageRefreshIndexes,
     PackageUpdateRequested,
@@ -819,14 +823,33 @@ impl cosmic::Application for App {
             Message::PackageQueryChanged(value) => self.packages.query = value,
             Message::PackageInstallChanged(value) => self.packages.install = value,
             Message::PackageScopeChanged(index) => {
-                self.packages.system = index == 0;
-                return self.load_packages(self.packages.kind.unwrap_or(PackageKind::Apk));
+                // An in-flight size lookup would repopulate the confirm with
+                // the previous installation's numbers: ignore while busy.
+                if !self.packages.action_busy {
+                    self.packages.system = index == 0;
+                    // Sizes fetched for the previous installation are stale.
+                    self.packages.pending_install = None;
+                    return self.load_packages(self.packages.kind.unwrap_or(PackageKind::Apk));
+                }
             }
             Message::PackageSearchRequested => return self.search_packages(),
             Message::PackageInstallRequested => return self.install_package_input(),
             Message::PackageInstallDirect(id) => {
                 return self.install_package(id);
             }
+            Message::PackageInstallRemoteChanged(name) => {
+                // Sizes already fetched for another remote would mislabel
+                // the confirm: drop it and make the user ask again.
+                if !self.packages.action_busy {
+                    self.packages.install_remote = name;
+                    self.packages.pending_install = None;
+                }
+            }
+            Message::PackageInstallInfoLoaded(epoch, app_id, result) => {
+                return self.finish_flatpak_install_info(epoch, app_id, result);
+            }
+            Message::PackageInstallConfirmed => return self.confirm_flatpak_install(),
+            Message::PackageInstallCancelled => self.packages.pending_install = None,
             Message::PackageRefresh => {
                 return self.load_packages(self.packages.kind.unwrap_or(PackageKind::Apk))
             }
@@ -2115,7 +2138,7 @@ impl App {
             let remotes = Task::future(async move {
                 Message::PackageFlatpakRemotesLoaded(
                     epoch,
-                    client::flatpak_remotes(remotes_token).await,
+                    client::flatpak_remotes(remotes_token, Some(system)).await,
                 )
             })
             .map(cosmic::Action::App);
@@ -2328,7 +2351,10 @@ impl App {
             return Task::none();
         }
         let kind = self.packages.kind.unwrap_or(PackageKind::Apk);
-        let system = self.packages.system;
+        if kind == PackageKind::Flatpak {
+            // Flatpak installs confirm first with remote sizes.
+            return self.start_flatpak_install_confirm(package);
+        }
         let token = session.token.clone();
         let epoch = self.epoch;
         self.packages.action_busy = true;
@@ -2336,10 +2362,83 @@ impl App {
         self.packages.error = None;
         self.packages.pending_remove = None;
         Task::future(async move {
-            let result = match kind {
-                PackageKind::Apk => client::apk_install(token, package).await,
-                PackageKind::Flatpak => client::flatpak_install(token, package, system).await,
-            };
+            let result = client::apk_install(token, package).await;
+            Message::PackageActionFinished(epoch, "install".into(), result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    /// Fetch `flatpak remote-info` for the pending install so the confirm
+    /// step can show version and sizes. A failed lookup still opens the
+    /// confirm (the install job reports its own errors).
+    fn start_flatpak_install_confirm(&mut self, app_id: String) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.packages.action_busy || self.job.is_some() {
+            return Task::none();
+        }
+        let system = self.packages.system;
+        let remote = self.packages.selected_remote();
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.message = None;
+        self.packages.error = None;
+        self.packages.pending_install = None;
+        Task::future(async move {
+            let result = client::flatpak_info(token, app_id.clone(), remote, system).await;
+            Message::PackageInstallInfoLoaded(epoch, app_id, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_flatpak_install_info(
+        &mut self,
+        epoch: u64,
+        app_id: String,
+        result: Result<FlatpakInfo, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.packages.action_busy = false;
+        let (info, info_error) = match result {
+            Ok(info) => (Some(info), None),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                (None, Some(friendly(&error)))
+            }
+        };
+        self.packages.pending_install = Some(crate::packages::PendingInstall {
+            app_id,
+            info,
+            info_error,
+        });
+        Task::none()
+    }
+
+    fn confirm_flatpak_install(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.packages.action_busy || self.job.is_some() {
+            return Task::none();
+        }
+        let Some(pending) = self.packages.pending_install.take() else {
+            return Task::none();
+        };
+        let system = self.packages.system;
+        let remote = self.packages.selected_remote();
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.message = None;
+        self.packages.error = None;
+        Task::future(async move {
+            let result = client::flatpak_install(token, pending.app_id, system, remote).await;
             Message::PackageActionFinished(epoch, "install".into(), result)
         })
         .map(cosmic::Action::App)

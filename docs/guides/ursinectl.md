@@ -114,10 +114,19 @@ audit log). Run `ursinectl --help` for the grouped list.
 ### packages_flatpak (`flatpak`)
 
 `list_flatpak [system=true]`, `list_flatpak_remotes`,
-`search_flatpak query=… [system=true]`, `install_flatpak app_id=… [system=true]`,
+`search_flatpak query=… [system=true]`,
+`install_flatpak app_id=… [system=true] [remote=…]`,
+`get_flatpak_info app_id=… [remote=…] system=true|false`,
 `remove_flatpak app_id=… [system=true]`, `update_flatpak [system=true]`,
 `update_flatpak_app app_id=… [system=true]`,
 `remove_flatpak_orphans [system=true]`
+
+`remote` defaults to `flathub` and must be a configured remote name.
+`get_flatpak_info` answers `name`, `version`, `download_size`,
+`installed_size` and `runtime` for the install confirmation; a failed
+lookup still allows the install (the job reports its own errors).
+`list_flatpak_remotes` without `system` keeps the legacy both-installations
+listing.
 
 ### printers
 

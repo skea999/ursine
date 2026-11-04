@@ -4,6 +4,14 @@
 
 ### Added
 
+- Flatpak install confirmation with sizes and remote selection:
+  `install_flatpak` accepts a validated `remote` (default `flathub`), the
+  new `get_flatpak_info` resolves name/version/download/installed sizes
+  via `flatpak remote-info`, `list_flatpak_remotes` can filter by
+  installation, and the GUI shows a remote dropdown plus a confirm step
+  with the sizes before installing (failed size lookup still allows the
+  install; the job log reports its own errors). CLI guide and man page
+  updated.
 - Niri compatibility range: `get_niri_config` now reports
   `version_parsed`, `version_supported` and `min_supported` (tested
   floor `25.05`); the GUI shows a Compatibility warning below the

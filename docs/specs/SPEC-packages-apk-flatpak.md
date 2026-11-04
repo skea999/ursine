@@ -16,8 +16,10 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `remove_apk` | `apk del <package>` |
 | `upgrade_apk` | `apk upgrade` (progress via job log) |
 | `list_flatpak` | `flatpak list --columns=... --system/--user` |
+| `list_flatpak_remotes` | `flatpak remotes --columns=name,url [--system/--user]` |
 | `search_flatpak` | `flatpak search --columns=... --system/--user <query>` |
-| `install_flatpak` | `flatpak install -y --noninteractive <scope> flathub <app>` |
+| `install_flatpak` | `flatpak install -y --noninteractive <scope> <remote> <app>` (remote default `flathub`, validated) |
+| `get_flatpak_info` | `flatpak remote-info <scope> <remote> <app>` (name, version, sizes) |
 | `remove_flatpak` | `flatpak uninstall -y --noninteractive <scope> <app>` |
 | `update_flatpak` | `flatpak update -y --noninteractive <scope>` |
 
@@ -41,7 +43,8 @@ Sidebar entries **APK packages** and **Flatpak applications**. Each panel has:
 
 - source dropdown (APK/Flatpak);
 - Flatpak system/user dropdown;
-- search and direct-install fields;
+- search and direct-install fields (Flatpak: remote dropdown next to the
+  install entry, sizes shown in the install confirmation);
 - installed/search rows with install/remove actions;
 - refresh/update controls with confirmations.
 

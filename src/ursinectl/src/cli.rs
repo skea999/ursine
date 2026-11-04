@@ -57,8 +57,9 @@ MODULES (wire name; short alias in parentheses):
                       list_apk_updates, upgrade_apk_package
   packages_flatpak(flatpak)
                       list_flatpak, list_flatpak_remotes, search_flatpak,
-                      install_flatpak, remove_flatpak, update_flatpak,
-                      update_flatpak_app, remove_flatpak_orphans
+                      install_flatpak, get_flatpak_info, remove_flatpak,
+                      update_flatpak, update_flatpak_app,
+                      remove_flatpak_orphans
   printers            list_printers, printer_jobs, add_printer,
                       add_printer_manual, remove_printer,
                       set_default_printer, set_printer_options,

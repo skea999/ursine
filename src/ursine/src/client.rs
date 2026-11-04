@@ -12,9 +12,9 @@ use std::time::{Duration, Instant};
 
 use ursine_api::{
     installable_from_attr, timeouts, Action, ApiError, ApkPackage, ApkUpdate, BluetoothOp,
-    BluetoothView, BtrbkConfigView, BtrbkSettings, Disk, FirewallStatus, FlatpakPackage,
-    FlatpakRemote, InstalledPackage, JobOutput, ModuleId, ModulesConfig, NetworkView,
-    NiriConfigView, PrintJob, Printer, Request, RequestBody, Response, ResponseBody,
+    BluetoothView, BtrbkConfigView, BtrbkSettings, Disk, FirewallStatus, FlatpakInfo,
+    FlatpakPackage, FlatpakRemote, InstalledPackage, JobOutput, ModuleId, ModulesConfig,
+    NetworkView, NiriConfigView, PrintJob, Printer, Request, RequestBody, Response, ResponseBody,
     ScannerConfigView, SearchResult, Service, ServiceOp, SessionToken, Snapshot, SnapshotStats,
     TriState, UserSummary, PROTOCOL_VERSION,
 };
@@ -1177,11 +1177,14 @@ pub async fn flatpak_list(
     flatpak_packages(token, Action::ListFlatpak { system }, MUTATE_TIMEOUT).await
 }
 
-pub async fn flatpak_remotes(token: SessionToken) -> Result<Vec<FlatpakRemote>, ApiError> {
+pub async fn flatpak_remotes(
+    token: SessionToken,
+    system: Option<bool>,
+) -> Result<Vec<FlatpakRemote>, ApiError> {
     let value = call_with_timeout(
         token,
         ModuleId::PackagesFlatpak,
-        Action::ListFlatpakRemotes,
+        Action::ListFlatpakRemotes { system },
         None,
         MUTATE_TIMEOUT,
     )
@@ -1192,6 +1195,28 @@ pub async fn flatpak_remotes(token: SessionToken) -> Result<Vec<FlatpakRemote>, 
         .ok_or_else(|| ApiError::internal("daemon flatpak remotes response has no remotes"))?;
     serde_json::from_value(remotes)
         .map_err(|e| ApiError::internal(format!("cannot read flatpak remotes: {e}")))
+}
+
+pub async fn flatpak_info(
+    token: SessionToken,
+    app_id: String,
+    remote: Option<String>,
+    system: bool,
+) -> Result<FlatpakInfo, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::GetFlatpakInfo {
+            app_id,
+            remote,
+            system,
+        },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read flatpak info: {e}")))
 }
 
 pub async fn flatpak_search(
@@ -1211,11 +1236,16 @@ pub async fn flatpak_install(
     token: SessionToken,
     app_id: String,
     system: bool,
+    remote: Option<String>,
 ) -> Result<serde_json::Value, ApiError> {
     call_with_timeout(
         token,
         ModuleId::PackagesFlatpak,
-        Action::InstallFlatpak { app_id, system },
+        Action::InstallFlatpak {
+            app_id,
+            system,
+            remote,
+        },
         None,
         MUTATE_TIMEOUT,
     )

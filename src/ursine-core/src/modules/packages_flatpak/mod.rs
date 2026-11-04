@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
-use ursine_api::{Action, ApiError, FlatpakPackage, FlatpakRemote, ModuleId};
+use ursine_api::{Action, ApiError, FlatpakInfo, FlatpakPackage, FlatpakRemote, ModuleId};
 
 use super::ModuleCtx;
 use crate::jobs::JobSink;
@@ -27,22 +27,39 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         Action::ListFlatpak { system } => {
             Ok(json!({"packages": list(*system, ctx.as_user).await?}))
         }
-        Action::ListFlatpakRemotes => Ok(json!({"remotes": remotes().await?})),
+        Action::ListFlatpakRemotes { system } => {
+            Ok(json!({"remotes": remotes(*system, ctx.as_user).await?}))
+        }
         Action::SearchFlatpak { query, system } => Ok(json!({
             "packages": search(query, *system, ctx.as_user).await?,
         })),
-        Action::InstallFlatpak { app_id, system } => {
+        Action::InstallFlatpak {
+            app_id,
+            system,
+            remote,
+        } => {
             validate_app_id(app_id)?;
+            let remote = validate_remote(remote.as_deref())?;
             let scope = scope(*system);
             let args = [
                 "install",
                 "-y",
                 "--noninteractive",
                 scope,
-                "flathub",
+                remote.as_str(),
                 app_id,
             ];
             start_job(ctx, "install_flatpak", *system, &args)
+        }
+        Action::GetFlatpakInfo {
+            app_id,
+            remote,
+            system,
+        } => {
+            validate_app_id(app_id)?;
+            let remote = validate_remote(remote.as_deref())?;
+            let info = info(app_id, &remote, *system, ctx.as_user).await?;
+            Ok(json!(info))
         }
         Action::RemoveFlatpak { app_id, system } => {
             validate_app_id(app_id)?;
@@ -121,8 +138,25 @@ async fn list(system: bool, user: &str) -> Result<Vec<FlatpakPackage>, ApiError>
     Ok(parse_list(&output, system))
 }
 
-async fn remotes() -> Result<Vec<FlatpakRemote>, ApiError> {
-    let output = run(true, "root", &["remotes", "--columns=name,url"]).await?;
+async fn remotes(system: Option<bool>, user: &str) -> Result<Vec<FlatpakRemote>, ApiError> {
+    let mut args = vec!["remotes", "--columns=name,url"];
+    match system {
+        Some(true) => args.push("--system"),
+        Some(false) => args.push("--user"),
+        None => {}
+    }
+    let output = match system {
+        Some(false) => {
+            exec::run_as_user_argv(user, flatpak_path()?, &args, TIMEOUT)
+                .await?
+                .stdout
+        }
+        _ => {
+            exec::run_root_program(flatpak_path()?, &args, TIMEOUT)
+                .await?
+                .stdout
+        }
+    };
     Ok(output
         .lines()
         .filter_map(|line| {
@@ -224,6 +258,94 @@ fn validate_app_id(app_id: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// Remote names reach the argv unquoted: same strict charset as app ids.
+fn validate_remote(remote: Option<&str>) -> Result<String, ApiError> {
+    let Some(remote) = remote else {
+        return Ok("flathub".to_string());
+    };
+    if remote.is_empty()
+        || remote.len() > 128
+        || remote.starts_with('-')
+        || !remote
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
+        return Err(ApiError::invalid("invalid Flatpak remote name"));
+    }
+    Ok(remote.to_string())
+}
+
+/// Resolve one ref on a remote (`flatpak remote-info`): display name,
+/// version and sizes for the install confirmation.
+async fn info(
+    app_id: &str,
+    remote: &str,
+    system: bool,
+    user: &str,
+) -> Result<FlatpakInfo, ApiError> {
+    let program = flatpak_path()?;
+    let scope = scope(system);
+    let args = ["remote-info", scope, remote, app_id];
+    let outcome = if system {
+        exec::run_root_program(program, &args, TIMEOUT).await?
+    } else {
+        exec::run_as_user_argv(user, program, &args, TIMEOUT).await?
+    };
+    parse_info(&outcome.stdout, app_id, remote)
+        .ok_or_else(|| ApiError::internal("unexpected flatpak remote-info output"))
+}
+
+/// Parse the human `flatpak remote-info` layout:
+/// leading-blank name line, then indented `Key: value` rows.
+fn parse_info(output: &str, app_id: &str, remote: &str) -> Option<FlatpakInfo> {
+    let mut name = String::new();
+    let mut version = String::new();
+    let mut download_size = String::new();
+    let mut installed_size = String::new();
+    let mut runtime = String::new();
+    let mut seen_id = false;
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if !seen_id && trimmed.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once(':') else {
+            if !seen_id && name.is_empty() {
+                // First non-empty line: "Firefox - Fast, …" summary header.
+                name = trimmed.split(" - ").next().unwrap_or(trimmed).to_string();
+            }
+            continue;
+        };
+        let value = value.trim();
+        match key.trim() {
+            "ID" => {
+                seen_id = true;
+                if value != app_id {
+                    return None;
+                }
+            }
+            "Version" => version = value.to_string(),
+            "Download" => download_size = value.to_string(),
+            "Installed" => installed_size = value.to_string(),
+            "Runtime" => runtime = value.to_string(),
+            _ => {}
+        }
+    }
+    seen_id.then_some(FlatpakInfo {
+        app_id: app_id.to_string(),
+        remote: remote.to_string(),
+        name: if name.is_empty() {
+            app_id.to_string()
+        } else {
+            name
+        },
+        version,
+        download_size,
+        installed_size,
+        runtime,
+    })
+}
+
 fn flatpak_path() -> Result<&'static str, ApiError> {
     FLATPAK_CANDIDATES
         .iter()
@@ -263,6 +385,45 @@ mod tests {
         assert!(validate_app_id("com.example_app-1").is_ok());
         assert!(validate_app_id("-evil").is_err());
         assert!(validate_app_id("org/evil").is_err());
+    }
+
+    #[test]
+    fn validates_remote_names_and_defaults_to_flathub() {
+        assert_eq!(validate_remote(None).unwrap(), "flathub");
+        assert_eq!(validate_remote(Some("flathub")).unwrap(), "flathub");
+        assert_eq!(validate_remote(Some("my-remote_1")).unwrap(), "my-remote_1");
+        assert!(validate_remote(Some("")).is_err());
+        assert!(validate_remote(Some("-evil")).is_err());
+        assert!(validate_remote(Some("remote;rm")).is_err());
+    }
+
+    #[test]
+    fn parses_remote_info_output() {
+        // Captured from `flatpak remote-info --user flathub org.mozilla.firefox`.
+        let output = "Firefox - Fast, Private & Safe Web Browser\n\
+            \n\
+            \x20       ID: org.mozilla.firefox\n\
+            \x20      Ref: app/org.mozilla.firefox/x86_64/stable\n\
+            \x20   Version: 158.0.1\n\
+            \x20    License: MPL-2.0\n\
+            Collection: org.flathub.Stable\n\
+            \x20  Download: 129.7 MB\n\
+            \x20 Installed: 345.7 MB\n\
+            \x20   Runtime: org.freedesktop.Platform/x86_64/25.08\n";
+        let info = parse_info(output, "org.mozilla.firefox", "flathub").unwrap();
+        assert_eq!(info.name, "Firefox");
+        assert_eq!(info.version, "158.0.1");
+        assert_eq!(info.download_size, "129.7 MB");
+        assert_eq!(info.installed_size, "345.7 MB");
+        assert_eq!(info.runtime, "org.freedesktop.Platform/x86_64/25.08");
+        assert_eq!(info.remote, "flathub");
+    }
+
+    #[test]
+    fn remote_info_rejects_mismatched_id_and_garbage() {
+        let good = "X\n\n ID: org.mozilla.firefox\n Version: 1\n";
+        assert!(parse_info(good, "org.other.App", "flathub").is_none());
+        assert!(parse_info("no keys here\n", "org.mozilla.firefox", "flathub").is_none());
     }
 
     #[test]

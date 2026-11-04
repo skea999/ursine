@@ -152,20 +152,21 @@ Implemented baseline:
 
 - system/user list;
 - search;
-- install from `flathub`;
+- install from a configured remote (remote dropdown, default `flathub`);
 - remove;
 - update all;
 - system/user scope dropdown;
-- capability `flatpak` and module switch.
+- capability `flatpak` and module switch;
+- install confirmation with version/download/installed sizes
+  (`get_flatpak_info` → `flatpak remote-info`);
+- scope-aware remote listing (`list_flatpak_remotes system=…`).
 
 v2 polish:
 
-- remote dropdown, not hardcoded `flathub`;
 - runtimes and apps separation;
 - update-available list;
 - per-app update;
 - Flatpak permissions editor (filesystem, devices, sockets, env);
-- install size/progress;
 - user scope for another target user if required later.
 
 ### printers (CUPS)

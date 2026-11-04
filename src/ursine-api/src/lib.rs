@@ -54,7 +54,7 @@ pub use nix::{
     installable_from_attr, is_safe_installable_atom, normalize_installable, validate_installable,
     CommandOutcome, InstalledPackage, SearchResult,
 };
-pub use packages::{ApkPackage, ApkUpdate, FlatpakPackage, FlatpakRemote};
+pub use packages::{ApkPackage, ApkUpdate, FlatpakInfo, FlatpakPackage, FlatpakRemote};
 pub use principal::{AsUser, Principal, PrincipalOrigin};
 pub use printer::{PrintJob, Printer};
 pub use scanner::{AirscanDevice, Scanner, ScannerConfigView};
