@@ -5,6 +5,7 @@
 //! itself; a compromised home cannot become a root write or read primitive.
 
 mod kdl;
+mod validate_errors;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -17,6 +18,12 @@ use super::ModuleCtx;
 use crate::modules::packages_nix::exec;
 
 const MAX_CONFIG: usize = 1024 * 1024;
+/// Oldest niri release the managed sections are tested against (`CalVer`
+/// `YY.MM`; compared as `(major, minor)` against `niri --version`).
+const NIRI_MIN_SUPPORTED: &str = "25.05";
+/// Tuple form of [`NIRI_MIN_SUPPORTED`] — a compile-time constant so an
+/// unparsable floor string can never widen the range.
+const NIRI_MIN_SUPPORTED_TUPLE: (u32, u32) = (25, 5);
 static NIRI_MUTATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 const NIRI_CANDIDATES: [&str; 4] = [
@@ -42,7 +49,12 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                 &content,
             )
             .await?;
-            Ok(json!({"valid": valid, "stdout": stdout, "stderr": stderr}))
+            let errors = if valid {
+                Vec::new()
+            } else {
+                validate_errors::parse_validate_errors(&stderr, &content)
+            };
+            Ok(json!({"valid": valid, "stdout": stdout, "stderr": stderr, "errors": errors}))
         }
         Action::SetNiriSection { section, value } => {
             let _guard = NIRI_MUTATION.lock().await;
@@ -90,13 +102,50 @@ async fn read_view(ctx: &ModuleCtx<'_>) -> Result<NiriConfigView, ApiError> {
         }
         Err(_) => None,
     };
+    let version_parsed = version.as_deref().and_then(parse_niri_version);
+    let version_supported = version_parsed
+        .as_ref()
+        .map(|(_, tuple)| *tuple >= min_supported_tuple());
     Ok(NiriConfigView {
         path: path.display().to_string(),
         exists,
         content,
         version,
+        version_parsed: version_parsed.map(|(raw, _)| raw),
+        version_supported,
+        min_supported: NIRI_MIN_SUPPORTED.to_string(),
         values,
     })
+}
+
+/// Extract `major.minor[.patch]` from `niri --version` output such as
+/// `niri 25.11 (unknown commit)` or `niri 0.1.9`. Returns the raw version
+/// token plus the `(major, minor)` pair used for range comparison.
+fn parse_niri_version(output: &str) -> Option<(String, (u32, u32))> {
+    output.split_whitespace().find_map(|token| {
+        let trimmed = token.trim_start_matches('v');
+        if trimmed.is_empty()
+            || !trimmed
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || byte == b'.')
+        {
+            return None;
+        }
+        let mut parts = trimmed.split('.');
+        let major: u32 = parts.next()?.parse().ok()?;
+        let minor: u32 = parts.next()?.parse().ok()?;
+        if let Some(patch) = parts.next() {
+            patch.parse::<u32>().ok()?;
+        }
+        if parts.next().is_some() {
+            return None;
+        }
+        Some((trimmed.to_string(), (major, minor)))
+    })
+}
+
+fn min_supported_tuple() -> (u32, u32) {
+    NIRI_MIN_SUPPORTED_TUPLE
 }
 
 /// Returns `(exists, content)`. The first byte is a marker emitted by the
@@ -178,4 +227,51 @@ fn niri_path() -> Result<&'static str, ApiError> {
         .find(|path| Path::new(path).is_file())
         .copied()
         .ok_or_else(|| ApiError::unavailable("niri not installed", "apk add niri"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_calver_version_output() {
+        assert_eq!(
+            parse_niri_version("niri 25.11 (unknown commit)"),
+            Some(("25.11".to_string(), (25, 11)))
+        );
+        assert_eq!(
+            parse_niri_version("niri 0.1.9"),
+            Some(("0.1.9".to_string(), (0, 1)))
+        );
+        assert_eq!(
+            parse_niri_version("25.05"),
+            Some(("25.05".to_string(), (25, 5)))
+        );
+    }
+
+    #[test]
+    fn rejects_non_version_output() {
+        assert_eq!(parse_niri_version(""), None);
+        assert_eq!(parse_niri_version("niri not installed"), None);
+        assert_eq!(parse_niri_version("25.11.1.4"), None);
+        assert_eq!(parse_niri_version("v25.11-beta"), None);
+    }
+
+    #[test]
+    fn range_compares_calver_tuples() {
+        let min = min_supported_tuple();
+        assert_eq!(min, (25, 5));
+        assert!((25, 11) >= min);
+        assert!((26, 1) >= min);
+        assert!((24, 9) < min);
+        assert!((0, 1) < min);
+    }
+
+    #[test]
+    fn min_constant_matches_its_version_string() {
+        assert_eq!(
+            parse_niri_version(NIRI_MIN_SUPPORTED).map(|(_, tuple)| tuple),
+            Some(NIRI_MIN_SUPPORTED_TUPLE)
+        );
+    }
 }

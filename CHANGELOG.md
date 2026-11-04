@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Niri compatibility range: `get_niri_config` now reports
+  `version_parsed`, `version_supported` and `min_supported` (tested
+  floor `25.05`); the GUI shows a Compatibility warning below the
+  floor instead of only a raw version string.
+- Niri field-level validation errors: `validate_niri_config` returns
+  structured `errors` (`message`, `line`, `column`, `section`, `field`)
+  mapped from niri's miette diagnostics; the GUI lists them per field,
+  `ursinectl` exits 1 on `valid=false`, and the CLI guide and man page
+  document both.
+
 ## [0.25.4] — 2026-11-02
 
 ### Fixed

@@ -181,6 +181,14 @@ audit log). Run `ursinectl --help` for the grouped list.
 `get_niri_config`, `validate_niri_config [proposed=…]`,
 `set_niri_section section=… value={…}`
 
+`get_niri_config` reports `version` (raw `niri --version`),
+`version_parsed` (`major.minor[.patch]`), `version_supported` (`false`
+below the tested minimum) and `min_supported`.
+`validate_niri_config` returns `valid`, the raw `stdout`/`stderr`, and
+`errors`: field-level entries `{message, line, column, section, field}`
+mapped from niri's diagnostics when possible. `valid=false` exits with
+code 1 even though the call itself succeeded.
+
 ### theming
 
 `theme_detect`, `theme_get`, `theme_apply [show_minimize=false]`
@@ -255,7 +263,7 @@ CLI jobs live under `/run/ursine/cli-jobs` (never the daemon's
 | Code | Meaning |
 |------|---------|
 | `0` | Success (a background mutation finished with exit code 0). |
-| `1` | Action/API error (capability unavailable, validation, job failure). The message goes to stderr, with a `fix:` hint when the daemon provides one. |
+| `1` | Action/API error (capability unavailable, validation, job failure) or `validate_niri_config` answering `valid=false`. The message goes to stderr, with a `fix:` hint when the daemon provides one. |
 | `2` | Usage error: bad arguments, unknown module/action/field, missing `--yes`, or the root gate. |
 
 ## Chroot usage

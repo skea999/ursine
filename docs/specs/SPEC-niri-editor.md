@@ -25,6 +25,16 @@ and user-scoped I/O (no root file access) are implemented. Additional v1 form gr
 (outputs, keybinds, gestures, environment/spawn lists, keyboard/pointer,
 screenshot path, hotkey overlay) remain to be added to the schema and GUI.
 
+Compatibility and error mapping (v1 closure): `niri --version` is parsed and
+compared against the tested floor `NIRI_MIN_SUPPORTED` (currently `25.05`);
+the view exposes `version_parsed`/`version_supported`/`min_supported` and the
+GUI warns below the floor (SPEC rule: warn, never hard-block — `niri validate`
+stays the authoritative gate). Failed validates return structured `errors`
+(`{message, line, column, section, field}`) parsed from miette diagnostics and
+mapped to the offending line of the proposed config; the underlined snippet
+row wins over the header coordinate, and unmapped failures fall back to raw
+stderr in the GUI. `ursinectl` exits 1 on `valid=false`.
+
 ## API surface
 
 | Action | Implementation |

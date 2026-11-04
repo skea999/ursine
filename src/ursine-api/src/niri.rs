@@ -162,6 +162,23 @@ pub struct NiriStruts {
     pub bottom: Option<u32>,
 }
 
+/// Structured field-level error from `niri validate` (miette stderr).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NiriValidateError {
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
+    /// Managed section key (`layout`, `outputs`, …) when the line could be
+    /// mapped into the proposed config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+    /// Node/field name on the offending line when it reads as an identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+}
+
 /// Parsed view of a user's niri config.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NiriConfigView {
@@ -170,6 +187,15 @@ pub struct NiriConfigView {
     pub content: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// Normalized `major.minor[.patch]` extracted from `niri --version`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_parsed: Option<String>,
+    /// `Some(true/false)` when a version could be parsed, `None` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_supported: Option<bool>,
+    /// Oldest niri release this build's managed sections are tested against.
+    #[serde(default)]
+    pub min_supported: String,
     #[serde(default)]
     pub values: NiriValues,
 }

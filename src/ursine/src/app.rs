@@ -1997,13 +1997,7 @@ impl App {
                     self.niri.message = Some("niri accepts the current configuration.".into());
                     self.niri.error = None;
                 } else {
-                    let detail = value
-                        .get("stderr")
-                        .and_then(serde_json::Value::as_str)
-                        .filter(|text| !text.trim().is_empty())
-                        .or_else(|| value.get("stdout").and_then(serde_json::Value::as_str))
-                        .unwrap_or("niri rejected the configuration");
-                    self.niri.error = Some(detail.trim().to_string());
+                    self.niri.error = Some(niri_validate_detail(&value));
                 }
             }
             Err(error) => {
@@ -4908,6 +4902,55 @@ fn job_panel(job: &JobView) -> Element<'_, Message> {
         );
     }
     column(items).spacing(8).into()
+}
+
+/// Render a failed `niri validate` response: one line per structured
+/// field-level error from the daemon, raw niri stderr as the fallback.
+/// Structured output only wins when at least one entry carries a location —
+/// message-only entries (narrated miette, spanless wrappers) would otherwise
+/// hide detail the raw stderr still has.
+fn niri_validate_detail(value: &serde_json::Value) -> String {
+    if let Some(list) = value.get("errors").and_then(serde_json::Value::as_array) {
+        let located = list.iter().any(|entry| {
+            entry
+                .get("line")
+                .and_then(serde_json::Value::as_u64)
+                .is_some()
+        });
+        let lines: Vec<String> = list
+            .iter()
+            .filter_map(|entry| {
+                let message = entry.get("message")?.as_str()?.to_string();
+                let mut parts = Vec::new();
+                if let Some(line) = entry.get("line").and_then(serde_json::Value::as_u64) {
+                    parts.push(format!("line {line}"));
+                }
+                match (
+                    entry.get("section").and_then(serde_json::Value::as_str),
+                    entry.get("field").and_then(serde_json::Value::as_str),
+                ) {
+                    (Some(section), Some(field)) => parts.push(format!("{section} · {field}")),
+                    (Some(section), None) => parts.push(section.to_string()),
+                    _ => {}
+                }
+                if parts.is_empty() {
+                    Some(message)
+                } else {
+                    Some(format!("{}: {}", parts.join(", "), message))
+                }
+            })
+            .collect();
+        if located && !lines.is_empty() {
+            return lines.join("\n");
+        }
+    }
+    let raw = value
+        .get("stderr")
+        .and_then(serde_json::Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+        .or_else(|| value.get("stdout").and_then(serde_json::Value::as_str))
+        .unwrap_or("niri rejected the configuration");
+    raw.trim().to_string()
 }
 
 fn friendly(error: &ApiError) -> String {

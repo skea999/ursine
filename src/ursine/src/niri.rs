@@ -603,26 +603,39 @@ impl NiriState {
         }
 
         if let Some(view) = &self.view {
+            let mut config = settings::section()
+                .title("Configuration")
+                .add(settings::item("Path", text(view.path.clone())))
+                .add(settings::item(
+                    "State",
+                    text(if view.exists {
+                        "config.kdl exists; unknown nodes and comments are preserved"
+                    } else {
+                        "config.kdl is missing; saving creates it"
+                    }),
+                ))
+                .add(settings::item(
+                    "niri version",
+                    text(
+                        view.version
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                ));
+            if view.version_supported == Some(false) {
+                config = config.add(settings::item(
+                    "Compatibility",
+                    text(format!(
+                        "niri {} is below the supported minimum {}; managed options may fail validation",
+                        view.version_parsed
+                            .as_deref()
+                            .unwrap_or_else(|| view.version.as_deref().unwrap_or("unknown")),
+                        view.min_supported
+                    )),
+                ));
+            }
             items.push(
-                settings::section()
-                    .title("Configuration")
-                    .add(settings::item("Path", text(view.path.clone())))
-                    .add(settings::item(
-                        "State",
-                        text(if view.exists {
-                            "config.kdl exists; unknown nodes and comments are preserved"
-                        } else {
-                            "config.kdl is missing; saving creates it"
-                        }),
-                    ))
-                    .add(settings::item(
-                        "niri version",
-                        text(
-                            view.version
-                                .clone()
-                                .unwrap_or_else(|| "unknown".to_string()),
-                        ),
-                    ))
+                config
                     .add(settings::item(
                         "Validate current file",
                         button::text("niri validate").on_press_maybe(
@@ -1396,6 +1409,9 @@ mod tests {
             exists: true,
             content: String::new(),
             version: None,
+            version_parsed: None,
+            version_supported: None,
+            min_supported: String::new(),
             values: NiriValues {
                 layout_gaps: Some(16),
                 animations_off: Some(true),

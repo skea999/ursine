@@ -13,7 +13,7 @@
 
 - [x] Niri outputs `mode` + `position` and show `niri --version`.
 - [x] Niri version detection gates validate/save.
-- [ ] Niri compatibility range and field-level validation errors.
+- [x] Niri compatibility range and field-level validation errors. Range: parsed `niri --version` vs tested floor `25.05` (`version_parsed`/`version_supported`/`min_supported` in the view, GUI Compatibility warning). Field errors: miette stderr → `{message,line,column,section,field}` mapped to the proposed config; GUI renders the list, `ursinectl` exits 1 on `valid=false` (guide + man updated).
 - [x] Niri animations: slowdown, window-open/close duration + curve.
 - [ ] APKBUILDs in `feralos-aports`; real FeralOS PAM/activation/module smoke.
 - [ ] v1.0 tag after the above.

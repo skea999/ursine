@@ -123,7 +123,9 @@ async fn run_call(module: ModuleId, action: ursine_api::Action, opts: cli::RunOp
                 }
             }
             let _ = std::io::stdout().flush();
-            ExitCode::SUCCESS
+            // `niri validate` with `valid: false` is a failed check: exit 1
+            // so scripts can gate on the result (printed JSON stays complete).
+            ExitCode::from(ursinectl::response_exit_code(&value))
         }
         Err(error) => {
             eprintln!("error: {}", error.message);

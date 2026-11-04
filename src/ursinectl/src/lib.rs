@@ -115,3 +115,36 @@ pub async fn stream_job(
         }
     }
 }
+
+/// Process exit code for a call that succeeded at the API level.
+///
+/// Returns `1` when the response reports `valid: false` (`niri validate`
+/// rejected the config), else `0`. Only an explicit boolean `false` counts —
+/// any other response keeps the success exit code.
+pub fn response_exit_code(value: &serde_json::Value) -> u8 {
+    u8::from(value.get("valid").and_then(serde_json::Value::as_bool) == Some(false))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::response_exit_code;
+    use serde_json::json;
+
+    #[test]
+    fn valid_false_exits_one() {
+        assert_eq!(response_exit_code(&json!({"valid": false})), 1);
+        assert_eq!(
+            response_exit_code(&json!({
+                "valid": false, "errors": [{"message": "unexpected node"}]
+            })),
+            1
+        );
+    }
+
+    #[test]
+    fn valid_true_and_absent_exit_zero() {
+        assert_eq!(response_exit_code(&json!({"valid": true})), 0);
+        assert_eq!(response_exit_code(&json!({"exists": true})), 0);
+        assert_eq!(response_exit_code(&json!({"valid": "false"})), 0);
+    }
+}

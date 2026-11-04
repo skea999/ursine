@@ -172,6 +172,10 @@ set_groups.
 .TP
 .B niri
 get_niri_config, validate_niri_config, set_niri_section.
+get_niri_config reports version, version_parsed, version_supported and
+min_supported. validate_niri_config returns valid, the raw niri output,
+and field-level errors (message, line, column, section, field); a false
+valid exits with status 1 even though the call succeeded.
 .TP
 .B theming
 theme_detect, theme_get, theme_apply.
