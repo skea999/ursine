@@ -27,7 +27,7 @@
 - [x] APK: operation progress/log (job log + `job_output` polling, terminal text, Close after completion).
 - [x] Flatpak: per-app update.
 - [x] Flatpak: configured remotes list.
-- [ ] Flatpak: remote dropdown, app/runtime split, update-available list, permissions editor, size/progress, target user.
+- [x] Flatpak: remote dropdown, app/runtime split, update-available list, permissions editor, size/progress, target user. Done 2026-11-04 in five CI-green commits (26707ae remote+sizes, 7a57d81 kind+Show, a5bcf23 updates, 48cd194 permissions editor, f1b020e as_user); progress stayed on the job-log path. VM smoke still needed for the override write path.
 - [x] Printers: paper/duplex/color via CUPS `-o` options.
 - [x] Printers: job state/size/submitted details.
 - [ ] Printers: live job progress.

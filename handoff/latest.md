@@ -6,6 +6,15 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-04 — Flatpak v2 detail complete (main, 5 commits)
+
+**Status**: DONE — five slices, each with its own gate (422 tests at the end), review cycle, static/docs PASS, push and green CI: `26707ae` remote dropdown + install sizes (`get_flatpak_info`, two-step confirm with sizes), `7a57d81` app/runtime split (`kind` from `--app`/`--runtime` queries + Show dropdown), `a5bcf23` update-available list (`list_flatpak_updates` + per-app Update), `48cd194` permissions editor (override keyfile edited directly so foreign groups survive; GLib env escapes; 14 findings incl. 1 high), `f1b020e` `as_user` user-scope targeting (own-account rule for non-root, remotes None-scope rejects the target). TASKS Flatpak line ticked; plan v2 polish for Flatpak empty.
+
+- Design notes worth remembering: `flatpak override --reset` deletes [Session Bus Policy] — never use it for partial edits; `ref` column has no app/runtime prefix (split needs two queries); `remote-ls --updates` is the update oracle; miette-style flatpak errors come from `remote-info` human layout.
+- Dispatch `as_user` now covers packages_nix + theming + crontab + Flatpak(user scope); messages updated, contract tests still green.
+- Open: VM smoke of the permissions write path (get/set on a real app, `flatpak override --show` reflects it, Session Bus policy survives); pre-existing epoch/scope race in the package panel recorded as risk (not introduced here).
+- Next: **Network DHCP/static IPv4, forget, VPN** (TASKS v2 required), then Firewall extras, Disks format/partition, Bluetooth pairing agent, printer live progress.
+
 ## Session 2026-11-04 — niri compatibility range + field-level validate errors (main)
 
 **Status**: DONE — commit `b01f0a2` (13 files, +643/-31); full gate green (401 tests, clippy `-D warnings`, fmt, `static-check all` PASS, docs PASS). Review cycle: 6 findings fixed before commit. Pushed with the harness commits.
