@@ -1,6 +1,6 @@
 {
   "goal": "Ursine — FeralOS complete control center (Webmin-style): root daemon + libcosmic GUI (v1), full module coverage (v2), OIDC+web (v3, memory-safe stack), Incus UI (v4), ZFS+Pirateus (v5), multi-distro (v6). Intent source of truth: docs/intent/ursine.md.",
-  "status": "v0.25.4 released + VM smoke passed (0 failures/1 SKIP); harness migrated to OpenCode V2 (commit 1e3dcc2, main ahead 1, unpushed); next: user picks v1/v2 item",
+  "status": "v0.25.4 released + VM smoke passed; niri compatibility range + field-level validate errors DONE (b01f0a2, gate green); harness on OpenCode V2; next: Flatpak detail feature",
   "active_goals": [
     "RELEASE 0.22.0 (2026-10-29): GTK3 chain + eog/galculator targets + minimize toggle + log viewer; gate green; tagged for nix release and VM smoke.",
     "v0.18.4 INIT HARDENING (2026-10-26): PID1/init detection, root-owned daemon/PAM copies, dinit unit idempotency/stale cleanup, install.sh dinit defaults/restart, CI regression coverage. Review-closed; tag pending in this release commit.",
@@ -15,6 +15,7 @@
     "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
+    "NIRI COMPATIBILITY + FIELD ERRORS (2026-11-04): DONE commit b01f0a2 — version_parsed/version_supported/min_supported (floor 25.05), structured validate errors mapped to section/field, GUI warning + field list, ursinectl exit 1 on valid=false, guide/man/SPEC/TASKS/CHANGELOG updated, review 6/6 fixed, gate 401 tests + static + docs PASS. Pushed. NEXT: Flatpak detail (remote dropdown, app/runtime split, update-available, permissions editor, size/progress, target user) per TASKS v2 required.",
     "OPENCODE V2 HARNESS (2026-11-04): DONE, commit 1e3dcc2 unpushed — plugin ported, 16 agents unhidden, opencode.json + 23 frontmatters + 16 commands converted, pre-commit file:line allowlist (.githooks/secret-allowlist). After any \"npx agents-opencode --update\": re-run artifacts/opencode-v2-migration/convert.py and sed -i '/^hidden: true$/d' .opencode/agents/*.md (installer restores V1 shape).",
     "VM SMOKE PASSED (2026-11-02): 0 failures / 1 SKIP (disks) on ursine 0.25.4 (nix profile + activated). Read-only battery, refusal guards and as-found assertion all green. Next: whatever the user picks — remaining v1/v2 items (niri form groups, Flatpak permissions, Network static/VPN, Firewall extras, Disks format, printer progress) or the ursinectl docs guide.",
     "DAEMON 0.24.0 ON VM (user): install from the v0.24.0 release tarball (install.sh now ships ursinectl) or nix update + ursine-activate, restart ursined.",

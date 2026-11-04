@@ -6,7 +6,18 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
-## Session 2026-11-04 — OpenCode V2 harness migration (main, unpushed)
+## Session 2026-11-04 — niri compatibility range + field-level validate errors (main)
+
+**Status**: DONE — commit `b01f0a2` (13 files, +643/-31); full gate green (401 tests, clippy `-D warnings`, fmt, `static-check all` PASS, docs PASS). Review cycle: 6 findings fixed before commit. Pushed with the harness commits.
+
+- Plan line: features-v1-v2.md "schema/version check against `niri --version`" + "validation error mapped to the field where possible" (TASKS v1.0 closure item now `[x]`).
+- Compatibility: `parse_niri_version` (CalVer `YY.MM[.patch]`, tolerates `niri 25.11 (unknown commit)`) vs `NIRI_MIN_SUPPORTED = 25.05` (const tuple, test ties string↔tuple); view exposes `version_parsed`/`version_supported`/`min_supported`; GUI Compatibility row warns below the floor — `niri validate` remains the hard gate (SPEC rule).
+- Field errors: `validate_errors.rs` parses miette stderr (real fixtures captured on host niri 25.11: unknown node + unclosed brace) → `{message,line,column,section,field}`; underline row wins over header, column only kept when header line == row, spanless wrapper blocks emitted with cause chain (`├─▶`/`╰─▶` merged), `/* */`+`//`+strings stripped before depth/section mapping (`section_key` translates niri node → managed section).
+- GUI: structured list via `niri_validate_detail`, raw stderr fallback when no entry carries a location. CLI: `response_exit_code` → 1 on `valid=false` (guide exit table + niri section + man page updated). Parity: no new action (response-shape only) so daemon+GUI+CLI shipped together.
+- Gotchas: miette header coordinate pointed at the enclosing node (2:1 vs underline line 3) — never pair them across lines; `cargo fmt` before clippy caught nothing, typos flagged `unparseable`.
+- Next: **Flatpak detail** (remote dropdown, app/runtime split, update-available list, permissions editor, size/progress, target user — TASKS v2 required), then Network static/forget/VPN, Firewall extras, Disks format/partition, Bluetooth pairing agent, printer live progress.
+
+## Session 2026-11-04 — OpenCode V2 harness migration (main)
 
 **Status**: DONE — commit `1e3dcc2` (43 files: pack + config + pre-commit allowlist), main ahead origin by 1. Rules plugin (`opencode-rules` 2.0.0) confirmed V2-native, loads clean.
 
