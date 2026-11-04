@@ -69,7 +69,8 @@ MODULES (wire name; short alias in parentheses):
   scanners            list_scanners, get_scanner_config, set_scanner_device,
                       remove_scanner_device, set_scanner_discovery
   network             get_network, set_wifi_enabled, connect_wifi,
-                      connect_network, disconnect_network
+                      connect_network, disconnect_network,
+                      set_network_ipv4
   bluetooth           get_bluetooth, set_bluetooth_power, scan_bluetooth,
                       bluetooth_action
   disks               list_disks, mount_disk, unmount_disk
@@ -322,9 +323,9 @@ pub fn is_destructive(action: &Action) -> bool {
         CancelPrinterJobs, CrontabSet, DeleteSnapshot, DeleteSnapshots, DeleteUser,
         PruneGenerations, Remove, RemoveAll, RemoveApk, RemoveFirewallPort, RemoveFirewallService,
         RemoveFlatpak, RemoveFlatpakOrphans, RemovePrinter, RemoveRegex, RemoveScannerDevice,
-        RestoreSnapshot, Rollback, SetFlatpakPermissions, SetPassword, StoreGc, ThemeApply,
-        UnmountDisk, UpdateFlatpak, UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage, UpgradeRegex,
-        WipeHistory,
+        RestoreSnapshot, Rollback, SetFlatpakPermissions, SetNetworkIpv4, SetPassword, StoreGc,
+        ThemeApply, UnmountDisk, UpdateFlatpak, UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage,
+        UpgradeRegex, WipeHistory,
     };
     matches!(
         action,
@@ -344,6 +345,7 @@ pub fn is_destructive(action: &Action) -> bool {
             | UpdateFlatpakApp { .. }
             | RemoveFlatpakOrphans { .. }
             | SetFlatpakPermissions { .. }
+            | SetNetworkIpv4 { .. }
             | RestoreSnapshot { dry_run: false, .. }
             | DeleteSnapshot { .. }
             | DeleteSnapshots { .. }

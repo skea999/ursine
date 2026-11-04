@@ -944,16 +944,28 @@ fn root_command(program: &str, args: &[&str]) -> Result<Command, ApiError> {
 
 /// Run a validated argv as ROOT (no shell is involved). Used for store-wide
 /// operations and for profile commands users cannot lock themselves.
-pub async fn run_root_program(
+/// Run a validated argv as root (no shell is involved) with a
+/// per-argument guard; empty arguments are always allowed (nmcli clears
+/// properties with `""`).
+async fn run_root_program_guarded(
     program: &str,
     args: &[&str],
     timeout: Duration,
+    guard: impl Fn(&str) -> bool,
 ) -> Result<CommandOutcome, ApiError> {
-    let cmd = root_command(program, args)?;
+    if !is_safe_atom(program) {
+        return Err(ApiError::invalid("invalid program"));
+    }
+    let mut cmd = Command::new(program);
+    for arg in args {
+        if !guard(arg) {
+            return Err(ApiError::invalid("invalid command argument"));
+        }
+        cmd.arg(arg);
+    }
     let output = run_command(cmd, timeout, OutputPolicy::Truncate, None).await?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-
     if output.status.success() {
         Ok(CommandOutcome { stdout, stderr })
     } else {
@@ -967,6 +979,33 @@ pub async fn run_root_program(
             format!("command failed: {detail}"),
         ))
     }
+}
+
+pub async fn run_root_program(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<CommandOutcome, ApiError> {
+    run_root_program_guarded(program, args, timeout, |arg| {
+        arg.is_empty() || arg.split(',').all(is_safe_atom)
+    })
+    .await
+}
+
+/// Run a validated argv as root (no shell is involved).
+///
+/// Like [`run_root_program`] but the per-argument guard is the quoted
+/// value rule (spaces allowed — nothing interprets them without a
+/// shell): for nmcli connection names such as `Home Wi-Fi`.
+pub async fn run_root_program_value(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<CommandOutcome, ApiError> {
+    run_root_program_guarded(program, args, timeout, |arg| {
+        arg.is_empty() || is_safe_quoted_value(arg)
+    })
+    .await
 }
 
 /// Run a validated argv as ROOT, streaming terminal output into a job log.
@@ -985,6 +1024,16 @@ pub async fn run_root_program_log(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn value_guard_allows_spaces_and_empty_but_not_quotes() {
+        // Direct exec: no shell, so spaces are literal; empty clears a
+        // property; a quote would break other quoted-value callers.
+        let ok = run_root_program_value("/bin/true", &["a b", ""], Duration::from_secs(5)).await;
+        assert!(ok.is_ok(), "{ok:?}");
+        let bad = run_root_program_value("/bin/true", &["it's"], Duration::from_secs(5)).await;
+        assert!(bad.is_err(), "{bad:?}");
+    }
 
     #[test]
     fn accepts_typical_installables() {

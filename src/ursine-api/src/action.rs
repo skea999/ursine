@@ -296,6 +296,20 @@ pub enum Action {
     DisconnectNetwork {
         device: String,
     },
+    /// Set IPv4 on a connection profile: `dhcp` (clears addresses,
+    /// gateway and DNS) or `static` (requires addresses). An active
+    /// connection is re-activated to apply the change.
+    SetNetworkIpv4 {
+        connection: String,
+        /// `dhcp` or `static`.
+        method: String,
+        #[serde(default)]
+        addresses: Vec<String>,
+        #[serde(default)]
+        gateway: Option<String>,
+        #[serde(default)]
+        dns: Vec<String>,
+    },
 
     // -- bluetooth (BlueZ) --
     /// Adapter state and known devices.

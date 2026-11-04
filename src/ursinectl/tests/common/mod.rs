@@ -503,6 +503,18 @@ pub const SAMPLES: &[Sample] = &[
         destructive: false,
         dispatch: Dispatch::Gate,
     },
+    Sample {
+        module: ursine_api::ModuleId::Network,
+        action: "set_network_ipv4",
+        pairs: &[
+            ("connection", "eth0"),
+            ("method", "dhcp"),
+            ("addresses", "[]"),
+            ("dns", "[]"),
+        ],
+        destructive: true,
+        dispatch: Dispatch::Gate,
+    },
     // -- bluetooth (BlueZ absent → gate) --
     Sample {
         module: ursine_api::ModuleId::Bluetooth,
@@ -908,6 +920,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "set_flatpak_permissions",
     "set_groups",
     "set_module_switch",
+    "set_network_ipv4",
     "set_niri_section",
     "set_password",
     "set_printer_options",

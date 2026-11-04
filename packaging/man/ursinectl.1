@@ -152,7 +152,10 @@ remove_scanner_device, set_scanner_discovery.
 .TP
 .B network
 get_network, set_wifi_enabled, connect_wifi, connect_network,
-disconnect_network.
+disconnect_network, set_network_ipv4.
+set_network_ipv4 sets a profile's IPv4 method (dhcp or static with
+addresses/gateway/dns) and reconnects an active profile; it requires
+--yes. Connection names may contain spaces.
 .TP
 .B bluetooth
 get_bluetooth, set_bluetooth_power, scan_bluetooth, bluetooth_action.

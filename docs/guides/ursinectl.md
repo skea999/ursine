@@ -161,7 +161,15 @@ listing.
 
 `get_network`, `set_wifi_enabled enabled=true|false`,
 `connect_wifi ssid=… password=-`, `connect_network device=…`,
-`disconnect_network device=…`
+`disconnect_network device=…`,
+`set_network_ipv4 connection=… method=dhcp|static addresses=[…]
+[gateway=…] dns=[…]`
+
+`set_network_ipv4` rewrites the profile's IPv4 settings (`dhcp` clears
+addresses/gateway/DNS and takes none of them; `static` needs at least
+one CIDR address) and re-activates the connection when it is active.
+Connection names may contain spaces (`connection="Home Wi-Fi"`). The
+action is destructive: it requires `--yes`.
 
 ### bluetooth
 

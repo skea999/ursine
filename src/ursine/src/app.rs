@@ -188,6 +188,12 @@ pub enum Message {
     WifiConnect,
     ConnectNetwork(String),
     DisconnectNetwork(String),
+    NetworkIpv4Edit(String),
+    NetworkIpv4MethodChanged(usize),
+    NetworkIpv4Field(u8, String),
+    NetworkIpv4Apply,
+    NetworkIpv4Cancelled,
+    NetworkIpv4Finished(u64, Result<ursine_api::NetworkView, ApiError>),
     NetworkActionFinished(u64, String, Result<ursine_api::NetworkView, ApiError>),
     RefreshBluetooth,
     BluetoothLoaded(u64, Result<ursine_api::BluetoothView, ApiError>),
@@ -685,6 +691,94 @@ impl cosmic::Application for App {
                     "disconnect",
                     client::disconnect_network(self.token(), device),
                 )
+            }
+            Message::NetworkIpv4Edit(connection) => {
+                self.network.open_ipv4(connection);
+            }
+            Message::NetworkIpv4MethodChanged(index) => {
+                if let Some(form) = self.network.ipv4.as_mut() {
+                    form.static_ip = index == 1;
+                }
+            }
+            Message::NetworkIpv4Field(field, value) => {
+                if let Some(form) = self.network.ipv4.as_mut() {
+                    match field {
+                        0 => form.addresses = value,
+                        1 => form.gateway = value,
+                        _ => form.dns = value,
+                    }
+                }
+            }
+            Message::NetworkIpv4Cancelled => {
+                if let Some(form) = self.network.ipv4.as_mut() {
+                    if form.confirm {
+                        form.confirm = false;
+                    } else {
+                        self.network.ipv4 = None;
+                    }
+                }
+            }
+            Message::NetworkIpv4Finished(epoch, result) => {
+                return self.finish_network_ipv4(epoch, result);
+            }
+            Message::NetworkIpv4Apply => {
+                let armed = self.network.ipv4.as_ref().is_some_and(|form| form.confirm);
+                if armed {
+                    let Some(_session) = &self.session else {
+                        return Task::none();
+                    };
+                    if self.network.action_busy || self.job.is_some() {
+                        return Task::none();
+                    }
+                    let Some(form) = self.network.ipv4.as_mut() else {
+                        return Task::none();
+                    };
+                    // Stay open until the reply: an error keeps the typed
+                    // input (confirm re-arms), success closes the form.
+                    form.confirm = false;
+                    let connection = form.connection.clone();
+                    let method = if form.static_ip { "static" } else { "dhcp" };
+                    let addresses: Vec<String> = if form.static_ip {
+                        form.addresses
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(str::to_string)
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let gateway = if form.static_ip && !form.gateway.trim().is_empty() {
+                        Some(form.gateway.trim().to_string())
+                    } else {
+                        None
+                    };
+                    let dns: Vec<String> = if form.static_ip {
+                        form.dns.split_whitespace().map(str::to_string).collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let token = self.token();
+                    let epoch = self.epoch;
+                    self.network.action_busy = true;
+                    self.network.error = None;
+                    self.network.message = None;
+                    return Task::future(async move {
+                        let result = client::set_network_ipv4(
+                            token,
+                            connection,
+                            method.to_string(),
+                            addresses,
+                            gateway,
+                            dns,
+                        )
+                        .await;
+                        Message::NetworkIpv4Finished(epoch, result)
+                    })
+                    .map(cosmic::Action::App);
+                } else if let Some(form) = self.network.ipv4.as_mut() {
+                    form.confirm = true;
+                }
             }
             Message::NetworkActionFinished(epoch, label, result) => {
                 return self.finish_network_action(epoch, &label, result)
@@ -4433,6 +4527,36 @@ impl App {
         self.network.error = None;
         Task::future(async move { Message::NetworkActionFinished(epoch, label, future.await) })
             .map(cosmic::Action::App)
+    }
+
+    /// IPv4 apply reply: success closes the editor, an error keeps it
+    /// open with the typed input intact.
+    fn finish_network_ipv4(
+        &mut self,
+        epoch: u64,
+        result: Result<ursine_api::NetworkView, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.network.action_busy = false;
+        match result {
+            Ok(view) => {
+                self.network.apply(view);
+                self.network.message = Some("IPv4 settings applied.".into());
+                self.network.ipv4 = None;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.network.error = Some(friendly(&error));
+                if let Some(form) = self.network.ipv4.as_mut() {
+                    form.confirm = false;
+                }
+            }
+        }
+        Task::none()
     }
 
     fn finish_network_action(

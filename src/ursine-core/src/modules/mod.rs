@@ -254,6 +254,7 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::ConnectWifi { .. } => "connect_wifi",
         Action::ConnectNetwork { .. } => "connect_network",
         Action::DisconnectNetwork { .. } => "disconnect_network",
+        Action::SetNetworkIpv4 { .. } => "set_network_ipv4",
     }
 }
 

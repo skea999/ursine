@@ -16,6 +16,22 @@ pub struct NetworkDevice {
     pub gateway: Option<String>,
     #[serde(default)]
     pub dns: Vec<String>,
+    /// IPv4 settings of the device's connection profile (when known).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ipv4_settings: Option<NetworkIpv4Settings>,
+}
+
+/// IPv4 configuration of one connection profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetworkIpv4Settings {
+    /// `NetworkManager` method (`auto`, `manual`, …).
+    pub method: String,
+    #[serde(default)]
+    pub addresses: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway: Option<String>,
+    #[serde(default)]
+    pub dns: Vec<String>,
 }
 
 /// One visible Wi-Fi network.

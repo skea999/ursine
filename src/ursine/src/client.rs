@@ -1935,3 +1935,29 @@ pub async fn disconnect_network(
     serde_json::from_value(value)
         .map_err(|e| ApiError::internal(format!("cannot read network: {e}")))
 }
+
+pub async fn set_network_ipv4(
+    token: SessionToken,
+    connection: String,
+    method: String,
+    addresses: Vec<String>,
+    gateway: Option<String>,
+    dns: Vec<String>,
+) -> Result<NetworkView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Network,
+        Action::SetNetworkIpv4 {
+            connection,
+            method,
+            addresses,
+            gateway,
+            dns,
+        },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read network: {e}")))
+}
