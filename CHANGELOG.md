@@ -20,7 +20,10 @@
   devices, filesystems, env): the daemon edits the override keyfile
   directly so every other key/group (Session Bus policies) survives,
   writes atomically with a backup, and shows the effective sandbox
-  read-only. CLI guide and man page updated.
+  read-only. User-installation actions accept `as_user` for root
+  (`--as-user`): root targets any existing normal-login account, non-root only its
+  own, and system scope rejects the target. CLI guide and man page
+  updated.
 - Niri compatibility range: `get_niri_config` now reports
   `version_parsed`, `version_supported` and `min_supported` (tested
   floor `25.05`); the GUI shows a Compatibility warning below the

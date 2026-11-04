@@ -28,7 +28,10 @@ center as the Nix store. Both backends are capability-gated and audited.
 
 - APK is system scope: root only.
 - Flatpak has system and user scope; user scope runs as the authenticated
-  principal.
+  principal. Root may retarget user scope to any existing normal-login
+  account through the wire `as_user` (`--as-user`); non-root principals
+  may target only their own account (same hardened boundary as
+  theming/crontab), and system-scope actions reject `as_user`.
 - The GUI never shells out. It renders typed rows from `ursine-api`.
 
 ## Security

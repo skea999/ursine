@@ -317,30 +317,38 @@ impl Daemon {
         };
 
         // `asUser` is meaningful for packages actions that read or mutate one
-        // profile and for theming (writes land in that user's home).
-        // Everything else (StoreGc, system, capabilities, config) acts on the
-        // daemon or the whole store and must not carry a target.
+        // profile, for theming (writes land in that user's home) and for
+        // Flatpak actions scoped to the user installation.
+        // Everything else (StoreGc, system, capabilities, config) acts on
+        // the daemon or the whole store and must not carry a target.
         let profile_scoped = module == ModuleId::PackagesNix && uses_profile(&action);
-        let user_scoped = profile_scoped || matches!(module, ModuleId::Theming | ModuleId::Crontab);
-        // Theming writes config files and crontab edits a personal crontab:
-        // a NON-root caller may only ever target its own identity (the GUI
-        // never sends a target; the wire rule is the review-hardened
-        // boundary against a wheel user editing someone else's files).
+        let flatpak_user_scope =
+            module == ModuleId::PackagesFlatpak && flatpak_allows_as_user(&action).unwrap_or(false);
+        let user_scoped = profile_scoped
+            || flatpak_user_scope
+            || matches!(module, ModuleId::Theming | ModuleId::Crontab);
+        // Theming writes config files, crontab edits a personal crontab and
+        // Flatpak user scope writes another user's installation: a NON-root
+        // caller may only ever target its own identity (the GUI never sends
+        // a target; the wire rule is the review-hardened boundary against a
+        // wheel user editing someone else's files).
         // Root is superuser: the admin CLI (`ursinectl`) manages other
         // accounts; handlers validate that the target user EXISTS (typed
         // NotFound) and is a normal login user.
-        let theming_foreign_target = matches!(module, ModuleId::Theming | ModuleId::Crontab)
+        let own_account_only =
+            matches!(module, ModuleId::Theming | ModuleId::Crontab) || flatpak_user_scope;
+        let foreign_own_account_target = own_account_only
             && principal.user != "root"
             && as_user
                 .as_ref()
                 .is_some_and(|target| target != &principal.user);
         let as_user_error = if as_user.is_some() && !user_scoped {
             Some(ApiError::invalid(
-                "as_user is only valid for profile-scoped packages_nix, theming or crontab actions",
+                "as_user is only valid for user-scoped packages_nix, theming, crontab or Flatpak (user installation) actions",
             ))
-        } else if theming_foreign_target {
+        } else if foreign_own_account_target {
             Some(ApiError::invalid(
-                "theming and crontab only apply to your own account",
+                "theming, crontab and Flatpak user-scope actions only apply to your own account",
             ))
         } else if as_user
             .as_ref()
@@ -450,6 +458,32 @@ fn uses_profile(action: &Action) -> bool {
             | Action::DiffClosures { .. }
             | Action::PruneGenerations { .. }
     )
+}
+
+/// Whether a Flatpak action may carry `as_user`: only an explicit user
+/// installation scope honors a target (`system=false`). Returns `None`
+/// for actions that are not Flatpak at all — and for Flatpak actions
+/// whose scope is unknown/legacy. Every Flatpak variant must appear
+/// here (and in `flatpak_actions_declare_scope`) so a new action cannot
+/// silently inherit the wrong rule.
+fn flatpak_allows_as_user(action: &Action) -> Option<bool> {
+    match action {
+        Action::ListFlatpak { system }
+        | Action::SearchFlatpak { system, .. }
+        | Action::InstallFlatpak { system, .. }
+        | Action::GetFlatpakInfo { system, .. }
+        | Action::RemoveFlatpak { system, .. }
+        | Action::UpdateFlatpak { system }
+        | Action::UpdateFlatpakApp { system, .. }
+        | Action::RemoveFlatpakOrphans { system }
+        | Action::ListFlatpakUpdates { system }
+        | Action::GetFlatpakPermissions { system, .. }
+        | Action::SetFlatpakPermissions { system, .. } => Some(!system),
+        // `None` keeps the legacy both-installations listing which runs
+        // as root: only an explicit user scope honors a target.
+        Action::ListFlatpakRemotes { system } => Some(*system == Some(false)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -611,6 +645,155 @@ mod tests {
             }
             other => panic!("want err, got {other:?}"),
         }
+    }
+
+    /// `as_user` on a system-scope Flatpak action is meaningless (the
+    /// operation runs as root) and must be rejected even when the target
+    /// equals the caller.
+    #[tokio::test]
+    async fn flatpak_system_scope_rejects_as_user() {
+        let (_clock, d) = daemon(&tmp_dir("flatpak-sys-asuser"));
+        let token = token(&d).await;
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(6),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::PackagesFlatpak,
+                action: Action::ListFlatpak { system: true },
+                as_user: Some("skea999".into()),
+            },
+        };
+        let resp = d.handle(call, &peer()).await;
+        match resp.body {
+            ResponseBody::Err { error } => {
+                assert_eq!(error.code, ErrorCode::Invalid, "{}", error.message);
+                assert!(
+                    error.message.contains("user-scoped") && error.message.contains("Flatpak"),
+                    "{}",
+                    error.message
+                );
+            }
+            other => panic!("want err, got {other:?}"),
+        }
+    }
+
+    /// A non-root principal may not point Flatpak user scope at another
+    /// account (same hardened boundary as theming/crontab).
+    #[tokio::test]
+    async fn flatpak_user_scope_rejects_foreign_target_for_non_root() {
+        let (_clock, d) = daemon(&tmp_dir("flatpak-xuser"));
+        let token = token(&d).await;
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(7),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::PackagesFlatpak,
+                action: Action::ListFlatpak { system: false },
+                as_user: Some("someone-else".into()),
+            },
+        };
+        let resp = d.handle(call, &peer()).await;
+        match resp.body {
+            ResponseBody::Err { error } => {
+                assert_eq!(error.code, ErrorCode::Invalid, "{}", error.message);
+                assert!(error.message.contains("own account"), "{}", error.message);
+            }
+            other => panic!("want err, got {other:?}"),
+        }
+    }
+
+    /// Own-account user scope passes the `as_user` rules and fails only at
+    /// the module capability gate (no flatpak in the CI image).
+    #[tokio::test]
+    async fn flatpak_user_scope_accepts_own_target() {
+        let (_clock, d) = daemon(&tmp_dir("flatpak-own"));
+        let token = token(&d).await;
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(8),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::PackagesFlatpak,
+                action: Action::ListFlatpak { system: false },
+                as_user: Some("skea999".into()),
+            },
+        };
+        let resp = d.handle(call, &peer()).await;
+        match resp.body {
+            ResponseBody::Err { error } => {
+                // The as_user rules passed; only the capability gate may stop us.
+                assert!(
+                    matches!(
+                        error.code,
+                        ErrorCode::Unavailable | ErrorCode::NotImplemented
+                    ),
+                    "{:?}: {}",
+                    error.code,
+                    error.message
+                );
+            }
+            ResponseBody::Ok { .. } => {}
+            ResponseBody::AuthOk { .. } => panic!("unexpected auth response"),
+        }
+    }
+
+    /// Every Flatpak wire action declares its scope to
+    /// [`flatpak_allows_as_user`] (new variants must be added here).
+    #[test]
+    fn flatpak_actions_declare_scope() {
+        let actions = [
+            Action::ListFlatpak { system: false },
+            Action::ListFlatpakRemotes {
+                system: Some(false),
+            },
+            Action::ListFlatpakRemotes { system: None },
+            Action::ListFlatpakUpdates { system: false },
+            Action::SearchFlatpak {
+                query: "x".into(),
+                system: false,
+            },
+            Action::InstallFlatpak {
+                app_id: "org.x.Y".into(),
+                system: false,
+                remote: None,
+            },
+            Action::GetFlatpakInfo {
+                app_id: "org.x.Y".into(),
+                remote: None,
+                system: false,
+            },
+            Action::RemoveFlatpak {
+                app_id: "org.x.Y".into(),
+                system: false,
+            },
+            Action::UpdateFlatpak { system: false },
+            Action::UpdateFlatpakApp {
+                app_id: "org.x.Y".into(),
+                system: false,
+            },
+            Action::RemoveFlatpakOrphans { system: false },
+            Action::GetFlatpakPermissions {
+                app_id: "org.x.Y".into(),
+                system: false,
+            },
+            Action::SetFlatpakPermissions {
+                app_id: "org.x.Y".into(),
+                system: false,
+                sockets: vec![],
+                devices: vec![],
+                filesystems: vec![],
+                env: vec![],
+            },
+        ];
+        for action in &actions {
+            assert!(
+                flatpak_allows_as_user(action).is_some(),
+                "flatpak action missing from scope map: {action:?}"
+            );
+        }
+        assert_eq!(flatpak_allows_as_user(&Action::LogList), None);
     }
 
     /// End-to-end tail -f chain: End chunk, append to the file, From chunk

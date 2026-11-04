@@ -164,11 +164,11 @@ Implemented baseline:
 - update-available list (`list_flatpak_updates`, per-app Update button);
 - per-app update;
 - permissions editor (sockets, devices, filesystems, env — override
-  keyfile edits that preserve every other key/group).
+  keyfile edits that preserve every other key/group);
+- user-scope targeting: root may run user-installation actions as any
+  existing account (`as_user`, non-root own-account only).
 
-v2 polish:
-
-- user scope for another target user if required later.
+v2 polish (Flatpak): none left; other modules keep their own polish lists above and below.
 
 ### printers (CUPS)
 
