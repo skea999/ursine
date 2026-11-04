@@ -6,6 +6,18 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-04 — OpenCode V2 harness migration (main, unpushed)
+
+**Status**: DONE — commit `1e3dcc2` (43 files: pack + config + pre-commit allowlist), main ahead origin by 1. Rules plugin (`opencode-rules` 2.0.0) confirmed V2-native, loads clean.
+
+- Root cause of "plugin error + agenti invisibili": opencode auto-updated to v2.2.1 — V1 plugin API no longer runs, and V2 honors `hidden: true` (16 agents had it since scaffold).
+- `agents-opencode` ported to V2 `Plugin.define({id, setup})` with `tool.hook("execute.before")` (read guard verified blocking `.npmrc`), `session.hook("compaction")`, `shell.hook("create.before")`, `event.subscribe()`; `plugin list` shows it loaded.
+- Full V2 conversion: `opencode.json` → `plugins`/`permissions`/`agents` (bash→shell, task→subagent, doom_loop dropped — not a V2 action, external_directory ask kept); 23 agent frontmatters → `permissions` arrays, `temperature` dropped; 16 commands `subtask`→`subagent`; redundant config permission copies dropped (frontmatter authoritative). Converter: `artifacts/opencode-v2-migration/convert.py` (idempotent).
+- Pre-commit scan now reports `file:line` and honors `.githooks/secret-allowlist` (1 approved false positive: security-auditor.md:76 sample password). Never `--no-verify`.
+- Agent invocation in V2 TUI: **Shift+Tab** = agent.cycle, **Ctrl+X a** = agent.list (leader ctrl+x), Ctrl+p = palette; subagents launch via natural language or pack slash commands (`subtask`→`subagent` = background child session). No Tab anymore.
+- Gotchas: `opencode run --agent review` resolves but fails on `crouton-alpha-free` with "This model is not available in your country" (provider/geo, unrelated); `npx agents-opencode --update` will restore V1 frontmatter + `hidden: true` — re-run converter + `sed -i '/^hidden: true$/d' .opencode/agents/*.md`.
+- Next: push `1e3dcc2`; user picks next v1/v2 feature item (see session-state next_actions).
+
 ## Session 2026-11-02 — cross-user admin via CLI (main, untagged)
 
 **Status**: DONE — releases `v0.25.0`…`v0.25.4` (pins `27d4451`, `2f4a695`, `2052bda`, `d744a21`; every tag CI green incl. package/publish/verify-pin). **VM smoke PASSED: 0 failures, 1 expected SKIP** on 0.25.4 (artifacts/vm-smoke-0.25.1.sh — read-only battery + refusal guards + as-found assertion). Findings fixed across the loop: nix packaging never shipped ursinectl (flake+activate), five su builders rejected root targets (root-direct sweep), OpenRC tools missing the busybox /bin paths, crontab via `crontab -u` (no su/suid). Gotchas learned: nix caches github HEAD for 1h (`tarball-ttl`) and profile entries pinned to a `rev` never move on upgrade.

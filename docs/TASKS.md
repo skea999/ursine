@@ -191,7 +191,7 @@
 ### Done — planning (2026-10-16)
 
 - [x] Naming, architecture, intent v1-v6, capability map, 9 module specs
-- [x] Harness aligned (agents hidden, models removed, workflow Pattern 8, host isolation rules)
+- [x] Harness aligned (agents hidden, models removed, workflow Pattern 8, host isolation rules) | superseded 2026-11-04: migrated to OpenCode V2 — hidden flag removed (V2 made it hide agents from listings), pack/config/commands converted, plugin ported; commit 1e3dcc2
 
 ## Backlog
 
