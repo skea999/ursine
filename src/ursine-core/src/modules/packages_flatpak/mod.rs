@@ -3,13 +3,16 @@
 //! System operations run as root; user operations run as the authenticated
 //! target user through `su`. No shell is involved.
 
+mod permissions;
+
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
 use ursine_api::{
-    Action, ApiError, FlatpakInfo, FlatpakPackage, FlatpakRefKind, FlatpakRemote, ModuleId,
+    Action, ApiError, FlatpakEnvVar, FlatpakInfo, FlatpakPackage, FlatpakPermissions,
+    FlatpakRefKind, FlatpakRemote, ModuleId,
 };
 
 use super::ModuleCtx;
@@ -26,6 +29,10 @@ const MAX_ROWS: usize = 300;
 /// Shared column order for `flatpak list` / `flatpak remote-ls` rows —
 /// [`parse_list`] reads the fields positionally in exactly this order.
 const LIST_COLUMNS: &str = "application,name,version,branch,origin";
+/// Serializes permission SETs in this process (read + write of one
+/// keyfile). A concurrent external writer between our read and write is
+/// still a residual TOCTOU: flatpak has no file lock for overrides.
+static PERMISSIONS_MUTATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
     match action {
@@ -68,6 +75,31 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             let remote = validate_remote(remote.as_deref())?;
             let info = info(app_id, &remote, *system, ctx.as_user).await?;
             Ok(json!(info))
+        }
+        Action::GetFlatpakPermissions { app_id, system } => {
+            validate_app_id(app_id)?;
+            Ok(json!(permissions_get(app_id, *system, ctx.as_user).await?))
+        }
+        Action::SetFlatpakPermissions {
+            app_id,
+            system,
+            sockets,
+            devices,
+            filesystems,
+            env,
+        } => {
+            validate_app_id(app_id)?;
+            permissions_set(
+                app_id,
+                *system,
+                sockets,
+                devices,
+                filesystems,
+                env,
+                ctx.as_user,
+            )
+            .await?;
+            Ok(json!(permissions_get(app_id, *system, ctx.as_user).await?))
         }
         Action::RemoveFlatpak { app_id, system } => {
             validate_app_id(app_id)?;
@@ -174,6 +206,91 @@ async fn updates_kind(
     let args = ["remote-ls", scope, kind_flag, "--updates", columns.as_str()];
     let output = run(system, user, &args).await?;
     Ok(parse_list(&output, system, kind))
+}
+
+/// Absolute path of the override keyfile for `app_id`. The id passed the
+/// strict charset check, so it cannot traverse out of the directory.
+fn override_path(system: bool, user: &str, app_id: &str) -> Result<String, ApiError> {
+    if system {
+        return Ok(format!("/var/lib/flatpak/overrides/{app_id}"));
+    }
+    let home = crate::modules::home_for_user(user)?;
+    Ok(format!(
+        "{}/.local/share/flatpak/overrides/{app_id}",
+        home.display()
+    ))
+}
+
+/// Decode the user-side reader marker: `1` + content (exists), `0` (missing).
+fn decode_marker(stdout: &str) -> Result<(bool, String), ApiError> {
+    let mut chars = stdout.chars();
+    match chars.next() {
+        Some('1') => Ok((true, chars.collect())),
+        Some('0') => Ok((false, String::new())),
+        _ => Err(ApiError::internal("unexpected file read response")),
+    }
+}
+
+const fn scope_reader(system: bool, user: &str) -> &str {
+    if system {
+        "root"
+    } else {
+        user
+    }
+}
+
+/// Editable override lists plus the effective sandbox view.
+async fn permissions_get(
+    app_id: &str,
+    system: bool,
+    user: &str,
+) -> Result<FlatpakPermissions, ApiError> {
+    let path = override_path(system, user, app_id)?;
+    let outcome = exec::run_as_user_read_file(scope_reader(system, user), &path).await?;
+    let (exists, raw) = decode_marker(&outcome.stdout)?;
+    let parsed = permissions::parse(&raw);
+    let scope = scope(system);
+    // An override file can outlive its app: keep the editable state
+    // readable (and cleanable) even when `flatpak info` fails.
+    let effective = match run(system, user, &["info", scope, "--show-permissions", app_id]).await {
+        Ok(effective) => effective,
+        Err(_) if exists => String::new(),
+        Err(error) => return Err(error),
+    };
+    Ok(FlatpakPermissions {
+        app_id: app_id.to_string(),
+        exists,
+        sockets: parsed.sockets,
+        devices: parsed.devices,
+        filesystems: parsed.filesystems,
+        env: parsed.env,
+        effective,
+    })
+}
+
+/// Replace the four editable lists, preserving every other key/group of
+/// the override file (no `--reset`: it would drop Session Bus policies).
+async fn permissions_set(
+    app_id: &str,
+    system: bool,
+    sockets: &[String],
+    devices: &[String],
+    filesystems: &[String],
+    env: &[FlatpakEnvVar],
+    user: &str,
+) -> Result<(), ApiError> {
+    permissions::validate_tokens(sockets, 64)?;
+    permissions::validate_tokens(devices, 64)?;
+    permissions::validate_filesystems(filesystems)?;
+    permissions::validate_env(env)?;
+    let _guard = PERMISSIONS_MUTATION.lock().await;
+    let path = override_path(system, user, app_id)?;
+    let reader = scope_reader(system, user);
+    let outcome = exec::run_as_user_read_file(reader, &path).await?;
+    let (_exists, raw) = decode_marker(&outcome.stdout)?;
+    let rendered = permissions::render(&raw, sockets, devices, filesystems, env);
+    exec::run_as_user_atomic_write(reader, &path, &rendered).await?;
+    Ok(())
 }
 
 async fn list_kind(
@@ -304,6 +421,8 @@ fn validate_app_id(app_id: &str) -> Result<(), ApiError> {
     if app_id.is_empty()
         || app_id.len() > 255
         || app_id.starts_with('-')
+        || app_id == "."
+        || app_id == ".."
         || !app_id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
@@ -449,6 +568,30 @@ mod tests {
         assert!(validate_app_id("com.example_app-1").is_ok());
         assert!(validate_app_id("-evil").is_err());
         assert!(validate_app_id("org/evil").is_err());
+        assert!(validate_app_id(".").is_err());
+        assert!(validate_app_id("..").is_err());
+    }
+
+    #[test]
+    fn decodes_reader_marker() {
+        assert_eq!(decode_marker("0").unwrap(), (false, String::new()));
+        assert_eq!(
+            decode_marker("1[Context]").unwrap(),
+            (true, "[Context]".to_string())
+        );
+        assert!(decode_marker("").is_err());
+        assert!(decode_marker("x2").is_err());
+    }
+
+    #[test]
+    fn override_paths_are_fixed_prefixes() {
+        let system_path = override_path(true, "root", "org.x.Y").unwrap();
+        assert_eq!(system_path, "/var/lib/flatpak/overrides/org.x.Y");
+        // User scope needs a passwd entry; CI containers have root only.
+        if let Ok(path) = override_path(false, "root", "org.x.Y") {
+            assert!(path.ends_with("/.local/share/flatpak/overrides/org.x.Y"));
+            assert!(path.starts_with('/'));
+        }
     }
 
     #[test]

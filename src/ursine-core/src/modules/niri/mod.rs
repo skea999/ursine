@@ -192,33 +192,7 @@ fn config_path(ctx: &ModuleCtx<'_>) -> Result<PathBuf, ApiError> {
     if let Some(path) = std::env::var_os("URSINE_NIRI_CONFIG") {
         return Ok(PathBuf::from(path));
     }
-    Ok(home_for_user(ctx.as_user)?.join(".config/niri/config.kdl"))
-}
-
-fn home_for_user(user: &str) -> Result<PathBuf, ApiError> {
-    let raw = std::fs::read_to_string("/etc/passwd")
-        .map_err(|e| ApiError::internal(format!("read /etc/passwd: {e}")))?;
-    let home = raw.lines().find_map(|line| {
-        let mut fields = line.split(':');
-        if fields.next()? != user {
-            return None;
-        }
-        let _password = fields.next()?;
-        let _uid = fields.next()?;
-        let _gid = fields.next()?;
-        let _gecos = fields.next()?;
-        fields.next().map(PathBuf::from)
-    });
-    let home = home.ok_or_else(|| {
-        ApiError::new(
-            ursine_api::ErrorCode::NotFound,
-            format!("no password entry for {user}"),
-        )
-    })?;
-    if !home.is_absolute() {
-        return Err(ApiError::invalid("user home is not absolute"));
-    }
-    Ok(home)
+    Ok(super::home_for_user(ctx.as_user)?.join(".config/niri/config.kdl"))
 }
 
 fn niri_path() -> Result<&'static str, ApiError> {

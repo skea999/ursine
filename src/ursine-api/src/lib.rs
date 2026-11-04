@@ -55,7 +55,8 @@ pub use nix::{
     CommandOutcome, InstalledPackage, SearchResult,
 };
 pub use packages::{
-    ApkPackage, ApkUpdate, FlatpakInfo, FlatpakPackage, FlatpakRefKind, FlatpakRemote,
+    ApkPackage, ApkUpdate, FlatpakEnvVar, FlatpakInfo, FlatpakPackage, FlatpakPermissions,
+    FlatpakRefKind, FlatpakRemote,
 };
 pub use principal::{AsUser, Principal, PrincipalOrigin};
 pub use printer::{PrintJob, Printer};

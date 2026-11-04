@@ -15,7 +15,12 @@
   queries) with a Show dropdown in the GUI. New `list_flatpak_updates`
   reports refs with a newer remote commit (`flatpak remote-ls --updates`,
   apps and runtimes) and the GUI lists them with a per-app Update button
-  in the Upgrade section. CLI guide and man page updated.
+  in the Upgrade section. `get_flatpak_permissions` /
+  `set_flatpak_permissions` back a per-app permissions editor (sockets,
+  devices, filesystems, env): the daemon edits the override keyfile
+  directly so every other key/group (Session Bus policies) survives,
+  writes atomically with a backup, and shows the effective sandbox
+  read-only. CLI guide and man page updated.
 - Niri compatibility range: `get_niri_config` now reports
   `version_parsed`, `version_supported` and `min_supported` (tested
   floor `25.05`); the GUI shows a Compatibility warning below the

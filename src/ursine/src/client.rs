@@ -13,10 +13,10 @@ use std::time::{Duration, Instant};
 use ursine_api::{
     installable_from_attr, timeouts, Action, ApiError, ApkPackage, ApkUpdate, BluetoothOp,
     BluetoothView, BtrbkConfigView, BtrbkSettings, Disk, FirewallStatus, FlatpakInfo,
-    FlatpakPackage, FlatpakRemote, InstalledPackage, JobOutput, ModuleId, ModulesConfig,
-    NetworkView, NiriConfigView, PrintJob, Printer, Request, RequestBody, Response, ResponseBody,
-    ScannerConfigView, SearchResult, Service, ServiceOp, SessionToken, Snapshot, SnapshotStats,
-    TriState, UserSummary, PROTOCOL_VERSION,
+    FlatpakPackage, FlatpakPermissions, FlatpakRemote, InstalledPackage, JobOutput, ModuleId,
+    ModulesConfig, NetworkView, NiriConfigView, PrintJob, Printer, Request, RequestBody, Response,
+    ResponseBody, ScannerConfigView, SearchResult, Service, ServiceOp, SessionToken, Snapshot,
+    SnapshotStats, TriState, UserSummary, PROTOCOL_VERSION,
 };
 
 /// A stuck daemon must never freeze the UI.
@@ -1237,6 +1237,51 @@ pub async fn flatpak_updates(
         .ok_or_else(|| ApiError::internal("daemon flatpak updates response has no updates"))?;
     serde_json::from_value(updates)
         .map_err(|e| ApiError::internal(format!("cannot read flatpak updates: {e}")))
+}
+
+pub async fn flatpak_permissions(
+    token: SessionToken,
+    app_id: String,
+    system: bool,
+) -> Result<FlatpakPermissions, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::GetFlatpakPermissions { app_id, system },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read flatpak permissions: {e}")))
+}
+
+pub async fn flatpak_set_permissions(
+    token: SessionToken,
+    app_id: String,
+    system: bool,
+    sockets: Vec<String>,
+    devices: Vec<String>,
+    filesystems: Vec<String>,
+    env: Vec<ursine_api::FlatpakEnvVar>,
+) -> Result<FlatpakPermissions, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::SetFlatpakPermissions {
+            app_id,
+            system,
+            sockets,
+            devices,
+            filesystems,
+            env,
+        },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read flatpak permissions: {e}")))
 }
 
 pub async fn flatpak_search(

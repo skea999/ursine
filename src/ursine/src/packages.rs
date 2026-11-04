@@ -4,7 +4,8 @@ use cosmic::iced::Length;
 use cosmic::widget::{button, column, dropdown, row, scrollable, settings, text, text_input};
 use cosmic::Element;
 use ursine_api::{
-    ApkPackage, ApkUpdate, FlatpakInfo, FlatpakPackage, FlatpakRefKind, FlatpakRemote,
+    ApkPackage, ApkUpdate, FlatpakEnvVar, FlatpakInfo, FlatpakPackage, FlatpakPermissions,
+    FlatpakRefKind, FlatpakRemote,
 };
 
 use crate::app::Message;
@@ -22,6 +23,34 @@ pub struct PendingInstall {
     pub app_id: String,
     pub info: Option<FlatpakInfo>,
     pub info_error: Option<String>,
+}
+
+/// Which permissions-editor input or list an event targets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionsField {
+    Socket,
+    Device,
+    Filesystem,
+    EnvName,
+    EnvValue,
+    Env,
+}
+
+/// Open Flatpak permissions editor for one installed app.
+pub struct PermissionsEditor {
+    pub app_id: String,
+    pub sockets: Vec<String>,
+    pub devices: Vec<String>,
+    pub filesystems: Vec<String>,
+    pub env: Vec<FlatpakEnvVar>,
+    pub effective: String,
+    pub add_socket: String,
+    pub add_device: String,
+    pub add_filesystem: String,
+    pub add_env_name: String,
+    pub add_env_value: String,
+    /// Apply confirmation step (Cockpit-style: review, then write).
+    pub confirm: bool,
 }
 
 impl PackageKind {
@@ -64,6 +93,8 @@ pub struct PackagesState {
     pub pending_update: Option<PackageKind>,
     pub pending_orphans: bool,
     pub pending_install: Option<PendingInstall>,
+    /// Open permissions editor (Flatpak installed apps only).
+    pub permissions: Option<PermissionsEditor>,
 }
 
 impl Default for PackagesState {
@@ -90,6 +121,7 @@ impl Default for PackagesState {
             pending_update: None,
             pending_orphans: false,
             pending_install: None,
+            permissions: None,
         }
     }
 }
@@ -118,6 +150,7 @@ impl PackagesState {
         self.pending_update = None;
         self.pending_orphans = false;
         self.pending_install = None;
+        self.permissions = None;
     }
 
     pub fn apply_apk(&mut self, packages: Vec<ApkPackage>) {
@@ -184,6 +217,94 @@ impl PackagesState {
 
     pub fn apply_flatpak_updates(&mut self, updates: Vec<FlatpakPackage>) {
         self.flatpak_updates = updates;
+    }
+
+    /// Open (or reopen) the editor from a freshly read daemon state.
+    pub fn open_permissions(&mut self, state: FlatpakPermissions) {
+        self.permissions = Some(PermissionsEditor {
+            app_id: state.app_id,
+            sockets: state.sockets,
+            devices: state.devices,
+            filesystems: state.filesystems,
+            env: state.env,
+            effective: state.effective,
+            add_socket: String::new(),
+            add_device: String::new(),
+            add_filesystem: String::new(),
+            add_env_name: String::new(),
+            add_env_value: String::new(),
+            confirm: false,
+        });
+    }
+
+    /// Push one non-empty trimmed input into its list and clear the input.
+    pub fn permissions_add(&mut self, field: PermissionsField) {
+        let Some(editor) = self.permissions.as_mut() else {
+            return;
+        };
+        match field {
+            PermissionsField::Socket => {
+                let value = editor.add_socket.trim().to_string();
+                if !value.is_empty() && !editor.sockets.contains(&value) {
+                    editor.sockets.push(value);
+                }
+                editor.add_socket.clear();
+            }
+            PermissionsField::Device => {
+                let value = editor.add_device.trim().to_string();
+                if !value.is_empty() && !editor.devices.contains(&value) {
+                    editor.devices.push(value);
+                }
+                editor.add_device.clear();
+            }
+            PermissionsField::Filesystem => {
+                let value = editor.add_filesystem.trim().to_string();
+                if !value.is_empty() && !editor.filesystems.contains(&value) {
+                    editor.filesystems.push(value);
+                }
+                editor.add_filesystem.clear();
+            }
+            PermissionsField::EnvName | PermissionsField::EnvValue => {
+                let name = editor.add_env_name.trim().to_string();
+                let value = editor.add_env_value.trim().to_string();
+                if !name.is_empty() && !editor.env.iter().any(|var| var.name == name) {
+                    editor.env.push(FlatpakEnvVar { name, value });
+                }
+                editor.add_env_name.clear();
+                editor.add_env_value.clear();
+            }
+            PermissionsField::Env => {}
+        }
+    }
+
+    /// Drop one entry by index (field selects the list).
+    pub fn permissions_remove(&mut self, field: PermissionsField, index: usize) {
+        let Some(editor) = self.permissions.as_mut() else {
+            return;
+        };
+        match field {
+            PermissionsField::Socket => {
+                if index < editor.sockets.len() {
+                    editor.sockets.remove(index);
+                }
+            }
+            PermissionsField::Device => {
+                if index < editor.devices.len() {
+                    editor.devices.remove(index);
+                }
+            }
+            PermissionsField::Filesystem => {
+                if index < editor.filesystems.len() {
+                    editor.filesystems.remove(index);
+                }
+            }
+            PermissionsField::Env => {
+                if index < editor.env.len() {
+                    editor.env.remove(index);
+                }
+            }
+            PermissionsField::EnvName | PermissionsField::EnvValue => {}
+        }
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -487,6 +608,9 @@ impl PackagesState {
                             button::text("Upgrade")
                                 .on_press(Message::FlatpakUpgradeRequested(app_id.clone()))
                                 .into(),
+                            button::text("Permissions…")
+                                .on_press(Message::PackagePermissionsRequested(app_id.clone()))
+                                .into(),
                             button::text("Remove")
                                 .on_press(Message::PackageRemoveRequested(
                                     kind,
@@ -525,6 +649,10 @@ impl PackagesState {
             }
         }
         items.push(list.into());
+
+        if let Some(editor) = &self.permissions {
+            items.push(permissions_section(editor, self.action_busy));
+        }
 
         if let Some(pending) = &self.pending_install {
             let mut confirm = settings::section()
@@ -674,6 +802,158 @@ impl PackagesState {
 
         scrollable(column(items).spacing(16).padding(24)).into()
     }
+}
+
+/// Permissions editor section: four editable lists with add inputs, the
+/// effective sandbox view (read-only) and Apply/Cancel.
+fn permissions_section(editor: &PermissionsEditor, busy: bool) -> Element<'_, Message> {
+    fn list_block<'a>(
+        title: &'static str,
+        items: &'a [String],
+        field: PermissionsField,
+        placeholder: &'static str,
+        input_value: &'a str,
+        busy: bool,
+    ) -> Element<'a, Message> {
+        let rows: Vec<Element<'a, Message>> = if items.is_empty() {
+            vec![text("(none)").into()]
+        } else {
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    row(vec![
+                        text(item.clone()).width(Length::Fill).into(),
+                        button::text("Remove")
+                            .on_press_maybe(
+                                (!busy).then_some(Message::PackagePermissionsRemove(field, index)),
+                            )
+                            .into(),
+                    ])
+                    .spacing(8)
+                    .into()
+                })
+                .collect()
+        };
+        let add = row(vec![
+            text_input(placeholder, input_value)
+                .on_input(move |value| Message::PackagePermissionsInput(field, value))
+                .into(),
+            button::text("Add")
+                .on_press_maybe((!busy).then_some(Message::PackagePermissionsAdd(field)))
+                .into(),
+        ])
+        .spacing(8);
+        settings::item(
+            title,
+            column(vec![column(rows).spacing(4).into(), add.into()]).spacing(8),
+        )
+        .into()
+    }
+
+    let mut section = settings::section().title(format!("Flatpak permissions — {}", editor.app_id));
+    section = section.add(list_block(
+        "Sockets",
+        &editor.sockets,
+        PermissionsField::Socket,
+        "wayland",
+        &editor.add_socket,
+        busy,
+    ));
+    section = section.add(list_block(
+        "Devices",
+        &editor.devices,
+        PermissionsField::Device,
+        "dri",
+        &editor.add_device,
+        busy,
+    ));
+    section = section.add(list_block(
+        "Filesystems",
+        &editor.filesystems,
+        PermissionsField::Filesystem,
+        "xdg-download",
+        &editor.add_filesystem,
+        busy,
+    ));
+
+    let env_rows: Vec<Element<'_, Message>> = if editor.env.is_empty() {
+        vec![text("(none)").into()]
+    } else {
+        editor
+            .env
+            .iter()
+            .enumerate()
+            .map(|(index, var)| {
+                let label = if var.value.is_empty() {
+                    format!("{} (unset)", var.name)
+                } else {
+                    format!("{}={}", var.name, var.value)
+                };
+                row(vec![
+                    text(label).width(Length::Fill).into(),
+                    button::text("Remove")
+                        .on_press_maybe((!busy).then_some(Message::PackagePermissionsRemove(
+                            PermissionsField::Env,
+                            index,
+                        )))
+                        .into(),
+                ])
+                .spacing(8)
+                .into()
+            })
+            .collect()
+    };
+    let env_add = row(vec![
+        text_input("NAME", editor.add_env_name.clone())
+            .on_input(|value| Message::PackagePermissionsInput(PermissionsField::EnvName, value))
+            .into(),
+        text_input("value", editor.add_env_value.clone())
+            .on_input(|value| Message::PackagePermissionsInput(PermissionsField::EnvValue, value))
+            .into(),
+        button::text("Add")
+            .on_press_maybe(
+                (!busy).then_some(Message::PackagePermissionsAdd(PermissionsField::EnvName)),
+            )
+            .into(),
+    ])
+    .spacing(8);
+    section = section.add(settings::item(
+        "Environment",
+        column(vec![column(env_rows).spacing(4).into(), env_add.into()]).spacing(8),
+    ));
+
+    if !editor.effective.trim().is_empty() {
+        section = section.add(settings::item(
+            "Effective sandbox (read-only)",
+            text(editor.effective.clone()),
+        ));
+    }
+
+    let actions = if editor.confirm {
+        row(vec![
+            text("Write these overrides to the app sandbox?").into(),
+            button::destructive("Confirm write")
+                .on_press_maybe((!busy).then_some(Message::PackagePermissionsApplyRequested))
+                .into(),
+            button::text("Back")
+                .on_press(Message::PackagePermissionsCancelled)
+                .into(),
+        ])
+        .spacing(8)
+    } else {
+        row(vec![
+            button::destructive("Apply overrides")
+                .on_press_maybe((!busy).then_some(Message::PackagePermissionsApplyRequested))
+                .into(),
+            button::text("Close")
+                .on_press_maybe((!busy).then_some(Message::PackagePermissionsCancelled))
+                .into(),
+        ])
+        .spacing(8)
+    };
+    section = section.add(settings::item("Actions", actions));
+    section.into()
 }
 
 #[cfg(test)]

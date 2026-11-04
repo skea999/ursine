@@ -333,6 +333,27 @@ pub const SAMPLES: &[Sample] = &[
         destructive: true,
         dispatch: Dispatch::Gate,
     },
+    Sample {
+        module: ursine_api::ModuleId::PackagesFlatpak,
+        action: "get_flatpak_permissions",
+        pairs: &[("app_id", "org.x.Y"), ("system", "true")],
+        destructive: false,
+        dispatch: Dispatch::Gate,
+    },
+    Sample {
+        module: ursine_api::ModuleId::PackagesFlatpak,
+        action: "set_flatpak_permissions",
+        pairs: &[
+            ("app_id", "org.x.Y"),
+            ("system", "true"),
+            ("sockets", "[]"),
+            ("devices", "[]"),
+            ("filesystems", "[]"),
+            ("env", "[]"),
+        ],
+        destructive: true,
+        dispatch: Dispatch::Gate,
+    },
     // -- printers (CUPS absent → gate) --
     Sample {
         module: ursine_api::ModuleId::Printers,
@@ -827,6 +848,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "get_config",
     "get_firewall",
     "get_flatpak_info",
+    "get_flatpak_permissions",
     "get_network",
     "get_niri_config",
     "get_scanner_config",
@@ -883,6 +905,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "set_btrbk_config",
     "set_default_firewall_zone",
     "set_default_printer",
+    "set_flatpak_permissions",
     "set_groups",
     "set_module_switch",
     "set_niri_section",

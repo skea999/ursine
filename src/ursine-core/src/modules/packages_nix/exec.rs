@@ -623,6 +623,49 @@ trap - EXIT
     })
 }
 
+/// Atomically replace `path` with `content` as `user`.
+///
+/// Root runs the same script directly, no su. The previous file is copied
+/// to `<dir>/.<basename>.ursine-backup` (dot-prefixed so it can never be
+/// mistaken for a sibling config, e.g. a Flatpak override keyed by file
+/// name). No validation step: callers own the content.
+pub async fn run_as_user_atomic_write(
+    user: &str,
+    path: &str,
+    content: &str,
+) -> Result<CommandOutcome, ApiError> {
+    if user != "root" {
+        validate_target_user(user)?;
+    }
+    if !is_safe_quoted_value(path) {
+        return Err(ApiError::invalid("invalid file path"));
+    }
+    let script = r#"set -eu
+PATH=/usr/bin:/bin
+umask 077
+dir=${1%/*}
+mkdir -p -- "$dir"
+tmp=$(mktemp "$dir/.ursine-write.XXXXXX")
+trap 'rm -f -- "$tmp"' EXIT
+cat > "$tmp"
+sync
+if [ -e "$1" ]; then cp -p -- "$1" "$dir/.${1##*/}.ursine-backup"; sync; fi
+mv -- "$tmp" "$1"
+trap - EXIT
+"#;
+    let output = run_user_script_capture(user, script, &[path], content).await?;
+    if !output.status.success() {
+        return Err(ApiError::internal(format!(
+            "write failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(CommandOutcome {
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
 async fn run_user_script_capture(
     user: &str,
     script: &str,

@@ -60,7 +60,8 @@ MODULES (wire name; short alias in parentheses):
                       list_flatpak_updates, search_flatpak,
                       install_flatpak, get_flatpak_info, remove_flatpak,
                       update_flatpak, update_flatpak_app,
-                      remove_flatpak_orphans
+                      remove_flatpak_orphans, get_flatpak_permissions,
+                      set_flatpak_permissions
   printers            list_printers, printer_jobs, add_printer,
                       add_printer_manual, remove_printer,
                       set_default_printer, set_printer_options,
@@ -321,8 +322,9 @@ pub fn is_destructive(action: &Action) -> bool {
         CancelPrinterJobs, CrontabSet, DeleteSnapshot, DeleteSnapshots, DeleteUser,
         PruneGenerations, Remove, RemoveAll, RemoveApk, RemoveFirewallPort, RemoveFirewallService,
         RemoveFlatpak, RemoveFlatpakOrphans, RemovePrinter, RemoveRegex, RemoveScannerDevice,
-        RestoreSnapshot, Rollback, SetPassword, StoreGc, ThemeApply, UnmountDisk, UpdateFlatpak,
-        UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage, UpgradeRegex, WipeHistory,
+        RestoreSnapshot, Rollback, SetFlatpakPermissions, SetPassword, StoreGc, ThemeApply,
+        UnmountDisk, UpdateFlatpak, UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage, UpgradeRegex,
+        WipeHistory,
     };
     matches!(
         action,
@@ -341,6 +343,7 @@ pub fn is_destructive(action: &Action) -> bool {
             | UpdateFlatpak { .. }
             | UpdateFlatpakApp { .. }
             | RemoveFlatpakOrphans { .. }
+            | SetFlatpakPermissions { .. }
             | RestoreSnapshot { dry_run: false, .. }
             | DeleteSnapshot { .. }
             | DeleteSnapshots { .. }

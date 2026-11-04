@@ -4,9 +4,9 @@ use cosmic::iced::Length;
 use cosmic::{Element, Task};
 use ursine_api::{
     validate_installable, Action, ApiError, ApkPackage, ApkUpdate, Capability, CapabilityReport,
-    CrontabView, ErrorCode, FlatpakInfo, FlatpakPackage, JobOutput, JobStatus, LogChunk, LogCursor,
-    LogFile, LogSearchResult, ModuleId, SessionToken, ThemeApplyReport, ThemeSnapshot,
-    ThemingStatus, TriState,
+    CrontabView, ErrorCode, FlatpakInfo, FlatpakPackage, FlatpakPermissions, JobOutput, JobStatus,
+    LogChunk, LogCursor, LogFile, LogSearchResult, ModuleId, SessionToken, ThemeApplyReport,
+    ThemeSnapshot, ThemingStatus, TriState,
 };
 
 use crate::bluetooth::BluetoothState;
@@ -265,6 +265,14 @@ pub enum Message {
     PackageInstallInfoLoaded(u64, String, Result<FlatpakInfo, ApiError>),
     PackageInstallConfirmed,
     PackageInstallCancelled,
+    PackagePermissionsRequested(String),
+    PackagePermissionsLoaded(u64, String, Result<FlatpakPermissions, ApiError>),
+    PackagePermissionsApplied(u64, Result<FlatpakPermissions, ApiError>),
+    PackagePermissionsInput(crate::packages::PermissionsField, String),
+    PackagePermissionsAdd(crate::packages::PermissionsField),
+    PackagePermissionsRemove(crate::packages::PermissionsField, usize),
+    PackagePermissionsApplyRequested,
+    PackagePermissionsCancelled,
     PackageRefresh,
     PackageRefreshIndexes,
     PackageUpdateRequested,
@@ -855,6 +863,65 @@ impl cosmic::Application for App {
             }
             Message::PackageInstallConfirmed => return self.confirm_flatpak_install(),
             Message::PackageInstallCancelled => self.packages.pending_install = None,
+            Message::PackagePermissionsRequested(app_id) => {
+                return self.start_permissions(app_id);
+            }
+            Message::PackagePermissionsLoaded(epoch, app_id, result) => {
+                return self.finish_permissions(epoch, &app_id, result);
+            }
+            Message::PackagePermissionsApplied(epoch, result) => {
+                return self.finish_permissions_apply(epoch, result);
+            }
+            Message::PackagePermissionsInput(field, value) => {
+                if let Some(editor) = self.packages.permissions.as_mut() {
+                    match field {
+                        crate::packages::PermissionsField::Socket => editor.add_socket = value,
+                        crate::packages::PermissionsField::Device => editor.add_device = value,
+                        crate::packages::PermissionsField::Filesystem => {
+                            editor.add_filesystem = value;
+                        }
+                        crate::packages::PermissionsField::EnvName => {
+                            editor.add_env_name = value;
+                        }
+                        crate::packages::PermissionsField::EnvValue => {
+                            editor.add_env_value = value;
+                        }
+                        crate::packages::PermissionsField::Env => {}
+                    }
+                }
+            }
+            Message::PackagePermissionsAdd(field) => self.packages.permissions_add(field),
+            Message::PackagePermissionsRemove(field, index) => {
+                self.packages.permissions_remove(field, index);
+            }
+            Message::PackagePermissionsApplyRequested => {
+                // First press arms the confirmation, the second writes.
+                let armed = self
+                    .packages
+                    .permissions
+                    .as_ref()
+                    .is_some_and(|editor| editor.confirm);
+                if armed {
+                    return self.apply_permissions();
+                }
+                if let Some(editor) = self.packages.permissions.as_mut() {
+                    editor.confirm = true;
+                }
+            }
+            Message::PackagePermissionsCancelled => {
+                let confirming = self
+                    .packages
+                    .permissions
+                    .as_ref()
+                    .is_some_and(|editor| editor.confirm);
+                if confirming {
+                    if let Some(editor) = self.packages.permissions.as_mut() {
+                        editor.confirm = false;
+                    }
+                } else {
+                    self.packages.permissions = None;
+                }
+            }
             Message::PackageRefresh => {
                 return self.load_packages(self.packages.kind.unwrap_or(PackageKind::Apk))
             }
@@ -2479,6 +2546,117 @@ impl App {
             Message::PackageActionFinished(epoch, "install".into(), result)
         })
         .map(cosmic::Action::App)
+    }
+
+    /// Read the override state for one installed app and open the editor.
+    fn start_permissions(&mut self, app_id: String) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.packages.action_busy || self.job.is_some() {
+            return Task::none();
+        }
+        let system = self.packages.system;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.message = None;
+        self.packages.error = None;
+        Task::future(async move {
+            let result = client::flatpak_permissions(token, app_id.clone(), system).await;
+            Message::PackagePermissionsLoaded(epoch, app_id, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_permissions(
+        &mut self,
+        epoch: u64,
+        app_id: &str,
+        result: Result<FlatpakPermissions, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.packages.action_busy = false;
+        match result {
+            Ok(state) => {
+                if state.app_id == app_id {
+                    self.packages.open_permissions(state);
+                }
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.packages.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    /// Write the edited override lists; the reply reopens the editor with
+    /// the fresh state (including the effective sandbox view).
+    fn apply_permissions(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.packages.action_busy || self.job.is_some() {
+            return Task::none();
+        }
+        let Some(editor) = self.packages.permissions.as_ref() else {
+            return Task::none();
+        };
+        let app_id = editor.app_id.clone();
+        let sockets = editor.sockets.clone();
+        let devices = editor.devices.clone();
+        let filesystems = editor.filesystems.clone();
+        let env = editor.env.clone();
+        let system = self.packages.system;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.message = None;
+        self.packages.error = None;
+        Task::future(async move {
+            let result = client::flatpak_set_permissions(
+                token,
+                app_id,
+                system,
+                sockets,
+                devices,
+                filesystems,
+                env,
+            )
+            .await;
+            Message::PackagePermissionsApplied(epoch, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_permissions_apply(
+        &mut self,
+        epoch: u64,
+        result: Result<FlatpakPermissions, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.packages.action_busy = false;
+        match result {
+            Ok(state) => {
+                self.packages.open_permissions(state);
+                self.packages.message = Some("Flatpak overrides saved.".into());
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                // Keep the editor open so the user can fix the input.
+                self.packages.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
     }
 
     fn refresh_apk_indexes(&mut self) -> Task<cosmic::Action<Message>> {

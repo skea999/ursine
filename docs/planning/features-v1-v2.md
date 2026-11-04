@@ -162,11 +162,12 @@ Implemented baseline:
 - scope-aware remote listing (`list_flatpak_remotes system=…`);
 - apps/runtimes separation (rows tagged `kind`, Show dropdown);
 - update-available list (`list_flatpak_updates`, per-app Update button);
-- per-app update.
+- per-app update;
+- permissions editor (sockets, devices, filesystems, env — override
+  keyfile edits that preserve every other key/group).
 
 v2 polish:
 
-- Flatpak permissions editor (filesystem, devices, sockets, env);
 - user scope for another target user if required later.
 
 ### printers (CUPS)

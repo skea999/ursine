@@ -5,6 +5,8 @@
 use serde_json::json;
 use ursine_api::{Action, ApiError, Capability, ModuleId, Principal, Response, UrsineConfig};
 
+use std::path::PathBuf;
+
 pub mod bluetooth;
 pub mod crontab;
 pub mod disks;
@@ -169,6 +171,8 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::ListFlatpak { .. } => "list_flatpak",
         Action::ListFlatpakRemotes { .. } => "list_flatpak_remotes",
         Action::ListFlatpakUpdates { .. } => "list_flatpak_updates",
+        Action::GetFlatpakPermissions { .. } => "get_flatpak_permissions",
+        Action::SetFlatpakPermissions { .. } => "set_flatpak_permissions",
         Action::GetFlatpakInfo { .. } => "get_flatpak_info",
         Action::ListPrinters => "list_printers",
         Action::ListScanners => "list_scanners",
@@ -254,6 +258,35 @@ pub fn action_name(action: &Action) -> &'static str {
 }
 
 /// Response helper (kept here so dispatch stays lean).
+/// Resolve a user's home from `/etc/passwd`. Shared by the niri editor
+/// and the Flatpak override paths. Fails closed: no password entry, no
+/// home.
+pub fn home_for_user(user: &str) -> Result<PathBuf, ApiError> {
+    let raw = std::fs::read_to_string("/etc/passwd")
+        .map_err(|e| ApiError::internal(format!("read /etc/passwd: {e}")))?;
+    let home = raw.lines().find_map(|line| {
+        let mut fields = line.split(':');
+        if fields.next()? != user {
+            return None;
+        }
+        let _password = fields.next()?;
+        let _uid = fields.next()?;
+        let _gid = fields.next()?;
+        let _gecos = fields.next()?;
+        fields.next().map(PathBuf::from)
+    });
+    let home = home.ok_or_else(|| {
+        ApiError::new(
+            ursine_api::ErrorCode::NotFound,
+            format!("no password entry for {user}"),
+        )
+    })?;
+    if !home.is_absolute() {
+        return Err(ApiError::invalid("user home is not absolute"));
+    }
+    Ok(home)
+}
+
 pub fn ok(id: Option<u64>, value: serde_json::Value) -> Response {
     Response::ok(id, value)
 }
