@@ -1,4 +1,4 @@
-import type { Plugin } from "@opencode-ai/plugin";
+import { Plugin } from "@opencode/plugin";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { isBlockedReadPath, selectPackVersion } from "../lib/guards.mjs";
@@ -95,38 +95,8 @@ function readPackInfo(): PackInfo {
 
 const PACK = readPackInfo();
 
-export const AgentsOpencodePlugin: Plugin = async ({ client }) => {
-  await client.app.log({
-    body: {
-      service: "agents-opencode",
-      level: "info",
-      message: `Agents Opencode v${PACK.version} loaded — ${PACK.inventory} available`,
-    },
-  });
-
-  return {
-    /**
-     * Surface session-level failures through the plugin logger so they are not
-     * silently lost when a run aborts.
-     */
-    event: async ({ event }) => {
-      if (event.type === "session.error") {
-        await client.app.log({
-          body: {
-            service: "agents-opencode",
-            level: "error",
-            message: "OpenCode session error observed",
-          },
-        });
-      }
-    },
-
-    /**
-     * Inject agent-specific state into compaction so critical context
-     * survives context window truncation.
-     */
-    "experimental.session.compacting": async (input, output) => {
-      output.context.push(`## Agents Opencode Context
+function compactionContext(): string {
+  return `## Agents Opencode Context
 
 You are operating with the agents-opencode v${PACK.version} agent pack.
 
@@ -137,34 +107,70 @@ Available agents:
 Active inventory: ${PACK.inventory} available as skills and slash commands.
 
 Memory: state/session-state.json and handoff/latest.md preserve working state.
-Context persistence: AGENTS.md tracks project milestones across sessions.`);
+Context persistence: AGENTS.md tracks project milestones across sessions.`;
+}
 
-      // Persist critical state markers
-      output.context.push(`## Session State Reminder
+function sessionStateReminder(): string {
+  return `## Session State Reminder
 - Current phase: Read state/session-state.json for working memory
 - Check handoff/latest.md for continuation context
-- Review AGENTS.md for recent milestones and patterns`);
-    },
+- Review AGENTS.md for recent milestones and patterns`;
+}
 
-    /**
-     * Safety hook: block agents from reading sensitive files.
-     */
-    "tool.execute.before": async (input, output) => {
-      if (input.tool === "read") {
-        const filePath = output.args?.filePath;
-        if (typeof filePath === "string" && isBlockedReadPath(filePath)) {
+export default Plugin.define({
+  id: "agents-opencode",
+  async setup(ctx) {
+    console.log(
+      `Agents Opencode v${PACK.version} loaded — ${PACK.inventory} available`
+    );
+
+    // Inject pack context into compaction so critical state survives
+    // context-window truncation.
+    await ctx.session.hook("compaction", (event) => {
+      event.system.push({ type: "text", text: compactionContext() });
+      event.system.push({ type: "text", text: sessionStateReminder() });
+    });
+
+    // Safety hook: block agents from reading sensitive files.
+    await ctx.tool.hook("execute.before", (event) => {
+      if (event.tool === "read") {
+        const input = event.input as { path?: unknown; filePath?: unknown };
+        const candidate =
+          typeof input.path === "string"
+            ? input.path
+            : typeof input.filePath === "string"
+              ? input.filePath
+              : null;
+        if (candidate !== null && isBlockedReadPath(candidate)) {
           throw new Error(
-            `[agents-opencode] Blocked reading sensitive file: ${filePath}. Do not read credential or secret files.`
+            `[agents-opencode] Blocked reading sensitive file: ${candidate}. Do not read credential or secret files.`
           );
         }
       }
-    },
+    });
 
-    /**
-     * Inject package version into shell environment for script awareness.
-     */
-    "shell.env": async (input, output) => {
-      output.env["AGENTS_OPENCODE_VERSION"] = PACK.version;
-    },
-  };
-};
+    // Inject package version into shell environment for script awareness.
+    await ctx.shell.hook("create.before", (event) => {
+      event.env["AGENTS_OPENCODE_VERSION"] = PACK.version;
+    });
+
+    // Surface session-level failures through the plugin log so they are not
+    // silently lost when a run aborts.
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        for await (const event of ctx.event.subscribe({
+          signal: controller.signal,
+        })) {
+          if (event.type === "session.error") {
+            console.error("agents-opencode: OpenCode session error observed");
+          }
+        }
+      } catch {
+        // Subscription aborted during plugin unload.
+      }
+    })();
+
+    return () => controller.abort();
+  },
+});

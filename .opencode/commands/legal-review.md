@@ -1,7 +1,7 @@
 ---
 description: Review licenses, compliance, and data privacy
 agent: legal-advisor
-subtask: true
+subagent: true
 ---
 
 # Legal & Compliance Review

@@ -22,6 +22,24 @@ PATTERNS=(
   $'(password|secret|api_key|apikey)[[:space:]]*[:=][[:space:]]*["\'][^"\']{8,}["\']'  # Generic secret
 )
 
+# Approved false positives: <path>:<line> or whole <path> (see file header).
+ALLOWLIST=".githooks/secret-allowlist"
+
+is_allowed() {
+  local key="$1" file="$2" entry
+  [ -f "$ALLOWLIST" ] || return 1
+  while IFS= read -r entry || [ -n "$entry" ]; do
+    entry="${entry%%#*}"
+    entry="${entry#"${entry%%[![:space:]]*}"}"
+    entry="${entry%"${entry##*[![:space:]]}"}"
+    [ -z "$entry" ] && continue
+    if [ "$entry" = "$key" ] || [ "$entry" = "$file" ]; then
+      return 0
+    fi
+  done < "$ALLOWLIST"
+  return 1
+}
+
 # Files staged for commit
 FILES=$(git diff --cached --name-only --diff-filter=ACMR)
 BLOCKED=0
@@ -29,10 +47,14 @@ BLOCKED=0
 for FILE in $FILES; do
   [ -f "$FILE" ] || continue
   for PATTERN in "${PATTERNS[@]}"; do
-    if git show ":${FILE}" | grep -qiE -- "$PATTERN"; then
-      echo "⚠️  BLOCKED: $FILE matches secret pattern"
+    while IFS= read -r LINE_NO; do
+      if is_allowed "$FILE:$LINE_NO" "$FILE"; then
+        echo "✓ allowlisted: $FILE:$LINE_NO"
+        continue
+      fi
+      echo "⚠️  BLOCKED: $FILE:$LINE_NO matches secret pattern"
       BLOCKED=1
-    fi
+    done < <(git show ":${FILE}" | grep -niE -- "$PATTERN" | cut -d: -f1)
   done
 done
 

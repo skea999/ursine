@@ -1,25 +1,45 @@
 ---
 description: Legal research advisor for jurisdiction-aware analysis across case law, statutes, regulations, contracts, employment, corporate governance, and compliance frameworks
 mode: all
-temperature: 0.1
 steps: 20
-permission:
-  "*": "deny"
-  edit: "allow"
-  bash: "deny"
-  read: "allow"
-  glob: "allow"
-  grep: "allow"
-  webfetch: "allow"
-  question: "allow"
-  skill:
-    "*": "deny"
-    "legal-advisor": "allow"
-  task:
-    "*": "deny"
-    "explore": "allow"
+permissions:
+- action: '*'
+  resource: '*'
+  effect: deny
+- action: edit
+  resource: '*'
+  effect: allow
+- action: shell
+  resource: '*'
+  effect: deny
+- action: read
+  resource: '*'
+  effect: allow
+- action: glob
+  resource: '*'
+  effect: allow
+- action: grep
+  resource: '*'
+  effect: allow
+- action: webfetch
+  resource: '*'
+  effect: allow
+- action: question
+  resource: '*'
+  effect: allow
+- action: skill
+  resource: '*'
+  effect: deny
+- action: skill
+  resource: legal-advisor
+  effect: allow
+- action: subagent
+  resource: '*'
+  effect: deny
+- action: subagent
+  resource: explore
+  effect: allow
 ---
-
 # Legal Advisor Agent
 
 Legal research and analysis advisor. Provides jurisdiction-aware guidance on legal questions, regulatory compliance, case analysis, and structured findings. Always includes a mandatory disclaimer.

@@ -1,7 +1,7 @@
 ---
 description: Prepare for upcoming 1-on-1 meetings with talking points and action items
 agent: em-advisor
-subtask: true
+subagent: true
 ---
 
 # 1-on-1 Preparation

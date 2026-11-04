@@ -1,7 +1,7 @@
 ---
 description: Write a blog post on a given topic with research and fact validation
 agent: blogger
-subtask: true
+subagent: true
 ---
 
 # Blog Post Creation

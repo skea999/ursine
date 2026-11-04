@@ -1,18 +1,26 @@
 ---
 description: Multi-language development agent with profile auto-detection for implementing features across .NET, Python, TypeScript, Flutter, Go, Java, Node.js, React, Ruby, and Rust projects
 mode: all
-temperature: 0.1
-permission:
-  "*": "allow"
-  bash:
-    "*": "allow"
-    "nix profile add*": "ask"
-    "sudo *": "deny"
-    "doas *": "deny"
-  external_directory:
-    "*": "ask"
+permissions:
+- action: '*'
+  resource: '*'
+  effect: allow
+- action: shell
+  resource: '*'
+  effect: allow
+- action: shell
+  resource: nix profile add*
+  effect: ask
+- action: shell
+  resource: sudo *
+  effect: deny
+- action: shell
+  resource: doas *
+  effect: deny
+- action: external_directory
+  resource: '*'
+  effect: ask
 ---
-
 # Codebase Development Agent
 
 Multi-language development specialist implementing features with profile-aware adaptation. Auto-detects project language and applies appropriate patterns.

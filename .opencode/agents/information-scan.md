@@ -1,17 +1,29 @@
 ---
 description: Pre-commit secrets/PII scan. Block commit if found.
 mode: subagent
-permission:
-  edit: deny
-  read: allow
-  grep: allow
-  glob: allow
-  bash: allow
-  webfetch: deny
-  websearch: deny
-hidden: true
+permissions:
+- action: edit
+  resource: '*'
+  effect: deny
+- action: read
+  resource: '*'
+  effect: allow
+- action: grep
+  resource: '*'
+  effect: allow
+- action: glob
+  resource: '*'
+  effect: allow
+- action: shell
+  resource: '*'
+  effect: allow
+- action: webfetch
+  resource: '*'
+  effect: deny
+- action: websearch
+  resource: '*'
+  effect: deny
 ---
-
 Pre-commit secrets/PII scanner. Block commit on find.
 
 ## Scan scope

@@ -1,7 +1,7 @@
 ---
 description: Emit structured phase-boundary checkpoint for human decision
 agent: orchestrator
-subtask: true
+subagent: true
 ---
 
 # Phase Checkpoint

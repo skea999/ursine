@@ -1,43 +1,96 @@
 ---
 description: Code review specialist focusing on security, performance, and best practices
 mode: subagent
-temperature: 0.1
 steps: 40
-permission:
-  "*": "deny"
-  edit: "deny"
-  bash: "deny"
-  glob: "allow"
-  grep: "allow"
-  read: "allow"
-  webfetch: "allow"
-  question: "allow"
-  skill:
-    "*": "deny"
-    "dotnet": "allow"
-    "python": "allow"
-    "typescript": "allow"
-    "flutter": "allow"
-    "go": "allow"
-    "java-spring": "allow"
-    "node-express": "allow"
-    "react-next": "allow"
-    "ux-responsive": "allow"
-    "ruby-rails": "allow"
-    "rust": "allow"
-    "sql-migrations": "allow"
-    "docs-validation": "allow"
-    "agent-diagnostics": "allow"
-    "code-change-impact": "allow"
-    "security-audit": "allow"
-    "decision-grounding": "allow"
-  task:
-    "*": "deny"
-    "explore": "allow"
-    "researcher": "allow"
-hidden: true
+permissions:
+- action: '*'
+  resource: '*'
+  effect: deny
+- action: edit
+  resource: '*'
+  effect: deny
+- action: shell
+  resource: '*'
+  effect: deny
+- action: glob
+  resource: '*'
+  effect: allow
+- action: grep
+  resource: '*'
+  effect: allow
+- action: read
+  resource: '*'
+  effect: allow
+- action: webfetch
+  resource: '*'
+  effect: allow
+- action: question
+  resource: '*'
+  effect: allow
+- action: skill
+  resource: '*'
+  effect: deny
+- action: skill
+  resource: dotnet
+  effect: allow
+- action: skill
+  resource: python
+  effect: allow
+- action: skill
+  resource: typescript
+  effect: allow
+- action: skill
+  resource: flutter
+  effect: allow
+- action: skill
+  resource: go
+  effect: allow
+- action: skill
+  resource: java-spring
+  effect: allow
+- action: skill
+  resource: node-express
+  effect: allow
+- action: skill
+  resource: react-next
+  effect: allow
+- action: skill
+  resource: ux-responsive
+  effect: allow
+- action: skill
+  resource: ruby-rails
+  effect: allow
+- action: skill
+  resource: rust
+  effect: allow
+- action: skill
+  resource: sql-migrations
+  effect: allow
+- action: skill
+  resource: docs-validation
+  effect: allow
+- action: skill
+  resource: agent-diagnostics
+  effect: allow
+- action: skill
+  resource: code-change-impact
+  effect: allow
+- action: skill
+  resource: security-audit
+  effect: allow
+- action: skill
+  resource: decision-grounding
+  effect: allow
+- action: subagent
+  resource: '*'
+  effect: deny
+- action: subagent
+  resource: explore
+  effect: allow
+- action: subagent
+  resource: researcher
+  effect: allow
 ---
-
 # Code Review Agent
 
 Security and quality-focused code reviewer identifying issues, suggesting improvements, and ensuring best practices.

@@ -1,7 +1,7 @@
 ---
 description: Plan and coordinate a complex multi-phase project with agent handoffs
 agent: orchestrator
-subtask: true
+subagent: true
 ---
 
 # Project Planning & Orchestration

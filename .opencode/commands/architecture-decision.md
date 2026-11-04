@@ -1,7 +1,7 @@
 ---
 description: Document an architectural decision with context, options, and rationale
 agent: docs
-subtask: true
+subagent: true
 ---
 
 # Architecture Decision Record

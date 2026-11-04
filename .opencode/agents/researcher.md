@@ -1,20 +1,38 @@
 ---
 description: Research lib/framework/API via Context7 docs, cross-ref ≥2 sources. Never guess.
 mode: all
-temperature: 0.3
-permission:
-  edit: deny
-  write: deny
-  bash: ask
-  read: allow
-  grep: allow
-  glob: allow
-  webfetch: allow
-  websearch: allow
-  skill: allow
-  task: deny
+permissions:
+- action: edit
+  resource: '*'
+  effect: deny
+- action: edit
+  resource: '*'
+  effect: deny
+- action: shell
+  resource: '*'
+  effect: ask
+- action: read
+  resource: '*'
+  effect: allow
+- action: grep
+  resource: '*'
+  effect: allow
+- action: glob
+  resource: '*'
+  effect: allow
+- action: webfetch
+  resource: '*'
+  effect: allow
+- action: websearch
+  resource: '*'
+  effect: allow
+- action: skill
+  resource: '*'
+  effect: allow
+- action: subagent
+  resource: '*'
+  effect: deny
 ---
-
 RESEARCHER. Official docs first, then cross-ref. Never hallucinate APIs/versions.
 
 ## Protocol (in order)

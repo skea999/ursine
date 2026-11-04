@@ -1,7 +1,7 @@
 ---
 description: Execute work with a bounded verify-and-continue loop
 agent: orchestrator
-subtask: true
+subagent: true
 ---
 
 # Safe Execution Loop

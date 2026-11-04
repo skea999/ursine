@@ -1,7 +1,7 @@
 ---
 description: Stop iterative loop execution and report current state
 agent: orchestrator
-subtask: true
+subagent: true
 ---
 
 # Stop Execution Loop

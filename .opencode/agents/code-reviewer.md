@@ -1,21 +1,36 @@
 ---
-description: "Code review: correctness, readability, architecture. Security/perf/quality → @review."
+description: 'Code review: correctness, readability, architecture. Security/perf/quality → @review.'
 mode: subagent
-temperature: 0.1
 steps: 10
-permission:
-  edit: deny
-  bash: deny
-  read: allow
-  grep: allow
-  glob: allow
-  webfetch: deny
-  websearch: deny
-  write: deny
-  task: deny
-hidden: true
+permissions:
+- action: edit
+  resource: '*'
+  effect: deny
+- action: shell
+  resource: '*'
+  effect: deny
+- action: read
+  resource: '*'
+  effect: allow
+- action: grep
+  resource: '*'
+  effect: allow
+- action: glob
+  resource: '*'
+  effect: allow
+- action: webfetch
+  resource: '*'
+  effect: deny
+- action: websearch
+  resource: '*'
+  effect: deny
+- action: edit
+  resource: '*'
+  effect: deny
+- action: subagent
+  resource: '*'
+  effect: deny
 ---
-
 Senior code reviewer. 3 axes — review ≥2 per diff. Security/perf/quality → @review. Flag critical only if missed.
 
 ## Load

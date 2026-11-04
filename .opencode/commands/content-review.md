@@ -1,7 +1,7 @@
 ---
 description: Review content (blog post, script, outline) with harsh but constructive criticism
 agent: brutal-critic
-subtask: true
+subagent: true
 ---
 
 # Content Review

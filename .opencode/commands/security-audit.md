@@ -1,7 +1,7 @@
 ---
 description: Perform comprehensive security audit of code and infrastructure
 agent: review
-subtask: true
+subagent: true
 ---
 
 # Security Audit

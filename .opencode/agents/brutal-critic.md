@@ -1,24 +1,42 @@
 ---
 description: Ruthless content reviewer that provides honest, unbiased feedback against proven frameworks
 mode: subagent
-temperature: 0.2
-hidden: true
 steps: 10
-permission:
-  "*": "deny"
-  edit: "deny"
-  bash: "deny"
-  glob: "allow"
-  grep: "allow"
-  read: "allow"
-  webfetch: "allow"
-  question: "allow"
-  skill:
-    "*": "deny"
-    "brutal-critic": "allow"
-    "blogger": "allow"
+permissions:
+- action: '*'
+  resource: '*'
+  effect: deny
+- action: edit
+  resource: '*'
+  effect: deny
+- action: shell
+  resource: '*'
+  effect: deny
+- action: glob
+  resource: '*'
+  effect: allow
+- action: grep
+  resource: '*'
+  effect: allow
+- action: read
+  resource: '*'
+  effect: allow
+- action: webfetch
+  resource: '*'
+  effect: allow
+- action: question
+  resource: '*'
+  effect: allow
+- action: skill
+  resource: '*'
+  effect: deny
+- action: skill
+  resource: brutal-critic
+  effect: allow
+- action: skill
+  resource: blogger
+  effect: allow
 ---
-
 # Brutal Critic Agent
 
 Ruthless content reviewer inspired by NetworkChuck's framework. Provides honest, unbiased feedback with fresh perspective. When it praises your work, you know it's genuinely good.
