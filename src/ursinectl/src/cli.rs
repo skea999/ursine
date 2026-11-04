@@ -56,7 +56,8 @@ MODULES (wire name; short alias in parentheses):
                       preview_apk_install, remove_apk, upgrade_apk,
                       list_apk_updates, upgrade_apk_package
   packages_flatpak(flatpak)
-                      list_flatpak, list_flatpak_remotes, search_flatpak,
+                      list_flatpak, list_flatpak_remotes,
+                      list_flatpak_updates, search_flatpak,
                       install_flatpak, get_flatpak_info, remove_flatpak,
                       update_flatpak, update_flatpak_app,
                       remove_flatpak_orphans

@@ -279,6 +279,13 @@ pub const SAMPLES: &[Sample] = &[
     },
     Sample {
         module: ursine_api::ModuleId::PackagesFlatpak,
+        action: "list_flatpak_updates",
+        pairs: &[("system", "true")],
+        destructive: false,
+        dispatch: Dispatch::Gate,
+    },
+    Sample {
+        module: ursine_api::ModuleId::PackagesFlatpak,
         action: "search_flatpak",
         pairs: &[("query", "firefox"), ("system", "true")],
         destructive: false,
@@ -836,6 +843,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "list_disks",
     "list_flatpak",
     "list_flatpak_remotes",
+    "list_flatpak_updates",
     "list_groups",
     "list_installed",
     "list_printers",

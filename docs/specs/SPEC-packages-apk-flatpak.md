@@ -17,6 +17,7 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `upgrade_apk` | `apk upgrade` (progress via job log) |
 | `list_flatpak` | `flatpak list --columns=... --system/--user` |
 | `list_flatpak_remotes` | `flatpak remotes --columns=name,url [--system/--user]` |
+| `list_flatpak_updates` | `flatpak remote-ls <scope> --app/--runtime --updates --columns=…` |
 | `search_flatpak` | `flatpak search --columns=... --system/--user <query>` |
 | `install_flatpak` | `flatpak install -y --noninteractive <scope> <remote> <app>` (remote default `flathub`, validated) |
 | `get_flatpak_info` | `flatpak remote-info <scope> <remote> <app>` (name, version, sizes) |
@@ -49,7 +50,9 @@ Sidebar entries **APK packages** and **Flatpak applications**. Each panel has:
 - search and direct-install fields (Flatpak: remote dropdown next to the
   install entry, sizes shown in the install confirmation);
 - installed/search rows with install/remove actions;
-- refresh/update controls with confirmations.
+- refresh/update controls with confirmations;
+- Upgrade section lists Flatpak update-available rows (from
+  `list_flatpak_updates`) with a per-app Update button.
 
 The overall shell uses a GNOME Settings-style left sidebar for every logged-in
 screen.

@@ -147,6 +147,11 @@ pub enum Action {
         #[serde(default)]
         system: Option<bool>,
     },
+    /// Refs with updates available on their remotes
+    /// (`flatpak remote-ls --updates`, apps and runtimes).
+    ListFlatpakUpdates {
+        system: bool,
+    },
     /// Search the configured Flatpak remotes.
     SearchFlatpak {
         query: String,

@@ -46,6 +46,7 @@ pub struct PackagesState {
     pub apk_updates: Vec<ApkUpdate>,
     pub apk_repositories: Vec<String>,
     pub flatpak: Vec<FlatpakPackage>,
+    pub flatpak_updates: Vec<FlatpakPackage>,
     pub flatpak_remotes: Vec<FlatpakRemote>,
     pub system: bool,
     pub query: String,
@@ -73,6 +74,7 @@ impl Default for PackagesState {
             apk_updates: Vec::new(),
             apk_repositories: Vec::new(),
             flatpak: Vec::new(),
+            flatpak_updates: Vec::new(),
             flatpak_remotes: Vec::new(),
             system: true,
             query: String::new(),
@@ -107,6 +109,7 @@ impl PackagesState {
         self.apk_updates.clear();
         self.apk_repositories.clear();
         self.flatpak.clear();
+        self.flatpak_updates.clear();
         self.flatpak_remotes.clear();
         self.searching = false;
         self.error = None;
@@ -120,6 +123,7 @@ impl PackagesState {
     pub fn apply_apk(&mut self, packages: Vec<ApkPackage>) {
         self.apk = packages;
         self.flatpak.clear();
+        self.flatpak_updates.clear();
         self.error = None;
     }
 
@@ -176,6 +180,10 @@ impl PackagesState {
         self.flatpak = packages;
         self.apk.clear();
         self.error = None;
+    }
+
+    pub fn apply_flatpak_updates(&mut self, updates: Vec<FlatpakPackage>) {
+        self.flatpak_updates = updates;
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -286,6 +294,45 @@ impl PackagesState {
                                 .into(),
                                 button::text("Upgrade")
                                     .on_press(Message::ApkUpgradeRequested(update.name.clone()))
+                                    .into(),
+                            ])
+                            .spacing(8)
+                            .into()
+                        })
+                        .collect::<Vec<Element<'_, Message>>>(),
+                )
+                .spacing(4),
+            ));
+        }
+        if kind == PackageKind::Flatpak && !self.flatpak_updates.is_empty() {
+            upgrade = upgrade.add(settings::item(
+                format!("Available updates ({})", self.flatpak_updates.len()),
+                column(
+                    self.flatpak_updates
+                        .iter()
+                        .map(|update| {
+                            let installed = self
+                                .flatpak
+                                .iter()
+                                .find(|row| row.app_id == update.app_id)
+                                .map(|row| row.version.clone());
+                            let detail = match installed {
+                                Some(old) if !old.is_empty() => {
+                                    format!("{} {} -> {}", update.name, old, update.version)
+                                }
+                                _ => format!("{} {}", update.name, update.version),
+                            };
+                            let detail = if update.origin.is_empty() {
+                                detail
+                            } else {
+                                format!("{detail} · {}", update.origin)
+                            };
+                            row(vec![
+                                text(detail).width(Length::Fill).into(),
+                                button::text("Update")
+                                    .on_press(Message::FlatpakUpgradeRequested(
+                                        update.app_id.clone(),
+                                    ))
                                     .into(),
                             ])
                             .spacing(8)

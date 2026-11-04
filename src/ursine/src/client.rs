@@ -1219,6 +1219,26 @@ pub async fn flatpak_info(
         .map_err(|e| ApiError::internal(format!("cannot read flatpak info: {e}")))
 }
 
+pub async fn flatpak_updates(
+    token: SessionToken,
+    system: bool,
+) -> Result<Vec<FlatpakPackage>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::ListFlatpakUpdates { system },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let updates = value
+        .get("updates")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon flatpak updates response has no updates"))?;
+    serde_json::from_value(updates)
+        .map_err(|e| ApiError::internal(format!("cannot read flatpak updates: {e}")))
+}
+
 pub async fn flatpak_search(
     token: SessionToken,
     query: String,

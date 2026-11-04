@@ -23,6 +23,9 @@ const FLATPAK_CANDIDATES: [&str; 3] = [
 ];
 const TIMEOUT: Duration = Duration::from_mins(15);
 const MAX_ROWS: usize = 300;
+/// Shared column order for `flatpak list` / `flatpak remote-ls` rows —
+/// [`parse_list`] reads the fields positionally in exactly this order.
+const LIST_COLUMNS: &str = "application,name,version,branch,origin";
 
 pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
     match action {
@@ -31,6 +34,9 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         }
         Action::ListFlatpakRemotes { system } => {
             Ok(json!({"remotes": remotes(*system, ctx.as_user).await?}))
+        }
+        Action::ListFlatpakUpdates { system } => {
+            Ok(json!({"updates": updates(*system, ctx.as_user).await?}))
         }
         Action::SearchFlatpak { query, system } => Ok(json!({
             "packages": search(query, *system, ctx.as_user).await?,
@@ -144,6 +150,32 @@ async fn list(system: bool, user: &str) -> Result<Vec<FlatpakPackage>, ApiError>
     Ok(rows)
 }
 
+/// Refs whose remote has a newer commit (`flatpak remote-ls --updates`).
+/// Column order matches [`parse_list`], so rows share `FlatpakPackage`.
+async fn updates(system: bool, user: &str) -> Result<Vec<FlatpakPackage>, ApiError> {
+    let (apps, runtimes) = tokio::try_join!(
+        updates_kind(system, user, "--app", FlatpakRefKind::App),
+        updates_kind(system, user, "--runtime", FlatpakRefKind::Runtime),
+    )?;
+    let mut rows = apps;
+    rows.extend(runtimes);
+    rows.truncate(MAX_ROWS);
+    Ok(rows)
+}
+
+async fn updates_kind(
+    system: bool,
+    user: &str,
+    kind_flag: &str,
+    kind: FlatpakRefKind,
+) -> Result<Vec<FlatpakPackage>, ApiError> {
+    let scope = scope(system);
+    let columns = format!("--columns={LIST_COLUMNS}");
+    let args = ["remote-ls", scope, kind_flag, "--updates", columns.as_str()];
+    let output = run(system, user, &args).await?;
+    Ok(parse_list(&output, system, kind))
+}
+
 async fn list_kind(
     system: bool,
     user: &str,
@@ -151,12 +183,8 @@ async fn list_kind(
     kind: FlatpakRefKind,
 ) -> Result<Vec<FlatpakPackage>, ApiError> {
     let scope = scope(system);
-    let args = [
-        "list",
-        "--columns=application,name,version,branch,origin",
-        kind_flag,
-        scope,
-    ];
+    let columns = format!("--columns={LIST_COLUMNS}");
+    let args = ["list", columns.as_str(), kind_flag, scope];
     let output = run(system, user, &args).await?;
     Ok(parse_list(&output, system, kind))
 }
@@ -214,6 +242,7 @@ async fn search(query: &str, system: bool, user: &str) -> Result<Vec<FlatpakPack
     Ok(parse_search(&output, system))
 }
 
+/// Parse tab rows in [`LIST_COLUMNS`] order (shared by list and updates).
 fn parse_list(output: &str, system: bool, kind: FlatpakRefKind) -> Vec<FlatpakPackage> {
     let mut rows = Vec::new();
     for line in output

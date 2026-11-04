@@ -284,6 +284,7 @@ pub enum Message {
     PackageApkRepositoriesLoaded(u64, Result<Vec<String>, ApiError>),
     PackagePreviewFinished(u64, Result<String, ApiError>),
     PackageFlatpakLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
+    PackageFlatpakUpdatesLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
     PackageFlatpakRemotesLoaded(u64, Result<Vec<ursine_api::FlatpakRemote>, ApiError>),
     PackageApkSearchLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
     PackageFlatpakSearchLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
@@ -907,6 +908,9 @@ impl cosmic::Application for App {
             }
             Message::PackageFlatpakLoaded(epoch, result) => {
                 return self.finish_flatpak(epoch, result)
+            }
+            Message::PackageFlatpakUpdatesLoaded(epoch, result) => {
+                return self.finish_flatpak_updates(epoch, result)
             }
             Message::PackageFlatpakRemotesLoaded(epoch, result) => {
                 return self.finish_flatpak_remotes(epoch, result)
@@ -2135,6 +2139,7 @@ impl App {
             Task::batch(vec![list, updates, repositories])
         } else {
             let remotes_token = token.clone();
+            let updates_token = token.clone();
             let list = Task::future(async move {
                 Message::PackageFlatpakLoaded(epoch, client::flatpak_list(token, system).await)
             })
@@ -2146,7 +2151,14 @@ impl App {
                 )
             })
             .map(cosmic::Action::App);
-            Task::batch(vec![list, remotes])
+            let updates = Task::future(async move {
+                Message::PackageFlatpakUpdatesLoaded(
+                    epoch,
+                    client::flatpak_updates(updates_token, system).await,
+                )
+            })
+            .map(cosmic::Action::App);
+            Task::batch(vec![list, remotes, updates])
         }
     }
 
@@ -2253,6 +2265,27 @@ impl App {
                     return Task::none();
                 }
                 self.packages.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn finish_flatpak_updates(
+        &mut self,
+        epoch: u64,
+        result: Result<Vec<FlatpakPackage>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        match result {
+            Ok(updates) => self.packages.apply_flatpak_updates(updates),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                // The update list is informational: keep the panel usable.
+                self.packages.flatpak_updates.clear();
             }
         }
         Task::none()

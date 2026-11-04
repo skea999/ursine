@@ -114,7 +114,7 @@ audit log). Run `ursinectl --help` for the grouped list.
 ### packages_flatpak (`flatpak`)
 
 `list_flatpak [system=true]`, `list_flatpak_remotes`,
-`search_flatpak query=… [system=true]`,
+`list_flatpak_updates [system=true]`, `search_flatpak query=… [system=true]`,
 `install_flatpak app_id=… [system=true] [remote=…]`,
 `get_flatpak_info app_id=… [remote=…] system=true|false`,
 `remove_flatpak app_id=… [system=true]`, `update_flatpak [system=true]`,
@@ -123,8 +123,9 @@ audit log). Run `ursinectl --help` for the grouped list.
 
 `list_flatpak` rows carry `kind` (`app` or `runtime`): the daemon queries
 `flatpak list --app` and `--runtime` separately because the `ref` column
-has no kind prefix. `remote` defaults to `flathub` and must be a
-configured remote name.
+has no kind prefix. `list_flatpak_updates` answers the same row shape for
+refs whose remote has a newer commit (`flatpak remote-ls --updates`).
+`remote` defaults to `flathub` and must be a configured remote name.
 `get_flatpak_info` answers `name`, `version`, `download_size`,
 `installed_size` and `runtime` for the install confirmation; a failed
 lookup still allows the install (the job reports its own errors).

@@ -130,12 +130,13 @@ preview_apk_install, remove_apk, upgrade_apk, list_apk_updates,
 upgrade_apk_package.
 .TP
 .B packages_flatpak
-list_flatpak, list_flatpak_remotes, search_flatpak, install_flatpak,
-get_flatpak_info, remove_flatpak, update_flatpak, update_flatpak_app,
-remove_flatpak_orphans.
+list_flatpak, list_flatpak_remotes, list_flatpak_updates, search_flatpak,
+install_flatpak, get_flatpak_info, remove_flatpak, update_flatpak,
+update_flatpak_app, remove_flatpak_orphans.
 install_flatpak accepts an optional remote (default flathub);
 get_flatpak_info reports name, version, download and installed size for
-the install confirmation.
+the install confirmation; list_flatpak_updates reports refs whose remote
+has a newer commit.
 .TP
 .B printers
 list_printers, printer_jobs, add_printer, add_printer_manual,

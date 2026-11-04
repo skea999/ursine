@@ -12,8 +12,10 @@
   with the sizes before installing (failed size lookup still allows the
   install; the job log reports its own errors). Flatpak rows now carry
   `kind` (`app`/`runtime` from separate `flatpak list --app/--runtime`
-  queries) with a Show dropdown in the GUI. CLI guide and man page
-  updated.
+  queries) with a Show dropdown in the GUI. New `list_flatpak_updates`
+  reports refs with a newer remote commit (`flatpak remote-ls --updates`,
+  apps and runtimes) and the GUI lists them with a per-app Update button
+  in the Upgrade section. CLI guide and man page updated.
 - Niri compatibility range: `get_niri_config` now reports
   `version_parsed`, `version_supported` and `min_supported` (tested
   floor `25.05`); the GUI shows a Compatibility warning below the

@@ -160,12 +160,12 @@ Implemented baseline:
 - install confirmation with version/download/installed sizes
   (`get_flatpak_info` → `flatpak remote-info`);
 - scope-aware remote listing (`list_flatpak_remotes system=…`);
-- apps/runtimes separation (rows tagged `kind`, Show dropdown).
+- apps/runtimes separation (rows tagged `kind`, Show dropdown);
+- update-available list (`list_flatpak_updates`, per-app Update button);
+- per-app update.
 
 v2 polish:
 
-- update-available list;
-- per-app update;
 - Flatpak permissions editor (filesystem, devices, sockets, env);
 - user scope for another target user if required later.
 
