@@ -3,7 +3,9 @@
 use cosmic::iced::Length;
 use cosmic::widget::{button, column, dropdown, row, scrollable, settings, text, text_input};
 use cosmic::Element;
-use ursine_api::{ApkPackage, ApkUpdate, FlatpakInfo, FlatpakPackage, FlatpakRemote};
+use ursine_api::{
+    ApkPackage, ApkUpdate, FlatpakInfo, FlatpakPackage, FlatpakRefKind, FlatpakRemote,
+};
 
 use crate::app::Message;
 use crate::package_row::package_row;
@@ -50,6 +52,8 @@ pub struct PackagesState {
     pub install: String,
     /// Selected Flatpak remote for installs (empty = daemon default).
     pub install_remote: String,
+    /// Flatpak list filter: false = apps, true = runtimes.
+    pub show_runtimes: bool,
     pub busy: bool,
     pub action_busy: bool,
     pub searching: bool,
@@ -74,6 +78,7 @@ impl Default for PackagesState {
             query: String::new(),
             install: String::new(),
             install_remote: String::new(),
+            show_runtimes: false,
             busy: false,
             action_busy: false,
             searching: false,
@@ -153,6 +158,12 @@ impl PackagesState {
         names
     }
 
+    /// Whether a Flatpak row shows under the current Show filter. Search
+    /// hits are apps (appstream) and are never hidden behind Runtimes.
+    pub fn flatpak_row_visible(&self, row_kind: FlatpakRefKind) -> bool {
+        self.searching || (row_kind == FlatpakRefKind::Runtime) == self.show_runtimes
+    }
+
     pub fn selected_remote(&self) -> Option<String> {
         if self.install_remote.is_empty() {
             None
@@ -196,23 +207,29 @@ impl PackagesState {
             items.push(text("Running package action…").into());
         }
 
-        items.push(
-            settings::section()
-                .title("Scope")
-                .add(settings::item(
-                    "Installation",
-                    if kind == PackageKind::Flatpak {
-                        Element::from(dropdown(
-                            vec!["System", "User"],
-                            Some(usize::from(!self.system)),
-                            Message::PackageScopeChanged,
-                        ))
-                    } else {
-                        Element::from(text("system-wide"))
-                    },
+        let mut scope_section = settings::section().title("Scope").add(settings::item(
+            "Installation",
+            if kind == PackageKind::Flatpak {
+                Element::from(dropdown(
+                    vec!["System", "User"],
+                    Some(usize::from(!self.system)),
+                    Message::PackageScopeChanged,
                 ))
-                .into(),
-        );
+            } else {
+                Element::from(text("system-wide"))
+            },
+        ));
+        if kind == PackageKind::Flatpak {
+            scope_section = scope_section.add(settings::item(
+                "Show",
+                dropdown(
+                    vec!["Apps", "Runtimes"],
+                    Some(usize::from(self.show_runtimes)),
+                    Message::PackageFlatpakFilterChanged,
+                ),
+            ));
+        }
+        items.push(scope_section.into());
 
         items.push(
             settings::section()
@@ -406,7 +423,13 @@ impl PackagesState {
                 }
             }
             PackageKind::Flatpak => {
-                for package in &self.flatpak {
+                let mut shown = 0usize;
+                for package in self
+                    .flatpak
+                    .iter()
+                    .filter(|package| self.flatpak_row_visible(package.kind))
+                {
+                    shown += 1;
                     let app_id = package.app_id.clone();
                     let action: Element<'_, Message> = if self.searching {
                         button::text("Install")
@@ -440,6 +463,16 @@ impl PackagesState {
                         format!("{} {}", package.name, package.version),
                         text(description).into(),
                         action,
+                    ));
+                }
+                if !self.searching && shown == 0 {
+                    list = list.add(settings::item(
+                        "Result",
+                        text(if self.show_runtimes {
+                            "No runtimes installed."
+                        } else {
+                            "No apps installed."
+                        }),
                     ));
                 }
             }
@@ -593,5 +626,35 @@ impl PackagesState {
         }
 
         scrollable(column(items).spacing(16).padding(24)).into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn show_filter_toggles_apps_and_runtimes() {
+        let state = PackagesState::default();
+        // Default: apps visible, runtimes hidden.
+        assert!(state.flatpak_row_visible(FlatpakRefKind::App));
+        assert!(!state.flatpak_row_visible(FlatpakRefKind::Runtime));
+        let state = PackagesState {
+            show_runtimes: true,
+            ..PackagesState::default()
+        };
+        assert!(!state.flatpak_row_visible(FlatpakRefKind::App));
+        assert!(state.flatpak_row_visible(FlatpakRefKind::Runtime));
+    }
+
+    #[test]
+    fn search_hits_are_never_filtered() {
+        let state = PackagesState {
+            searching: true,
+            show_runtimes: true,
+            ..PackagesState::default()
+        };
+        // Search rows are apps; the Runtimes filter must not hide them.
+        assert!(state.flatpak_row_visible(FlatpakRefKind::App));
     }
 }

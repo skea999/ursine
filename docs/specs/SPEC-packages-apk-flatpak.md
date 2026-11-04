@@ -43,6 +43,9 @@ Sidebar entries **APK packages** and **Flatpak applications**. Each panel has:
 
 - source dropdown (APK/Flatpak);
 - Flatpak system/user dropdown;
+- Flatpak Show dropdown (Apps | Runtimes) over rows tagged `kind`
+  (list runs `flatpak list --app` and `--runtime` — the ref column has
+  no kind prefix);
 - search and direct-install fields (Flatpak: remote dropdown next to the
   install entry, sizes shown in the install confirmation);
 - installed/search rows with install/remove actions;

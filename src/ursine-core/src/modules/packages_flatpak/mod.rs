@@ -8,7 +8,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
-use ursine_api::{Action, ApiError, FlatpakInfo, FlatpakPackage, FlatpakRemote, ModuleId};
+use ursine_api::{
+    Action, ApiError, FlatpakInfo, FlatpakPackage, FlatpakRefKind, FlatpakRemote, ModuleId,
+};
 
 use super::ModuleCtx;
 use crate::jobs::JobSink;
@@ -128,14 +130,35 @@ const fn scope(system: bool) -> &'static str {
 }
 
 async fn list(system: bool, user: &str) -> Result<Vec<FlatpakPackage>, ApiError> {
+    // The `ref` column carries no app/runtime prefix, so the split needs
+    // two queries; rows are tagged from the flag that produced them.
+    // Both run together (same binary/scope) and fail closed together.
+    let (apps, runtimes) = tokio::try_join!(
+        list_kind(system, user, "--app", FlatpakRefKind::App),
+        list_kind(system, user, "--runtime", FlatpakRefKind::Runtime),
+    )?;
+    let mut rows = apps;
+    rows.extend(runtimes);
+    // parse caps per query; the merged list keeps the single global cap.
+    rows.truncate(MAX_ROWS);
+    Ok(rows)
+}
+
+async fn list_kind(
+    system: bool,
+    user: &str,
+    kind_flag: &str,
+    kind: FlatpakRefKind,
+) -> Result<Vec<FlatpakPackage>, ApiError> {
     let scope = scope(system);
     let args = [
         "list",
         "--columns=application,name,version,branch,origin",
+        kind_flag,
         scope,
     ];
     let output = run(system, user, &args).await?;
-    Ok(parse_list(&output, system))
+    Ok(parse_list(&output, system, kind))
 }
 
 async fn remotes(system: Option<bool>, user: &str) -> Result<Vec<FlatpakRemote>, ApiError> {
@@ -191,7 +214,7 @@ async fn search(query: &str, system: bool, user: &str) -> Result<Vec<FlatpakPack
     Ok(parse_search(&output, system))
 }
 
-fn parse_list(output: &str, system: bool) -> Vec<FlatpakPackage> {
+fn parse_list(output: &str, system: bool, kind: FlatpakRefKind) -> Vec<FlatpakPackage> {
     let mut rows = Vec::new();
     for line in output
         .lines()
@@ -215,6 +238,7 @@ fn parse_list(output: &str, system: bool) -> Vec<FlatpakPackage> {
             branch: branch.to_string(),
             origin: origin.to_string(),
             system,
+            kind,
         });
     }
     rows
@@ -240,6 +264,8 @@ fn parse_search(output: &str, system: bool) -> Vec<FlatpakPackage> {
             branch: String::new(),
             origin: description.to_string(),
             system,
+            // Appstream search covers applications.
+            kind: FlatpakRefKind::App,
         });
     }
     rows
@@ -373,10 +399,19 @@ mod tests {
         let rows = parse_list(
             "org.mozilla.firefox\tFirefox\t128.0\tstable\tflathub\n",
             true,
+            FlatpakRefKind::App,
         );
         assert_eq!(rows[0].app_id, "org.mozilla.firefox");
         assert_eq!(rows[0].origin, "flathub");
         assert!(rows[0].system);
+        assert_eq!(rows[0].kind, FlatpakRefKind::App);
+        let runtimes = parse_list(
+            "org.freedesktop.Platform\tFreedesktop\t26.08\t26.08\tflathub\n",
+            false,
+            FlatpakRefKind::Runtime,
+        );
+        assert_eq!(runtimes[0].kind, FlatpakRefKind::Runtime);
+        assert!(!runtimes[0].system);
     }
 
     #[test]

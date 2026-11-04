@@ -10,7 +10,9 @@
   via `flatpak remote-info`, `list_flatpak_remotes` can filter by
   installation, and the GUI shows a remote dropdown plus a confirm step
   with the sizes before installing (failed size lookup still allows the
-  install; the job log reports its own errors). CLI guide and man page
+  install; the job log reports its own errors). Flatpak rows now carry
+  `kind` (`app`/`runtime` from separate `flatpak list --app/--runtime`
+  queries) with a Show dropdown in the GUI. CLI guide and man page
   updated.
 - Niri compatibility range: `get_niri_config` now reports
   `version_parsed`, `version_supported` and `min_supported` (tested

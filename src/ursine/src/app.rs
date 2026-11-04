@@ -258,6 +258,7 @@ pub enum Message {
     PackageInstallChanged(String),
     PackageInstallRemoteChanged(String),
     PackageScopeChanged(usize),
+    PackageFlatpakFilterChanged(usize),
     PackageSearchRequested,
     PackageInstallRequested,
     PackageInstallDirect(String),
@@ -831,6 +832,9 @@ impl cosmic::Application for App {
                     self.packages.pending_install = None;
                     return self.load_packages(self.packages.kind.unwrap_or(PackageKind::Apk));
                 }
+            }
+            Message::PackageFlatpakFilterChanged(index) => {
+                self.packages.show_runtimes = index == 1;
             }
             Message::PackageSearchRequested => return self.search_packages(),
             Message::PackageInstallRequested => return self.install_package_input(),

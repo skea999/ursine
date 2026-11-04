@@ -121,7 +121,10 @@ audit log). Run `ursinectl --help` for the grouped list.
 `update_flatpak_app app_id=… [system=true]`,
 `remove_flatpak_orphans [system=true]`
 
-`remote` defaults to `flathub` and must be a configured remote name.
+`list_flatpak` rows carry `kind` (`app` or `runtime`): the daemon queries
+`flatpak list --app` and `--runtime` separately because the `ref` column
+has no kind prefix. `remote` defaults to `flathub` and must be a
+configured remote name.
 `get_flatpak_info` answers `name`, `version`, `download_size`,
 `installed_size` and `runtime` for the install confirmation; a failed
 lookup still allows the install (the job reports its own errors).

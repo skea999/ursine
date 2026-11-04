@@ -45,6 +45,15 @@ pub struct FlatpakInfo {
     pub runtime: String,
 }
 
+/// What a Flatpak ref is: an application or a runtime.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FlatpakRefKind {
+    #[default]
+    App,
+    Runtime,
+}
+
 /// One Flatpak application row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlatpakPackage {
@@ -54,4 +63,37 @@ pub struct FlatpakPackage {
     pub branch: String,
     pub origin: String,
     pub system: bool,
+    #[serde(default)]
+    pub kind: FlatpakRefKind,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flatpak_row_without_kind_deserializes_as_app() {
+        // Old daemons omit `kind`: rows must still parse for new clients.
+        let row: FlatpakPackage = serde_json::from_value(serde_json::json!({
+            "app_id": "org.mozilla.firefox",
+            "name": "Firefox",
+            "version": "158.0.1",
+            "branch": "stable",
+            "origin": "flathub",
+            "system": true
+        }))
+        .unwrap();
+        assert_eq!(row.kind, FlatpakRefKind::App);
+        let runtime: FlatpakPackage = serde_json::from_value(serde_json::json!({
+            "app_id": "org.freedesktop.Platform",
+            "name": "Freedesktop",
+            "version": "26.08",
+            "branch": "26.08",
+            "origin": "flathub",
+            "system": false,
+            "kind": "runtime"
+        }))
+        .unwrap();
+        assert_eq!(runtime.kind, FlatpakRefKind::Runtime);
+    }
 }
