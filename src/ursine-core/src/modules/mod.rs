@@ -255,6 +255,8 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::ConnectNetwork { .. } => "connect_network",
         Action::DisconnectNetwork { .. } => "disconnect_network",
         Action::SetNetworkIpv4 { .. } => "set_network_ipv4",
+        Action::ForgetNetwork { .. } => "forget_network",
+        Action::SetNetworkConnection { .. } => "set_network_connection",
     }
 }
 

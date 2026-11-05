@@ -45,7 +45,7 @@ pub use logs::{
     LogHit, LogSearchResult,
 };
 pub use module::ModuleId;
-pub use network::{NetworkDevice, NetworkIpv4Settings, NetworkView, WifiNetwork};
+pub use network::{NetworkDevice, NetworkIpv4Settings, NetworkProfile, NetworkView, WifiNetwork};
 pub use niri::{
     NiriBindAction, NiriConfigView, NiriEdgeGesture, NiriEnvVar, NiriGestures, NiriKeybind,
     NiriOutput, NiriPosition, NiriSpawn, NiriStruts, NiriValidateError, NiriValues,

@@ -8,7 +8,11 @@
   profile between DHCP and static IPv4 (addresses/gateway/DNS, all
   validated), re-activates the profile when it is active, and reports
   the per-connection settings in `get_network`. The GUI gains an IPv4
-  editor per device with a reconnect confirmation; connection names
+  editor per device with a reconnect confirmation; `forget_network`
+  deletes a saved profile behind a destructive confirmation and
+  `set_network_connection` activates/deactivates one (the VPN
+  Connect/Disconnect controls), with every saved profile listed in
+  `get_network`; connection names
   with spaces (`Home Wi-Fi`) now pass the argv guard (the atom rule
   rejected them — Wi-Fi passwords/SSIDs already used the stdin runner
   and were unaffected). Destructive: `ursinectl` requires `--yes`.

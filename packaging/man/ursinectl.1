@@ -152,7 +152,11 @@ remove_scanner_device, set_scanner_discovery.
 .TP
 .B network
 get_network, set_wifi_enabled, connect_wifi, connect_network,
-disconnect_network, set_network_ipv4.
+disconnect_network, forget_network, set_network_connection,
+set_network_ipv4.
+forget_network deletes a saved profile and set_network_connection
+up=false deactivates one (both require --yes); up=true activates,
+which is how a VPN connects.
 set_network_ipv4 sets a profile's IPv4 method (dhcp or static with
 addresses/gateway/dns) and reconnects an active profile; it requires
 --yes. Connection names may contain spaces.

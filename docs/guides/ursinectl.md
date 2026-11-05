@@ -161,9 +161,16 @@ listing.
 
 `get_network`, `set_wifi_enabled enabled=true|false`,
 `connect_wifi ssid=… password=-`, `connect_network device=…`,
-`disconnect_network device=…`,
+`disconnect_network device=…`, `forget_network connection=…`,
+`set_network_connection connection=… up=true|false`,
 `set_network_ipv4 connection=… method=dhcp|static addresses=[…]
 [gateway=…] dns=[…]`
+
+`forget_network` deletes a saved profile (Wi-Fi passwords included)
+and `set_network_connection up=false` deactivates one — both are
+destructive and require `--yes`; `up=true` activates (VPN connect).
+`get_network` also lists every saved profile (`profiles`) and the GUI
+derives its VPN section from `vpn`/`wireguard` kinds.
 
 `set_network_ipv4` rewrites the profile's IPv4 settings (`dhcp` clears
 addresses/gateway/DNS and takes none of them; `static` needs at least

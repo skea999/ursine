@@ -296,6 +296,16 @@ pub enum Action {
     DisconnectNetwork {
         device: String,
     },
+    /// Delete a saved connection profile (Wi-Fi passwords included).
+    ForgetNetwork {
+        connection: String,
+    },
+    /// Activate or deactivate a saved connection profile (VPN and
+    /// generic connection enable/disable).
+    SetNetworkConnection {
+        connection: String,
+        up: bool,
+    },
     /// Set IPv4 on a connection profile: `dhcp` (clears addresses,
     /// gateway and DNS) or `static` (requires addresses). An active
     /// connection is re-activated to apply the change.

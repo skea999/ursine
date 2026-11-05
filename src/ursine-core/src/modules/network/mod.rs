@@ -4,7 +4,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use serde_json::json;
-use ursine_api::{Action, ApiError, NetworkDevice, NetworkIpv4Settings, NetworkView, WifiNetwork};
+use ursine_api::{
+    Action, ApiError, NetworkDevice, NetworkIpv4Settings, NetworkProfile, NetworkView, WifiNetwork,
+};
 
 use super::ModuleCtx;
 use crate::modules::packages_nix::exec;
@@ -42,6 +44,19 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
         Action::DisconnectNetwork { device } => {
             validate_device(device)?;
             run(&["device", "disconnect", device]).await?;
+            Ok(json!(read_view().await?))
+        }
+        Action::ForgetNetwork { connection } => {
+            validate_connection(connection)?;
+            run(&["connection", "delete", connection]).await?;
+            Ok(json!(read_view().await?))
+        }
+        Action::SetNetworkConnection { connection, up } => {
+            validate_connection(connection)?;
+            let verb = if *up { "up" } else { "down" };
+            // `connection down` fails on an inactive profile; surface the
+            // nmcli message instead of pretending it worked.
+            run(&["connection", verb, connection]).await?;
             Ok(json!(read_view().await?))
         }
         Action::SetNetworkIpv4 {
@@ -116,11 +131,45 @@ async fn read_view() -> Result<NetworkView, ApiError> {
             }
         }
     }
+    let profiles = run(&[
+        "--escape",
+        "no",
+        "-t",
+        "-f",
+        "NAME,TYPE,DEVICE",
+        "connection",
+        "show",
+    ])
+    .await?;
+    let profiles = parse_profiles(&profiles);
     Ok(NetworkView {
         wifi_enabled: radio.trim() == "enabled",
         devices,
         wifi: parse_wifi(&wifi),
+        profiles,
     })
+}
+
+/// `nmcli -t -f NAME,TYPE,DEVICE connection show` rows; an empty
+/// DEVICE column means the profile is inactive.
+fn parse_profiles(output: &str) -> Vec<NetworkProfile> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.splitn(3, ':');
+            let name = fields.next()?.to_string();
+            let kind = fields.next()?.to_string();
+            let device = fields.next().unwrap_or_default();
+            if name.is_empty() || kind.is_empty() {
+                return None;
+            }
+            Some(NetworkProfile {
+                name,
+                kind,
+                active: !device.is_empty(),
+            })
+        })
+        .collect()
 }
 
 fn parse_devices(output: &str) -> Vec<NetworkDevice> {
@@ -214,9 +263,11 @@ fn validate_connection(connection: &str) -> Result<(), ApiError> {
     if connection.is_empty()
         || connection.len() > 128
         || connection.starts_with('-')
-        || connection
-            .chars()
-            .any(|c| c.is_control() || matches!(c, '\\' | '"' | '\''))
+        || connection.chars().any(|c| {
+            // `:` is the terse-output column separator: a name containing
+            // it would misparse in every `NAME,…` listing.
+            c.is_control() || matches!(c, '\\' | '"' | '\'' | ':')
+        })
     {
         return Err(ApiError::invalid("invalid connection name"));
     }
@@ -434,6 +485,22 @@ mod tests {
     }
 
     #[test]
+    fn parses_saved_profiles() {
+        let profiles = parse_profiles(concat!(
+            "eth0:802-3-ethernet:eth0\n",
+            "Home Wi-Fi:802-11-wireless:wlan0\n",
+            "niuma:wireguard:\n",
+            "vpn work:vpn:\n",
+        ));
+        assert_eq!(profiles.len(), 4);
+        assert!(profiles[0].active);
+        assert_eq!(profiles[1].name, "Home Wi-Fi");
+        assert!(profiles[1].active);
+        assert!(!profiles[2].active);
+        assert_eq!(profiles[3].kind, "vpn");
+    }
+
+    #[test]
     fn validates_network_fields() {
         assert!(validate_ssid("Home Wi-Fi").is_ok());
         assert!(validate_ssid("bad\nssid").is_err());
@@ -444,6 +511,8 @@ mod tests {
         assert!(validate_connection("").is_err());
         assert!(validate_connection("-evil").is_err());
         assert!(validate_connection("bad\"name").is_err());
+        assert!(validate_connection("a:b").is_err());
+        assert!(validate_connection("Bob's Net").is_err());
     }
 
     #[test]

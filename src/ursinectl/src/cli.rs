@@ -69,8 +69,8 @@ MODULES (wire name; short alias in parentheses):
   scanners            list_scanners, get_scanner_config, set_scanner_device,
                       remove_scanner_device, set_scanner_discovery
   network             get_network, set_wifi_enabled, connect_wifi,
-                      connect_network, disconnect_network,
-                      set_network_ipv4
+                      connect_network, disconnect_network, forget_network,
+                      set_network_connection, set_network_ipv4
   bluetooth           get_bluetooth, set_bluetooth_power, scan_bluetooth,
                       bluetooth_action
   disks               list_disks, mount_disk, unmount_disk
@@ -320,7 +320,7 @@ fn expand_value(raw: &str) -> Result<serde_json::Value, String> {
 /// action lands in the API it must be added here (review checklist).
 pub fn is_destructive(action: &Action) -> bool {
     use Action::{
-        CancelPrinterJobs, CrontabSet, DeleteSnapshot, DeleteSnapshots, DeleteUser,
+        CancelPrinterJobs, CrontabSet, DeleteSnapshot, DeleteSnapshots, DeleteUser, ForgetNetwork,
         PruneGenerations, Remove, RemoveAll, RemoveApk, RemoveFirewallPort, RemoveFirewallService,
         RemoveFlatpak, RemoveFlatpakOrphans, RemovePrinter, RemoveRegex, RemoveScannerDevice,
         RestoreSnapshot, Rollback, SetFlatpakPermissions, SetNetworkIpv4, SetPassword, StoreGc,
@@ -346,6 +346,7 @@ pub fn is_destructive(action: &Action) -> bool {
             | RemoveFlatpakOrphans { .. }
             | SetFlatpakPermissions { .. }
             | SetNetworkIpv4 { .. }
+            | ForgetNetwork { .. }
             | RestoreSnapshot { dry_run: false, .. }
             | DeleteSnapshot { .. }
             | DeleteSnapshots { .. }

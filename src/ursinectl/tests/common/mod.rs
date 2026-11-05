@@ -505,6 +505,20 @@ pub const SAMPLES: &[Sample] = &[
     },
     Sample {
         module: ursine_api::ModuleId::Network,
+        action: "forget_network",
+        pairs: &[("connection", "Home Wi-Fi")],
+        destructive: true,
+        dispatch: Dispatch::Gate,
+    },
+    Sample {
+        module: ursine_api::ModuleId::Network,
+        action: "set_network_connection",
+        pairs: &[("connection", "niuma"), ("up", "false")],
+        destructive: false,
+        dispatch: Dispatch::Gate,
+    },
+    Sample {
+        module: ursine_api::ModuleId::Network,
         action: "set_network_ipv4",
         pairs: &[
             ("connection", "eth0"),
@@ -854,6 +868,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "delete_user",
     "diff_closures",
     "disconnect_network",
+    "forget_network",
     "generations",
     "get_bluetooth",
     "get_btrbk_config",
@@ -920,6 +935,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "set_flatpak_permissions",
     "set_groups",
     "set_module_switch",
+    "set_network_connection",
     "set_network_ipv4",
     "set_niri_section",
     "set_password",

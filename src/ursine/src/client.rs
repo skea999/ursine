@@ -1936,6 +1936,39 @@ pub async fn disconnect_network(
         .map_err(|e| ApiError::internal(format!("cannot read network: {e}")))
 }
 
+pub async fn forget_network(
+    token: SessionToken,
+    connection: String,
+) -> Result<NetworkView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Network,
+        Action::ForgetNetwork { connection },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read network: {e}")))
+}
+
+pub async fn set_network_connection(
+    token: SessionToken,
+    connection: String,
+    up: bool,
+) -> Result<NetworkView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Network,
+        Action::SetNetworkConnection { connection, up },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read network: {e}")))
+}
+
 pub async fn set_network_ipv4(
     token: SessionToken,
     connection: String,

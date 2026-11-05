@@ -36,6 +36,8 @@ pub struct NetworkState {
     pub ssid: String,
     pub password: String,
     pub ipv4: Option<Ipv4Form>,
+    /// Connection waiting for the forget confirmation.
+    pub pending_forget: Option<String>,
 }
 
 impl NetworkState {
@@ -142,6 +144,87 @@ impl NetworkState {
                 ));
             }
             items.push(wifi.into());
+
+            if let Some(pending) = &self.pending_forget {
+                items.push(
+                    settings::section()
+                        .title("Confirm forget")
+                        .add(settings::item(
+                            "Consequences",
+                            text(format!(
+                                "Forget {pending}? The saved profile (including its Wi-Fi password) is deleted."
+                            )),
+                        ))
+                        .add(settings::item(
+                            "Actions",
+                            row(vec![
+                                button::destructive("Forget")
+                                    .on_press_maybe(
+                                        (!self.action_busy)
+                                            .then_some(Message::NetworkForgetConfirmed),
+                                    )
+                                    .into(),
+                                button::text("Cancel")
+                                    .on_press_maybe(
+                                        (!self.action_busy)
+                                            .then_some(Message::NetworkForgetCancelled),
+                                    )
+                                    .into(),
+                            ])
+                            .spacing(8),
+                        ))
+                        .into(),
+                );
+            }
+
+            let mut vpns = settings::section().title("VPN");
+            let vpn_profiles: Vec<_> = view
+                .profiles
+                .iter()
+                .filter(|profile| profile.kind == "vpn" || profile.kind == "wireguard")
+                .collect();
+            if vpn_profiles.is_empty() {
+                vpns = vpns.add(settings::item("Result", text("No VPN connections.")));
+            }
+            for profile in vpn_profiles {
+                let name = profile.name.clone();
+                vpns = vpns.add(settings::item(
+                    format!(
+                        "{}{}",
+                        profile.name,
+                        if profile.active { " · active" } else { "" }
+                    ),
+                    button::text(if profile.active {
+                        "Disconnect"
+                    } else {
+                        "Connect"
+                    })
+                    .on_press_maybe(
+                        (!self.action_busy)
+                            .then_some(Message::NetworkConnectionToggled(name, !profile.active)),
+                    ),
+                ));
+            }
+            items.push(vpns.into());
+
+            if !view.profiles.is_empty() {
+                let mut saved = settings::section().title("Saved connections");
+                for profile in &view.profiles {
+                    let name = profile.name.clone();
+                    saved = saved.add(settings::item(
+                        format!(
+                            "{} · {}{}",
+                            profile.name,
+                            profile.kind,
+                            if profile.active { " · active" } else { "" }
+                        ),
+                        button::destructive("Forget…").on_press_maybe(
+                            (!self.action_busy).then_some(Message::NetworkForgetRequested(name)),
+                        ),
+                    ));
+                }
+                items.push(saved.into());
+            }
 
             if let Some(form) = &self.ipv4 {
                 let mut section = settings::section()
@@ -272,5 +355,64 @@ impl NetworkState {
         }
 
         scrollable(column(items).spacing(16).padding(24)).into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ursine_api::{NetworkDevice, NetworkIpv4Settings, NetworkView};
+
+    fn view_with_settings() -> NetworkView {
+        NetworkView {
+            wifi_enabled: true,
+            devices: vec![NetworkDevice {
+                device: "eth0".into(),
+                kind: "ethernet".into(),
+                state: "connected".into(),
+                connection: Some("Home Wi-Fi".into()),
+                ip4: vec!["192.168.1.10/24".into()],
+                gateway: None,
+                dns: vec![],
+                ipv4_settings: Some(NetworkIpv4Settings {
+                    method: "manual".into(),
+                    addresses: vec!["192.168.1.10/24".into()],
+                    gateway: Some("192.168.1.1".into()),
+                    dns: vec!["1.1.1.1".into()],
+                }),
+            }],
+            wifi: vec![],
+            profiles: vec![],
+        }
+    }
+
+    #[test]
+    fn ipv4_editor_prefills_known_settings() {
+        let mut state = NetworkState {
+            view: Some(view_with_settings()),
+            ..NetworkState::default()
+        };
+        assert!(state.open_ipv4("Home Wi-Fi".into()));
+        let form = state.ipv4.as_ref().unwrap();
+        assert!(form.static_ip);
+        assert_eq!(form.addresses, "192.168.1.10/24");
+        assert_eq!(form.gateway, "192.168.1.1");
+        assert_eq!(form.dns, "1.1.1.1");
+    }
+
+    #[test]
+    fn ipv4_editor_never_guesses_missing_settings() {
+        let mut state = NetworkState {
+            view: Some(view_with_settings()),
+            ..NetworkState::default()
+        };
+        // Unknown profile: refuse instead of defaulting to DHCP.
+        assert!(!state.open_ipv4("Other".into()));
+        assert!(state.ipv4.is_none());
+        assert!(state.error.as_deref().unwrap_or_default().contains("Other"));
+        // No view at all: same refusal.
+        let mut empty = NetworkState::default();
+        assert!(!empty.open_ipv4("Home Wi-Fi".into()));
+        assert!(empty.ipv4.is_none());
     }
 }

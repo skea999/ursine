@@ -188,6 +188,10 @@ pub enum Message {
     WifiConnect,
     ConnectNetwork(String),
     DisconnectNetwork(String),
+    NetworkForgetRequested(String),
+    NetworkForgetConfirmed,
+    NetworkForgetCancelled,
+    NetworkConnectionToggled(String, bool),
     NetworkIpv4Edit(String),
     NetworkIpv4MethodChanged(usize),
     NetworkIpv4Field(u8, String),
@@ -691,6 +695,29 @@ impl cosmic::Application for App {
                     "disconnect",
                     client::disconnect_network(self.token(), device),
                 )
+            }
+            Message::NetworkForgetRequested(connection) => {
+                self.network.pending_forget = Some(connection);
+            }
+            Message::NetworkForgetConfirmed => {
+                if let Some(connection) = self.network.pending_forget.take() {
+                    return self.network_action(
+                        "Connection forgotten.",
+                        client::forget_network(self.token(), connection),
+                    );
+                }
+            }
+            Message::NetworkForgetCancelled => self.network.pending_forget = None,
+            Message::NetworkConnectionToggled(connection, up) => {
+                let label = if up {
+                    "Connection activated."
+                } else {
+                    "Connection deactivated."
+                };
+                return self.network_action(
+                    label,
+                    client::set_network_connection(self.token(), connection, up),
+                );
             }
             Message::NetworkIpv4Edit(connection) => {
                 self.network.open_ipv4(connection);

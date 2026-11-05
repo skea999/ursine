@@ -43,6 +43,15 @@ pub struct WifiNetwork {
     pub active: bool,
 }
 
+/// One saved connection profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetworkProfile {
+    pub name: String,
+    /// `NetworkManager` type (`802-11-wireless`, `vpn`, `wireguard`, …).
+    pub kind: String,
+    pub active: bool,
+}
+
 /// `NetworkManager` state.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkView {
@@ -51,4 +60,7 @@ pub struct NetworkView {
     pub devices: Vec<NetworkDevice>,
     #[serde(default)]
     pub wifi: Vec<WifiNetwork>,
+    /// Saved connection profiles (for forget and VPN controls).
+    #[serde(default)]
+    pub profiles: Vec<NetworkProfile>,
 }
