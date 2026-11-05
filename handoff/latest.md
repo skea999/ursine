@@ -6,6 +6,15 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-05 — Network v2 detail complete (main, 2 commits)
+
+**Status**: DONE — two slices, each with gate + review + green CI: `b667a79` IPv4 DHCP/static per connection (`SetNetworkIpv4`, per-connection settings in `get_network`, GUI editor with reconnect confirm; blocker: the argv guard rejected the empty `""` values nmcli uses to clear properties — now shared `run_root_program_guarded` allows empty args and space-safe names via `run_root_program_value`, which also fixes connection names like `Home Wi-Fi`) and `530667c` forget + VPN (`ForgetNetwork` destructive, `SetNetworkConnection` up/down non-destructive per the DisconnectNetwork precedent + SPEC-confirm-list, saved profiles with kind/active in the view, VPN section for `vpn`/`wireguard`, destructive Forget confirmation). TASKS Network line ticked.
+
+- Review totals: 11 findings (1 blocker) + 5 findings, all fixed except one accepted with rationale (forget confirm clears before dispatch — re-click on error, no input lost).
+- Gotchas: nmcli settings fields only exist per connection name (no blanket listing → one call per connected device, documented); `:` is the terse column separator so connection names reject it; `connection down` errors on inactive profiles (surfaced verbatim).
+- Open: VM smoke (set ipv4 on a test profile, forget a test Wi-Fi profile, connect/disconnect the `niuma` wireguard).
+- Next: **Firewall extras** (TASKS v2: enable/disable, zone management, custom services, active rules summary — some already shipped, verify against SPEC first), then Disks format/partition, Bluetooth pairing agent, printer live progress.
+
 ## Session 2026-11-04 — Flatpak v2 detail complete (main, 5 commits)
 
 **Status**: DONE — five slices, each with its own gate (422 tests at the end), review cycle, static/docs PASS, push and green CI: `26707ae` remote dropdown + install sizes (`get_flatpak_info`, two-step confirm with sizes), `7a57d81` app/runtime split (`kind` from `--app`/`--runtime` queries + Show dropdown), `a5bcf23` update-available list (`list_flatpak_updates` + per-app Update), `48cd194` permissions editor (override keyfile edited directly so foreign groups survive; GLib env escapes; 14 findings incl. 1 high), `f1b020e` `as_user` user-scope targeting (own-account rule for non-root, remotes None-scope rejects the target). TASKS Flatpak line ticked; plan v2 polish for Flatpak empty.

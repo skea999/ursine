@@ -35,7 +35,7 @@
 - [ ] Bluetooth: pairing agent PIN/passkey.
 - [x] Network: IP/gateway/DNS details.
 - [x] Network: Ethernet connect/disconnect.
-- [ ] Network: DHCP/static IPv4, forget, VPN.
+- [x] Network: DHCP/static IPv4, forget, VPN. Done 2026-11-05 in two CI-green commits (b667a79 IPv4 DHCP/static + per-connection editor + space-safe argv, 530667c forget + VPN controls via saved profiles). VM smoke: set ipv4 on a test profile, forget a test Wi-Fi profile, connect/disconnect the wireguard VPN.
 - [ ] Firewall: enable/disable, zone management, custom services, active rules summary.
 - [x] Disks: UUID, usage/free percent, SMART health when `smartctl` exists.
 - [ ] Disks: format/partition behind explicit enablement.

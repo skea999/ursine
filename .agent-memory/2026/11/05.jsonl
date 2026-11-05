@@ -1,0 +1,1 @@
+{"ts":1793839625568,"topic":"Network v2 detail complete","content":"Today: Network detail done in 2 CI-green slices (b667a79 IPv4 DHCP/static + editor, 530667c forget+VPN), 429 tests, TASKS Network ticked. Next: Firewall extras. VM smoke needed: ipv4/forget/wireguard","tags":[],"importance":"normal"}
