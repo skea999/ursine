@@ -361,6 +361,12 @@ pub enum Action {
         address: String,
         op: crate::BluetoothOp,
     },
+    /// Set (or with `None`/empty clear) the pairing PIN/passkey the
+    /// `BlueZ` pairing agent answers with. RAM only, never logged.
+    SetBluetoothPairingPin {
+        #[serde(default)]
+        pin: Option<String>,
+    },
 
     // -- disks (UDisks2) --
     /// List block devices and partitions.

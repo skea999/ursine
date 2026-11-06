@@ -1949,6 +1949,22 @@ pub async fn bluetooth_scan(token: SessionToken) -> Result<BluetoothView, ApiErr
         .map_err(|e| ApiError::internal(format!("cannot read bluetooth: {e}")))
 }
 
+pub async fn bluetooth_set_pairing_pin(
+    token: SessionToken,
+    pin: Option<String>,
+) -> Result<BluetoothView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Bluetooth,
+        Action::SetBluetoothPairingPin { pin },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read bluetooth: {e}")))
+}
+
 pub async fn bluetooth_action(
     token: SessionToken,
     address: String,

@@ -162,7 +162,12 @@ addresses/gateway/dns) and reconnects an active profile; it requires
 --yes. Connection names may contain spaces.
 .TP
 .B bluetooth
-get_bluetooth, set_bluetooth_power, scan_bluetooth, bluetooth_action.
+get_bluetooth, set_bluetooth_power, scan_bluetooth, bluetooth_action,
+set_bluetooth_pairing_pin.
+set_bluetooth_pairing_pin keeps the pairing PIN/passkey in daemon RAM
+only and registers a BlueZ agent that answers PIN/passkey requests
+during pair; pass the value on stdin (pin=-) and send an empty value
+to clear it.
 .TP
 .B disks
 list_disks, mount_disk, unmount_disk, format_disk, partition_create,

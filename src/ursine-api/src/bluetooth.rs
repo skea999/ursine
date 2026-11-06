@@ -30,6 +30,10 @@ pub struct BluetoothView {
     pub adapter: BluetoothAdapter,
     #[serde(default)]
     pub devices: Vec<BluetoothDevice>,
+    /// A pairing PIN/passkey is held in daemon RAM (value never leaves
+    /// the daemon; this flag only says it is set).
+    #[serde(default)]
+    pub pairing_pin_set: bool,
 }
 
 /// Device operation.

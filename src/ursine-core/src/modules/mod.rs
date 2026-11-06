@@ -254,6 +254,7 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::GetBluetooth => "get_bluetooth",
         Action::SetBluetoothPower { .. } => "set_bluetooth_power",
         Action::ScanBluetooth => "scan_bluetooth",
+        Action::SetBluetoothPairingPin { .. } => "set_bluetooth_pairing_pin",
         Action::BluetoothAction { .. } => "bluetooth_action",
         Action::GetNetwork => "get_network",
         Action::SetWifiEnabled { .. } => "set_wifi_enabled",

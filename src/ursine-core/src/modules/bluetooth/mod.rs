@@ -1,5 +1,7 @@
 //! bluetooth — `BlueZ` adapter and device setup.
 
+mod agent;
+
 use std::path::Path;
 use std::time::Duration;
 
@@ -27,7 +29,17 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
         Action::BluetoothAction { address, op } => {
             validate_address(address)?;
             let args = match op {
-                BluetoothOp::Pair => vec!["--agent", "NoInputNoOutput", "pair", address.as_str()],
+                BluetoothOp::Pair => {
+                    if agent::pin_is_set().await {
+                        // Our registered agent answers PIN/passkey
+                        // requests; bluetoothctl's own agent would
+                        // compete with it.
+                        agent::ensure_registered().await?;
+                        vec!["pair", address.as_str()]
+                    } else {
+                        vec!["--agent", "NoInputNoOutput", "pair", address.as_str()]
+                    }
+                }
                 BluetoothOp::Connect => vec!["connect", address.as_str()],
                 BluetoothOp::Disconnect => vec!["disconnect", address.as_str()],
                 BluetoothOp::Trust => vec!["trust", address.as_str()],
@@ -36,6 +48,12 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             };
             run(&args).await?;
             Ok(json!(read_view().await?))
+        }
+        Action::SetBluetoothPairingPin { pin } => {
+            let set = agent::set_pin(pin.clone()).await?;
+            let mut view = read_view().await?;
+            view.pairing_pin_set = set;
+            Ok(json!(view))
         }
         _ => Err(ApiError::invalid(
             "action is not valid for module bluetooth",
@@ -71,6 +89,7 @@ async fn read_view() -> Result<BluetoothView, ApiError> {
     Ok(BluetoothView {
         adapter,
         devices: rows,
+        pairing_pin_set: agent::pin_is_set().await,
     })
 }
 

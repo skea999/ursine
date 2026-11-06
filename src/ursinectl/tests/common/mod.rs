@@ -553,6 +553,13 @@ pub const SAMPLES: &[Sample] = &[
     },
     Sample {
         module: ursine_api::ModuleId::Bluetooth,
+        action: "set_bluetooth_pairing_pin",
+        pairs: &[("pin", "1234")],
+        destructive: false,
+        dispatch: Dispatch::Gate,
+    },
+    Sample {
+        module: ursine_api::ModuleId::Bluetooth,
         action: "bluetooth_action",
         pairs: &[("address", "AA:BB:CC:DD:EE:FF"), ("op", "pair")],
         destructive: false,
@@ -984,6 +991,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "restore_snapshot",
     "rollback",
     "scan_bluetooth",
+    "set_bluetooth_pairing_pin",
     "search",
     "search_apk",
     "search_flatpak",

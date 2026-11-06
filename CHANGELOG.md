@@ -4,6 +4,15 @@
 
 ### Added
 
+- Bluetooth pairing agent: `set_bluetooth_pairing_pin` holds a
+  PIN/passkey in daemon RAM only (stdin on the CLI, never logged) and
+  registers a BlueZ `org.bluez.Agent1` (zbus) that answers
+  RequestPinCode/RequestPasskey during `op=pair`; numeric-comparison
+  pairings accept when no PIN is set or the passkey matches, and a
+  mismatch denies. Without a PIN, pairing keeps the old
+  NoInputNoOutput behaviour. The GUI gains a PIN section with a
+  status flag only.
+
 - Disk format and partitioning behind explicit enablement: new
   `format_disk` (whitelisted `mkfs.<fstype>`), `partition_create` and
   `partition_delete` (parted) stay disabled until `disks_format = true`

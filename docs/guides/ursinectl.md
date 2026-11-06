@@ -181,7 +181,18 @@ action is destructive: it requires `--yes`.
 ### bluetooth
 
 `get_bluetooth`, `set_bluetooth_power on=true|false`, `scan_bluetooth`,
-`bluetooth_action address=… op=pair|connect|disconnect|trust|untrust|forget`
+`bluetooth_action address=… op=pair|connect|disconnect|trust|untrust|forget`,
+`set_bluetooth_pairing_pin [pin=…]`
+
+`set_bluetooth_pairing_pin` stores the pairing PIN/passkey in daemon
+RAM only (never logged, never written to disk) and registers a BlueZ
+`org.bluez.Agent1` that answers `RequestPinCode`/`RequestPasskey`
+during `op=pair`. **Secret rule: pass the PIN on stdin** —
+`printf '1234' | ursinectl bluetooth set_bluetooth_pairing_pin pin=-`
+— or send an empty `pin=` to clear it (pairing then falls back to
+`NoInputNoOutput`). Numeric-comparison and passkey devices need a
+NUMERIC PIN (legacy alphanumeric PINs only work for RequestPinCode
+devices); the shown passkey must match, a mismatch denies.
 
 ### disks
 

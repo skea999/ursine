@@ -1,7 +1,7 @@
 //! Bluetooth screen: adapter power, scan and device actions.
 
 use cosmic::iced::Length;
-use cosmic::widget::{button, column, row, scrollable, settings, text, toggler};
+use cosmic::widget::{button, column, row, scrollable, settings, text, text_input, toggler};
 use cosmic::Element;
 use ursine_api::{BluetoothOp, BluetoothView};
 
@@ -14,6 +14,8 @@ pub struct BluetoothState {
     pub action_busy: bool,
     pub error: Option<String>,
     pub message: Option<String>,
+    /// Pairing PIN entry (cleared after a successful set).
+    pub pin_input: String,
 }
 
 impl BluetoothState {
@@ -67,6 +69,44 @@ impl BluetoothState {
                     .add(settings::item(
                         "Powered",
                         toggler(view.adapter.powered).on_toggle(Message::BluetoothPower),
+                    ))
+                    .into(),
+            );
+
+            items.push(
+                settings::section()
+                    .title("Pairing PIN / passkey")
+                    .add(settings::item(
+                        "Status",
+                        text(if view.pairing_pin_set {
+                            "set (held in daemon RAM, never logged)"
+                        } else {
+                            "not set — pairing falls back to NoInputNoOutput"
+                        }),
+                    ))
+                    .add(settings::item(
+                        "PIN",
+                        text_input("1234", self.pin_input.clone())
+                            .password()
+                            .on_input(Message::BluetoothPinChanged),
+                    ))
+                    .add(settings::item(
+                        "Actions",
+                        row(vec![
+                            button::text("Set PIN")
+                                .on_press_maybe(
+                                    (!self.action_busy && !self.pin_input.trim().is_empty())
+                                        .then_some(Message::BluetoothPinSet),
+                                )
+                                .into(),
+                            button::text("Clear")
+                                .on_press_maybe(
+                                    (!self.action_busy && view.pairing_pin_set)
+                                        .then_some(Message::BluetoothPinClear),
+                                )
+                                .into(),
+                        ])
+                        .spacing(8),
                     ))
                     .into(),
             );
