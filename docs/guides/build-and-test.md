@@ -37,9 +37,16 @@ podman run --rm --network=host -v "$PWD:/work" -w /work \
   sh -c 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
 
 podman run --rm --network=host -v "$PWD:/work" -w /work \
-  -e CARGO_HOME=/work/artifacts/cargo-home ursine-ci:1 \
+  -e CARGO_HOME=/work/artifacts/cargo-home \
+  -e RUST_MIN_STACK=16777216 \
+  ursine-ci:1 \
   sh -c 'cargo test --workspace --all-features --locked'
 ```
+
+Test commands export `RUST_MIN_STACK=16777216`: libtest gives each test
+thread 2 MiB by default and the debug-build daemon call stack (the
+growing `Action` enum) exceeds it in the inprocess suite (stack
+overflow). The CI test/gui jobs set the same variable.
 
 `--network=host` is required on this host: pasta cannot create the tap device.
 

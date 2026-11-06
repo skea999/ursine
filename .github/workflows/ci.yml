@@ -106,6 +106,11 @@ jobs:
           restore-keys: |
             cargo-test-${{ matrix.features || 'default' }}-
       - name: Test
+        # libtest runs each test on its own thread (2 MiB default); the
+        # growing Action enum pushed deep daemon-call frames over that
+        # limit under debug builds (stack overflow in inprocess).
+        env:
+          RUST_MIN_STACK: 16777216
         run: |
           if [ -z "${{ matrix.features }}" ]; then
             cargo test --workspace --exclude ursine --no-default-features --all-targets --locked
@@ -187,6 +192,8 @@ jobs:
           restore-keys: |
             cargo-gui-
       - run: cargo test -p ursine --all-targets --locked
+        env:
+          RUST_MIN_STACK: 16777216
       - name: Save Cargo cache
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
