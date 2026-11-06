@@ -30,7 +30,9 @@ CUPS tools as root; the GUI only renders state and sends actions.
 - Printer list with state/default badge.
 - Set default, pause/resume, remove with confirmation.
 - Add form: name, URI, description, location.
-- Queued jobs table.
+- Queued jobs table that auto-refreshes every 3 seconds while the
+  screen is open (live job progress: queued → processing → done
+  without clicking Refresh; the manual Refresh button stays).
 - Cancel all jobs with confirmation.
 - Empty/busy/error states.
 

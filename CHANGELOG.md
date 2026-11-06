@@ -4,6 +4,10 @@
 
 ### Added
 
+- Printers live job progress: the Printers page re-reads printers and
+  queued jobs every 3 seconds while it is visible, so job states
+  (queued/processing) update without clicking Refresh.
+
 - Bluetooth pairing agent: `set_bluetooth_pairing_pin` holds a
   PIN/passkey in daemon RAM only (stdin on the CLI, never logged) and
   registers a BlueZ `org.bluez.Agent1` (zbus) that answers

@@ -263,6 +263,7 @@ pub enum Message {
     ScannerDiscoveryToggled(bool),
     ScannerActionFinished(u64, String, Result<ursine_api::ScannerConfigView, ApiError>),
     RefreshPrinters,
+    PrintersTick,
     PrintersLoaded(
         u64,
         Result<(Vec<ursine_api::Printer>, Vec<ursine_api::PrintJob>), ApiError>,
@@ -1073,6 +1074,7 @@ impl cosmic::Application for App {
                 return self.finish_scanner_action(epoch, &label, result)
             }
             Message::RefreshPrinters => return self.load_printers(),
+            Message::PrintersTick => return self.load_printers_silent(),
             Message::PrintersLoaded(epoch, result) => return self.finish_printers(epoch, result),
             Message::PrinterNameChanged(value) => self.printers.name = value,
             Message::PrinterUriChanged(value) => self.printers.uri = value,
@@ -1727,6 +1729,14 @@ impl cosmic::Application for App {
             subscriptions.push(
                 cosmic::iced::time::every(std::time::Duration::from_secs(1))
                     .map(|_| Message::StoreTick),
+            );
+        }
+        if self.screen == Screen::Printers {
+            // Live job progress: the queued/processing states change
+            // without user input, so the page re-reads while visible.
+            subscriptions.push(
+                cosmic::iced::time::every(std::time::Duration::from_secs(3))
+                    .map(|_| Message::PrintersTick),
             );
         }
         if self.screen == Screen::Niri && self.niri.capture.is_some() {
@@ -3427,15 +3437,34 @@ impl App {
             .map_or_else(|| SessionToken::new(""), |session| session.token.clone())
     }
 
+    /// Manual/entry load: shows the busy indicator and does not pile up.
     fn load_printers(&mut self) -> Task<cosmic::Action<Message>> {
+        self.load_printers_inner(true)
+    }
+
+    /// Tick/action reload: no busy indicator (avoids a 3 s flicker) and
+    /// allowed to overlap an in-flight read so a finished mutation is
+    /// never dropped behind a live tick (the newer reply wins).
+    fn load_printers_silent(&mut self) -> Task<cosmic::Action<Message>> {
+        self.load_printers_inner(false)
+    }
+
+    fn load_printers_inner(&mut self, visible: bool) -> Task<cosmic::Action<Message>> {
         let Some(session) = &self.session else {
             return Task::none();
         };
-        if self.printers.busy || self.printers.action_busy {
+        if self.printers.action_busy {
             return Task::none();
         }
-        self.printers.busy = true;
-        self.printers.error = None;
+        if visible && self.printers.busy {
+            return Task::none();
+        }
+        if visible {
+            self.printers.busy = true;
+            // Deliberately no `error = None` here: a persistent daemon
+            // error (or form validation message) must not blink off on
+            // every poll; `apply` clears it on the next success.
+        }
         let token = session.token.clone();
         let epoch = self.epoch;
         Task::future(
@@ -3591,7 +3620,7 @@ impl App {
             Ok(_) => {
                 self.printers.message = Some(label.to_string());
                 self.printers.error = None;
-                return self.load_printers();
+                return self.load_printers_silent();
             }
             Err(error) => {
                 if self.handle_session_error(&error) {
