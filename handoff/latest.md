@@ -6,6 +6,13 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-06 — Bluetooth pairing agent complete (main, 1 commit)
+
+**Status**: DONE — `7e442e3` CI-green. `set_bluetooth_pairing_pin` keeps the PIN in daemon RAM only (flag-only on the wire, stdin on the CLI, audit logs action names only) and registers a zbus `org.bluez.Agent1` (KeyboardDisplay + SetDefaultAgent) that answers RequestPinCode/RequestPasskey; RequestConfirmation matches numerically (leading-zero PINs included) and DENIES when unset — the clear path runs UnregisterAgent + drops the export (race window closes with deny, not auto-accept). Registration is mutex-serialized with export rollback; PIN stored only after registration succeeds; without a PIN the legacy `--agent NoInputNoOutput` pair path stays. GUI: password input + status flag. Review: 1 high + 4 medium + 3 low fixed (1 false positive). TASKS Bluetooth line ticked.
+
+- VM smoke: pair a legacy PIN device (alphanumeric ok) and a numeric-comparison device (numeric PIN required).
+- Next: **Printers live job progress** — the last v2 code item; after that only APKBUILDs in feralos-aports, real FeralOS smoke and the v1.0 tag remain (user/VM work).
+
 ## Session 2026-11-06 — Disks format/partition complete (main, 1 commit)
 
 **Status**: DONE — `1ebcf8b` CI-green. Destructive trio (`format_disk`, `partition_create`, `partition_delete`) behind the triple gate recorded in session-state key_decisions: `disks_format = true` config key (default off, restart required), `confirm_device` typed exactly equal to `device`, CLI `--yes`. Safety rails: mounted target/children rejected via lsblk, `parted print` pre-flight turns the blank-disk case into a clear "create a partition table first" error, `DISK_FSTYPES` shared between daemon and GUI through ursine-api, GUI flows one-at-a-time with input preserved on errors and Mount disabled while a flow is open. Review: 10 findings (4 medium) all fixed; guide `--yes` list also backfilled with the firewall/network/flatpak names it had missed. TASKS Disks line ticked.

@@ -32,7 +32,7 @@
 - [x] Printers: job state/size/submitted details.
 - [ ] Printers: live job progress.
 - [x] Bluetooth: battery + connected details.
-- [ ] Bluetooth: pairing agent PIN/passkey.
+- [x] Bluetooth: pairing agent PIN/passkey. Done 2026-11-06 (7e442e3): SetBluetoothPairingPin holds the PIN in daemon RAM only, zbus org.bluez.Agent1 answers PIN/passkey/confirmation (numeric match, deny-when-unset, unregister on clear), legacy NoInputNoOutput kept without a PIN, GUI password input with flag-only status. VM smoke: pair a legacy PIN device and a numeric-comparison device.
 - [x] Network: IP/gateway/DNS details.
 - [x] Network: Ethernet connect/disconnect.
 - [x] Network: DHCP/static IPv4, forget, VPN. Done 2026-11-05 in two CI-green commits (b667a79 IPv4 DHCP/static + per-connection editor + space-safe argv, 530667c forget + VPN controls via saved profiles). VM smoke: set ipv4 on a test profile, forget a test Wi-Fi profile, connect/disconnect the wireguard VPN.
