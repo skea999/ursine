@@ -4,6 +4,15 @@
 
 ### Added
 
+- Disk format and partitioning behind explicit enablement: new
+  `format_disk` (whitelisted `mkfs.<fstype>`), `partition_create` and
+  `partition_delete` (parted) stay disabled until `disks_format = true`
+  is set in `/etc/ursine/config.toml` (restart ursined); every action
+  also requires `confirm_device` to equal the device path exactly and
+  `--yes`. `list_disks` reports `format_enabled`; the GUI shows the
+  gated Format…/Partition…/Delete… flows with fstype dropdown and
+  typed-device confirmation (input preserved on errors).
+
 - Firewall enable/disable and custom services: `set_firewall_enabled`
   toggles the default-zone target (`REJECT` on / `ACCEPT` off —
   firewalld has no global switch), `create_firewall_service` /

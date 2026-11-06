@@ -503,6 +503,7 @@ mod tests {
             audit_path: dir.join("audit.jsonl"),
             token_ttl_min: 10,
             login_rate_limit_per_min: 5,
+            disks_format: false,
             modules: ursine_api::ModulesConfig::default(),
         };
         let audit = Arc::new(AuditLog::open(cfg.audit_path.clone(), clock.clone()).unwrap());

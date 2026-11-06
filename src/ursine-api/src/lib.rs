@@ -35,7 +35,7 @@ pub use bluetooth::{BluetoothAdapter, BluetoothDevice, BluetoothOp, BluetoothVie
 pub use capability::{Capability, CapabilityReport};
 pub use config::{ModulesConfig, TriState, UrsineConfig};
 pub use crontab::{max_crontab_bytes, CrontabView};
-pub use disk::Disk;
+pub use disk::{Disk, DiskView, DISK_FSTYPES};
 pub use envelope::{Request, RequestBody, Response, ResponseBody, PROTOCOL_VERSION};
 pub use error::{ApiError, ErrorCode};
 pub use firewall::{FirewallStatus, FirewallZone};

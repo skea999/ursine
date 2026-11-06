@@ -206,9 +206,21 @@ pub enum Message {
     BluetoothAction(String, ursine_api::BluetoothOp),
     BluetoothActionFinished(u64, String, Result<ursine_api::BluetoothView, ApiError>),
     RefreshDisks,
-    DisksLoaded(u64, Result<Vec<ursine_api::Disk>, ApiError>),
+    DisksLoaded(u64, Result<ursine_api::DiskView, ApiError>),
+    DiskFormatRequested(String),
+    DiskFormatFstypeChanged(usize),
+    DiskConfirmChanged(String),
+    DiskFormatConfirmed,
+    DiskCreateRequested(String),
+    DiskCreateStartChanged(String),
+    DiskCreateEndChanged(String),
+    DiskCreateConfirmed,
+    DiskDeleteRequested(String, u32),
+    DiskDeleteConfirmed,
+    DiskFlowCancelled,
+    DiskFlowFinished(u64, Result<(String, ursine_api::DiskView), ApiError>),
     DiskAction(String, bool),
-    DiskActionFinished(u64, String, Result<Vec<ursine_api::Disk>, ApiError>),
+    DiskActionFinished(u64, String, Result<ursine_api::DiskView, ApiError>),
     RefreshServices,
     ServicesLoaded(u64, Result<Vec<ursine_api::Service>, ApiError>),
     ServiceRequested(String, ursine_api::ServiceOp),
@@ -838,6 +850,70 @@ impl cosmic::Application for App {
             }
             Message::RefreshDisks => return self.load_disks(),
             Message::DisksLoaded(epoch, result) => return self.finish_disks(epoch, result),
+            Message::DiskFormatRequested(path) => {
+                self.disks.cancel_flow();
+                self.disks.format_target = Some(path);
+            }
+            Message::DiskFormatFstypeChanged(index) => {
+                self.disks.fstype_index = index;
+            }
+            Message::DiskConfirmChanged(value) => self.disks.confirm_device = value,
+            Message::DiskFormatConfirmed => {
+                let Some(target) = self.disks.format_target.clone() else {
+                    return Task::none();
+                };
+                let fstype = ursine_api::DISK_FSTYPES
+                    .get(self.disks.fstype_index)
+                    .copied()
+                    .unwrap_or("ext4")
+                    .to_string();
+                let confirm = self.disks.confirm_device.clone();
+                return self.disk_flow(
+                    "Partition formatted.",
+                    client::disk_format(self.token(), target, fstype, confirm),
+                );
+            }
+            Message::DiskCreateRequested(path) => {
+                self.disks.cancel_flow();
+                self.disks.create_target = Some(path);
+            }
+            Message::DiskCreateStartChanged(value) => self.disks.create_start = value,
+            Message::DiskCreateEndChanged(value) => self.disks.create_end = value,
+            Message::DiskCreateConfirmed => {
+                let Some(target) = self.disks.create_target.clone() else {
+                    return Task::none();
+                };
+                let (Ok(start), Ok(end)) = (
+                    self.disks.create_start.trim().parse::<u64>(),
+                    self.disks.create_end.trim().parse::<u64>(),
+                ) else {
+                    self.disks.error = Some("Start and end must be MiB numbers.".into());
+                    return Task::none();
+                };
+                let confirm = self.disks.confirm_device.clone();
+                return self.disk_flow(
+                    "Partition created.",
+                    client::disk_partition_create(self.token(), target, start, end, confirm),
+                );
+            }
+            Message::DiskDeleteRequested(path, number) => {
+                self.disks.cancel_flow();
+                self.disks.delete_target = Some((path, number));
+            }
+            Message::DiskDeleteConfirmed => {
+                let Some((target, number)) = self.disks.delete_target.clone() else {
+                    return Task::none();
+                };
+                let confirm = self.disks.confirm_device.clone();
+                return self.disk_flow(
+                    "Partition deleted.",
+                    client::disk_partition_delete(self.token(), target, number, confirm),
+                );
+            }
+            Message::DiskFlowCancelled => self.disks.cancel_flow(),
+            Message::DiskFlowFinished(epoch, result) => {
+                return self.finish_disk_flow(epoch, result);
+            }
             Message::DiskAction(device, mount) => return self.disk_action(device, mount),
             Message::DiskActionFinished(epoch, label, result) => {
                 return self.finish_disk_action(epoch, &label, result)
@@ -3821,17 +3897,70 @@ impl App {
             .map(cosmic::Action::App)
     }
 
+    /// Run one destructive disk flow (format/partition) with the shared
+    /// busy flag; the reply refreshes the list and closes the form.
+    fn disk_flow(
+        &mut self,
+        label: &str,
+        future: impl std::future::Future<Output = Result<ursine_api::DiskView, ApiError>>
+            + Send
+            + 'static,
+    ) -> Task<cosmic::Action<Message>> {
+        let Some(_session) = &self.session else {
+            return Task::none();
+        };
+        if self.disks.action_busy || self.job.is_some() {
+            self.disks.error = Some("Another disk operation is running.".into());
+            return Task::none();
+        }
+        let label = label.to_string();
+        let epoch = self.epoch;
+        self.disks.action_busy = true;
+        self.disks.error = None;
+        self.disks.message = None;
+        Task::future(async move {
+            Message::DiskFlowFinished(epoch, future.await.map(|view| (label, view)))
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_disk_flow(
+        &mut self,
+        epoch: u64,
+        result: Result<(String, ursine_api::DiskView), ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.disks.action_busy = false;
+        match result {
+            Ok((label, view)) => {
+                self.disks.apply(view);
+                self.disks.message = Some(label);
+                self.disks.cancel_flow();
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                // Keep the form open so the typed confirmation survives.
+                self.disks.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
     fn finish_disks(
         &mut self,
         epoch: u64,
-        result: Result<Vec<ursine_api::Disk>, ApiError>,
+        result: Result<ursine_api::DiskView, ApiError>,
     ) -> Task<cosmic::Action<Message>> {
         if epoch != self.epoch {
             return Task::none();
         }
         self.disks.busy = false;
         match result {
-            Ok(disks) => self.disks.apply(disks),
+            Ok(view) => self.disks.apply(view),
             Err(error) => {
                 if self.handle_session_error(&error) {
                     return Task::none();
@@ -3869,15 +3998,15 @@ impl App {
         &mut self,
         epoch: u64,
         label: &str,
-        result: Result<Vec<ursine_api::Disk>, ApiError>,
+        result: Result<ursine_api::DiskView, ApiError>,
     ) -> Task<cosmic::Action<Message>> {
         if epoch != self.epoch {
             return Task::none();
         }
         self.disks.action_busy = false;
         match result {
-            Ok(disks) => {
-                self.disks.apply(disks);
+            Ok(view) => {
+                self.disks.apply(view);
                 self.disks.message = Some(label.to_string());
                 self.disks.error = None;
             }

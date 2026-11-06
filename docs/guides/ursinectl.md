@@ -185,7 +185,18 @@ action is destructive: it requires `--yes`.
 
 ### disks
 
-`list_disks`, `mount_disk device=…`, `unmount_disk device=…`
+`list_disks`, `mount_disk device=…`, `unmount_disk device=…`,
+`format_disk device=… fstype=… confirm_device=…`,
+`partition_create device=… start_mib=… end_mib=… confirm_device=…`,
+`partition_delete device=… number=… confirm_device=…`
+
+`list_disks` reports `format_enabled` (the `disks_format` daemon
+config key). The three destructive actions require `disks_format =
+true` in `/etc/ursine/config.toml` **plus a daemon restart**, a
+`confirm_device` that equals `device` typed exactly, and `--yes`.
+`fstype` ∈ `ext4, xfs, btrfs, vfat, exfat, f2fs, ntfs`; sizes are MiB.
+`partition_create` needs an existing partition table (create one with
+`parted mklabel gpt` first).
 
 ### services
 
@@ -299,7 +310,9 @@ CLI prints the refused action and exits 2. The current set includes:
 `delete_snapshots`, `delete_user`, `set_password`, `crontab_set`,
 `theme_apply`, `remove_printer`, `cancel_printer_jobs`,
 `remove_scanner_device`, `remove_firewall_service`, `remove_firewall_port`,
-`unmount_disk`.
+`set_firewall_enabled` (off), `delete_firewall_service`, `forget_network`,
+`set_network_ipv4`, `set_flatpak_permissions`, `unmount_disk`,
+`format_disk`, `partition_create`, `partition_delete`.
 
 ## Background jobs (package progress)
 

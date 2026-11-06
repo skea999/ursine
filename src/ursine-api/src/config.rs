@@ -145,6 +145,11 @@ pub struct UrsineConfig {
     /// Failed logins allowed per uid per minute.
     #[serde(default = "default_login_rate_limit_per_min")]
     pub login_rate_limit_per_min: u32,
+    /// Explicit enablement for destructive disk operations (format,
+    /// partition create/delete). Off by default; requires a daemon
+    /// restart after editing the file.
+    #[serde(default)]
+    pub disks_format: bool,
     #[serde(default)]
     pub modules: ModulesConfig,
 }
@@ -156,6 +161,7 @@ impl Default for UrsineConfig {
             audit_path: default_audit_path(),
             token_ttl_min: default_token_ttl_min(),
             login_rate_limit_per_min: default_login_rate_limit_per_min(),
+            disks_format: false,
             modules: ModulesConfig::default(),
         }
     }

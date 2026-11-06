@@ -73,7 +73,8 @@ MODULES (wire name; short alias in parentheses):
                       set_network_connection, set_network_ipv4
   bluetooth           get_bluetooth, set_bluetooth_power, scan_bluetooth,
                       bluetooth_action
-  disks               list_disks, mount_disk, unmount_disk
+  disks               list_disks, mount_disk, unmount_disk,
+                      format_disk, partition_create, partition_delete
   services            list_services, service_action
   firewall            get_firewall, set_default_firewall_zone,
                       add_firewall_service, remove_firewall_service,
@@ -322,10 +323,10 @@ fn expand_value(raw: &str) -> Result<serde_json::Value, String> {
 pub fn is_destructive(action: &Action) -> bool {
     use Action::{
         CancelPrinterJobs, CrontabSet, DeleteFirewallService, DeleteSnapshot, DeleteSnapshots,
-        DeleteUser, ForgetNetwork, PruneGenerations, Remove, RemoveAll, RemoveApk,
-        RemoveFirewallPort, RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans,
-        RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot, Rollback,
-        SetFirewallEnabled, SetFlatpakPermissions, SetNetworkIpv4, SetPassword, StoreGc,
+        DeleteUser, ForgetNetwork, FormatDisk, PartitionCreate, PartitionDelete, PruneGenerations,
+        Remove, RemoveAll, RemoveApk, RemoveFirewallPort, RemoveFirewallService, RemoveFlatpak,
+        RemoveFlatpakOrphans, RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot,
+        Rollback, SetFirewallEnabled, SetFlatpakPermissions, SetNetworkIpv4, SetPassword, StoreGc,
         ThemeApply, UnmountDisk, UpdateFlatpak, UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage,
         UpgradeRegex, WipeHistory,
     };
@@ -350,6 +351,9 @@ pub fn is_destructive(action: &Action) -> bool {
             | SetNetworkIpv4 { .. }
             | ForgetNetwork { .. }
             | DeleteFirewallService { .. }
+            | FormatDisk { .. }
+            | PartitionCreate { .. }
+            | PartitionDelete { .. }
             | SetFirewallEnabled { enabled: false, .. }
             | RestoreSnapshot { dry_run: false, .. }
             | DeleteSnapshot { .. }
@@ -617,12 +621,12 @@ mod tests {
     fn destructive_classification_is_exhaustive() {
         use Action::{
             CancelPrinterJobs, CreateFirewallService, CrontabSet, DeleteFirewallService,
-            DeleteSnapshot, DeleteSnapshots, DeleteUser, ListApk, PruneGenerations, Remove,
-            RemoveAll, RemoveApk, RemoveFirewallPort, RemoveFirewallService, RemoveFlatpak,
-            RemoveFlatpakOrphans, RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot,
-            Rollback, Search, SetFirewallEnabled, SetPassword, StoreGc, ThemeApply, UnmountDisk,
-            UpdateFlatpak, UpdateFlatpakApp, Upgrade, UpgradeApk, UpgradeApkPackage, UpgradeRegex,
-            WipeHistory,
+            DeleteSnapshot, DeleteSnapshots, DeleteUser, FormatDisk, ListApk, PartitionCreate,
+            PartitionDelete, PruneGenerations, Remove, RemoveAll, RemoveApk, RemoveFirewallPort,
+            RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans, RemovePrinter, RemoveRegex,
+            RemoveScannerDevice, RestoreSnapshot, Rollback, Search, SetFirewallEnabled,
+            SetPassword, StoreGc, ThemeApply, UnmountDisk, UpdateFlatpak, UpdateFlatpakApp,
+            Upgrade, UpgradeApk, UpgradeApkPackage, UpgradeRegex, WipeHistory,
         };
         let destructive = [
             Remove {
@@ -707,6 +711,22 @@ mod tests {
                 service: "s".into(),
             },
             SetFirewallEnabled { enabled: false },
+            FormatDisk {
+                device: "/dev/sda1".into(),
+                fstype: "ext4".into(),
+                confirm_device: "/dev/sda1".into(),
+            },
+            PartitionCreate {
+                device: "/dev/sda".into(),
+                start_mib: 1,
+                end_mib: 2,
+                confirm_device: "/dev/sda".into(),
+            },
+            PartitionDelete {
+                device: "/dev/sda".into(),
+                number: 1,
+                confirm_device: "/dev/sda".into(),
+            },
         ];
         for action in &destructive {
             assert!(is_destructive(action), "must require --yes: {action:?}");

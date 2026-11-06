@@ -321,6 +321,32 @@ pub enum Action {
         dns: Vec<String>,
     },
 
+    /// Format a block device. Requires `disks_format = true` in the
+    /// daemon config, `confirm_device` to equal `device` (typed exactly)
+    /// and `--yes` in the CLI.
+    FormatDisk {
+        device: String,
+        /// `ext4`, `xfs`, `btrfs`, `vfat`, `exfat`, `f2fs`, `ntfs`.
+        fstype: String,
+        /// Must equal `device`.
+        confirm_device: String,
+    },
+    /// Create a partition (MiB start/end on an existing partition table).
+    PartitionCreate {
+        device: String,
+        start_mib: u64,
+        end_mib: u64,
+        /// Must equal `device`.
+        confirm_device: String,
+    },
+    /// Delete a partition by number.
+    PartitionDelete {
+        device: String,
+        number: u32,
+        /// Must equal `device`.
+        confirm_device: String,
+    },
+
     // -- bluetooth (BlueZ) --
     /// Adapter state and known devices.
     GetBluetooth,

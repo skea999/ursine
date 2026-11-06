@@ -278,7 +278,8 @@ pub fn render_template(caps: &[CapabilityReport]) -> String {
     out.push_str("token_ttl_min = 10\n");
     out.push_str("login_rate_limit_per_min = 5\n");
     out.push_str("# socket_path = \"/run/ursine.sock\"\n");
-    out.push_str("# audit_path = \"/var/log/ursine/audit.jsonl\"\n\n");
+    out.push_str("# audit_path = \"/var/log/ursine/audit.jsonl\"\n");
+    out.push_str("# disks_format = false  # true enables format/partition (restart ursined)\n\n");
     out.push_str("[modules]\n");
     out.push_str("# \"auto\" = detection decides (see hints below)\n");
     out.push_str("packages_nix = \"auto\"\n");

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use ursine_api::{
     installable_from_attr, timeouts, Action, ApiError, ApkPackage, ApkUpdate, BluetoothOp,
-    BluetoothView, BtrbkConfigView, BtrbkSettings, Disk, FirewallStatus, FlatpakInfo,
+    BluetoothView, BtrbkConfigView, BtrbkSettings, DiskView, FirewallStatus, FlatpakInfo,
     FlatpakPackage, FlatpakPermissions, FlatpakRemote, InstalledPackage, JobOutput, ModuleId,
     ModulesConfig, NetworkView, NiriConfigView, PrintJob, Printer, Request, RequestBody, Response,
     ResponseBody, ScannerConfigView, SearchResult, Service, ServiceOp, SessionToken, Snapshot,
@@ -1809,7 +1809,7 @@ pub async fn service_action(
         .map_err(|e| ApiError::internal(format!("cannot read services: {e}")))
 }
 
-pub async fn disk_list(token: SessionToken) -> Result<Vec<Disk>, ApiError> {
+pub async fn disk_list(token: SessionToken) -> Result<DiskView, ApiError> {
     let value = call_with_timeout(
         token,
         ModuleId::Disks,
@@ -1818,14 +1818,75 @@ pub async fn disk_list(token: SessionToken) -> Result<Vec<Disk>, ApiError> {
         MUTATE_TIMEOUT,
     )
     .await?;
-    let disks = value
-        .get("disks")
-        .cloned()
-        .ok_or_else(|| ApiError::internal("daemon disks response has no disks"))?;
-    serde_json::from_value(disks).map_err(|e| ApiError::internal(format!("cannot read disks: {e}")))
+    serde_json::from_value(value).map_err(|e| ApiError::internal(format!("cannot read disks: {e}")))
 }
 
-pub async fn disk_mount(token: SessionToken, device: String) -> Result<Vec<Disk>, ApiError> {
+pub async fn disk_format(
+    token: SessionToken,
+    device: String,
+    fstype: String,
+    confirm_device: String,
+) -> Result<DiskView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Disks,
+        Action::FormatDisk {
+            device,
+            fstype,
+            confirm_device,
+        },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value).map_err(|e| ApiError::internal(format!("cannot read disks: {e}")))
+}
+
+pub async fn disk_partition_create(
+    token: SessionToken,
+    device: String,
+    start_mib: u64,
+    end_mib: u64,
+    confirm_device: String,
+) -> Result<DiskView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Disks,
+        Action::PartitionCreate {
+            device,
+            start_mib,
+            end_mib,
+            confirm_device,
+        },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value).map_err(|e| ApiError::internal(format!("cannot read disks: {e}")))
+}
+
+pub async fn disk_partition_delete(
+    token: SessionToken,
+    device: String,
+    number: u32,
+    confirm_device: String,
+) -> Result<DiskView, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Disks,
+        Action::PartitionDelete {
+            device,
+            number,
+            confirm_device,
+        },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value).map_err(|e| ApiError::internal(format!("cannot read disks: {e}")))
+}
+
+pub async fn disk_mount(token: SessionToken, device: String) -> Result<DiskView, ApiError> {
     let value = call_with_timeout(
         token,
         ModuleId::Disks,
@@ -1834,14 +1895,10 @@ pub async fn disk_mount(token: SessionToken, device: String) -> Result<Vec<Disk>
         MUTATE_TIMEOUT,
     )
     .await?;
-    let disks = value
-        .get("disks")
-        .cloned()
-        .ok_or_else(|| ApiError::internal("daemon disks response has no disks"))?;
-    serde_json::from_value(disks).map_err(|e| ApiError::internal(format!("cannot read disks: {e}")))
+    serde_json::from_value(value).map_err(|e| ApiError::internal(format!("cannot read disks: {e}")))
 }
 
-pub async fn disk_unmount(token: SessionToken, device: String) -> Result<Vec<Disk>, ApiError> {
+pub async fn disk_unmount(token: SessionToken, device: String) -> Result<DiskView, ApiError> {
     let value = call_with_timeout(
         token,
         ModuleId::Disks,
@@ -1850,11 +1907,7 @@ pub async fn disk_unmount(token: SessionToken, device: String) -> Result<Vec<Dis
         MUTATE_TIMEOUT,
     )
     .await?;
-    let disks = value
-        .get("disks")
-        .cloned()
-        .ok_or_else(|| ApiError::internal("daemon disks response has no disks"))?;
-    serde_json::from_value(disks).map_err(|e| ApiError::internal(format!("cannot read disks: {e}")))
+    serde_json::from_value(value).map_err(|e| ApiError::internal(format!("cannot read disks: {e}")))
 }
 
 pub async fn bluetooth_view(token: SessionToken) -> Result<BluetoothView, ApiError> {

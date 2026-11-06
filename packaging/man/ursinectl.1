@@ -165,7 +165,11 @@ addresses/gateway/dns) and reconnects an active profile; it requires
 get_bluetooth, set_bluetooth_power, scan_bluetooth, bluetooth_action.
 .TP
 .B disks
-list_disks, mount_disk, unmount_disk.
+list_disks, mount_disk, unmount_disk, format_disk, partition_create,
+partition_delete.
+format_disk and the partition actions are disabled until disks_format =
+true is set in /etc/ursine/config.toml (restart ursined), require
+confirm_device to equal the device path exactly, and need --yes.
 .TP
 .B services
 list_services, service_action.
