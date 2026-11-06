@@ -11,9 +11,12 @@ use crate::module::ModuleId;
 use crate::token::SessionToken;
 
 /// Current protocol version. Bump on breaking wire changes.
+///
 /// v3: package mutations return `job_id` (poll `job_output`); no more inline
 /// mutation output.
-pub const PROTOCOL_VERSION: u16 = 3;
+/// v4: `list_apk_repositories` rows are `{url, tag}` objects (was a list
+/// of raw strings).
+pub const PROTOCOL_VERSION: u16 = 4;
 
 const fn wire_version() -> u16 {
     PROTOCOL_VERSION

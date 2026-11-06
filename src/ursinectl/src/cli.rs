@@ -52,7 +52,8 @@ MODULES (wire name; short alias in parentheses):
                       rollback, wipe_history, diff_closures, store_gc,
                       prune_generations
   packages_apk(apk)   list_apk, search_apk, refresh_apk,
-                      list_apk_repositories, install_apk,
+                      list_apk_repositories, add_apk_repository,
+                      remove_apk_repository, install_apk,
                       preview_apk_install, remove_apk, upgrade_apk,
                       list_apk_updates, upgrade_apk_package
   packages_flatpak(flatpak)
@@ -324,11 +325,11 @@ pub fn is_destructive(action: &Action) -> bool {
     use Action::{
         CancelPrinterJobs, CrontabSet, DeleteFirewallService, DeleteSnapshot, DeleteSnapshots,
         DeleteUser, ForgetNetwork, FormatDisk, PartitionCreate, PartitionDelete, PruneGenerations,
-        Remove, RemoveAll, RemoveApk, RemoveFirewallPort, RemoveFirewallService, RemoveFlatpak,
-        RemoveFlatpakOrphans, RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot,
-        Rollback, SetFirewallEnabled, SetFlatpakPermissions, SetNetworkIpv4, SetPassword, StoreGc,
-        ThemeApply, UnmountDisk, UpdateFlatpak, UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage,
-        UpgradeRegex, WipeHistory,
+        Remove, RemoveAll, RemoveApk, RemoveApkRepository, RemoveFirewallPort,
+        RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans, RemovePrinter, RemoveRegex,
+        RemoveScannerDevice, RestoreSnapshot, Rollback, SetFirewallEnabled, SetFlatpakPermissions,
+        SetNetworkIpv4, SetPassword, StoreGc, ThemeApply, UnmountDisk, UpdateFlatpak,
+        UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage, UpgradeRegex, WipeHistory,
     };
     matches!(
         action,
@@ -352,6 +353,7 @@ pub fn is_destructive(action: &Action) -> bool {
             | ForgetNetwork { .. }
             | DeleteFirewallService { .. }
             | FormatDisk { .. }
+            | RemoveApkRepository { .. }
             | PartitionCreate { .. }
             | PartitionDelete { .. }
             | SetFirewallEnabled { enabled: false, .. }
@@ -622,11 +624,11 @@ mod tests {
         use Action::{
             CancelPrinterJobs, CreateFirewallService, CrontabSet, DeleteFirewallService,
             DeleteSnapshot, DeleteSnapshots, DeleteUser, FormatDisk, ListApk, PartitionCreate,
-            PartitionDelete, PruneGenerations, Remove, RemoveAll, RemoveApk, RemoveFirewallPort,
-            RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans, RemovePrinter, RemoveRegex,
-            RemoveScannerDevice, RestoreSnapshot, Rollback, Search, SetFirewallEnabled,
-            SetPassword, StoreGc, ThemeApply, UnmountDisk, UpdateFlatpak, UpdateFlatpakApp,
-            Upgrade, UpgradeApk, UpgradeApkPackage, UpgradeRegex, WipeHistory,
+            PartitionDelete, PruneGenerations, Remove, RemoveAll, RemoveApk, RemoveApkRepository,
+            RemoveFirewallPort, RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans,
+            RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot, Rollback, Search,
+            SetFirewallEnabled, SetPassword, StoreGc, ThemeApply, UnmountDisk, UpdateFlatpak,
+            UpdateFlatpakApp, Upgrade, UpgradeApk, UpgradeApkPackage, UpgradeRegex, WipeHistory,
         };
         let destructive = [
             Remove {
@@ -715,6 +717,9 @@ mod tests {
                 device: "/dev/sda1".into(),
                 fstype: "ext4".into(),
                 confirm_device: "/dev/sda1".into(),
+            },
+            RemoveApkRepository {
+                url: "https://example.invalid/x".into(),
             },
             PartitionCreate {
                 device: "/dev/sda".into(),

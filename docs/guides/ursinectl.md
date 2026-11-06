@@ -107,9 +107,18 @@ audit log). Run `ursinectl --help` for the grouped list.
 ### packages_apk (`apk`)
 
 `list_apk`, `search_apk query=…`, `refresh_apk`,
-`list_apk_repositories`, `install_apk package=…`,
+`list_apk_repositories`, `add_apk_repository url=… [tag=…]`,
+`remove_apk_repository url=…`,
+`install_apk package=…`,
 `preview_apk_install package=…`, `remove_apk package=…`, `upgrade_apk`,
 `list_apk_updates`, `upgrade_apk_package package=…`
+
+`add_apk_repository` writes an `apk-repositories(5)` line and runs
+`apk update`. A `tag` masks the repository (`@edge <url>`): apk
+ignores it unless a world entry pins `pkg@tag`. Re-adding an existing
+URL updates its tag; `tag=` empty unmasks it (the GUI "Unmask" button
+does the same). `remove_apk_repository` deletes the line and is
+destructive (`--yes`).
 
 ### packages_flatpak (`flatpak`)
 

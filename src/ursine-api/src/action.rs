@@ -115,6 +115,18 @@ pub enum Action {
     RefreshApk,
     /// Configured APK repositories.
     ListApkRepositories,
+    /// Add an APK repository line (`tag` masks it: `@tag url` is
+    /// ignored by apk unless a world entry pins `pkg@tag`). If the URL
+    /// already exists the line's tag is updated (`None` unmasks).
+    AddApkRepository {
+        url: String,
+        #[serde(default)]
+        tag: Option<String>,
+    },
+    /// Delete an APK repository line by URL.
+    RemoveApkRepository {
+        url: String,
+    },
     /// Install an APK package.
     InstallApk {
         package: String,

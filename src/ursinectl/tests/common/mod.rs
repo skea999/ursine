@@ -222,6 +222,23 @@ pub const SAMPLES: &[Sample] = &[
     },
     Sample {
         module: ursine_api::ModuleId::PackagesApk,
+        action: "add_apk_repository",
+        pairs: &[("url", "https://example.invalid/alpine/main")],
+        destructive: false,
+        // Mutates /etc/apk/repositories then runs `apk update` (needs
+        // network): covered by unit tests + the --yes e2e gate.
+        dispatch: Dispatch::Skip,
+    },
+    Sample {
+        module: ursine_api::ModuleId::PackagesApk,
+        action: "remove_apk_repository",
+        pairs: &[("url", "https://example.invalid/alpine/main")],
+        destructive: true,
+        // Same network-dependent mutation path as add (see above).
+        dispatch: Dispatch::Skip,
+    },
+    Sample {
+        module: ursine_api::ModuleId::PackagesApk,
         action: "install_apk",
         pairs: &[("package", "ursine-no-such-pkg-xyz")],
         destructive: false,
@@ -952,6 +969,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "job_output",
     "list",
     "list_apk",
+    "add_apk_repository",
     "list_apk_repositories",
     "list_apk_updates",
     "list_disks",
@@ -981,6 +999,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "remove",
     "remove_all",
     "remove_apk",
+    "remove_apk_repository",
     "remove_firewall_port",
     "remove_firewall_service",
     "remove_flatpak",

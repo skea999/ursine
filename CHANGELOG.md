@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- APK repositories are now editable from the Package manager: new
+  `add_apk_repository` (upsert; optional `tag` writes an
+  `apk-repositories(5)` `@tag url` line that apk treats as MASKED
+  unless a world entry pins `pkg@tag` — the `@edge` pattern) and
+  `remove_apk_repository` (destructive). `list_apk_repositories`
+  returns structured `{url, tag}` rows; comments and unrelated lines
+  are preserved, writes are atomic with a backup, and both mutations
+  run `apk update`. The GUI gains a Repositories section with an add
+  form (URL + mask tag), per-row Remove and Unmask buttons.
+
 ## [0.26.0] — 2026-11-06
 
 ### Added

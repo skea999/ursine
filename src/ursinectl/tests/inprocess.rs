@@ -943,7 +943,7 @@ async fn response_shapes_match_the_contract() {
     let status = call(&daemon, &token, ModuleId::System, Action::Status)
         .await
         .unwrap();
-    assert_eq!(status["protocol_version"], 3, "{status}");
+    assert_eq!(status["protocol_version"], 4, "{status}");
     assert!(status["version"].is_string(), "{status}");
     assert!(status["auth"].is_string(), "{status}");
 

@@ -53,7 +53,7 @@ pub enum Request {
 
 - serde tag/adjacently tagged enums for every payload; `snake_case` wire names
 - Every type: `Debug, Clone, Serialize, Deserialize, PartialEq`
-- Wire format is versioned: `Request`/`Response` carry `v: u16` (currently 2; v2 adds the search `{results, truncated}` page and exact prune preview fields)
+- Wire format is versioned: `Request`/`Response` carry `v: u16` (currently 4; v2 added the search `{results, truncated}` page and exact prune preview fields, v3 package mutations `job_id`, v4 `list_apk_repositories` `{url, tag}` rows). The daemon records but does not reject other versions; frontends must tolerate older daemons' response shapes by treating parse failures as capability errors.
 
 ## Testing Strategy
 

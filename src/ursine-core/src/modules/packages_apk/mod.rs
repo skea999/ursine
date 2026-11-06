@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
-use ursine_api::{Action, ApiError, ApkPackage, ApkUpdate, ModuleId};
+use ursine_api::{Action, ApiError, ApkPackage, ApkRepository, ApkUpdate, ModuleId};
 
 use super::ModuleCtx;
 use crate::jobs::JobSink;
@@ -24,6 +24,32 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         Action::SearchApk { query } => Ok(json!({"packages": search(query).await?})),
         Action::RefreshApk => Ok(json!({"output": run(&["update"]).await?})),
         Action::ListApkRepositories => Ok(json!({"repositories": repositories()?})),
+        Action::AddApkRepository { url, tag } => {
+            validate_repo_url(url)?;
+            // An empty tag (CLI `tag=`) means "no tag": unmask.
+            let tag = tag.clone().filter(|value| !value.is_empty());
+            if let Some(tag) = &tag {
+                validate_repo_tag(tag)?;
+            }
+            let path = repositories_path();
+            let content = read_repositories(path)?;
+            let updated = upsert_repository(&content, url, tag.as_deref());
+            write_repositories(path, &updated).await?;
+            // Refresh indexes so the new (or re-tagged) repository is
+            // live; a failure here means the config is saved but the
+            // cache is stale — surface it, the user can Refresh.
+            run(&["update"]).await?;
+            Ok(json!({"repositories": repositories()?}))
+        }
+        Action::RemoveApkRepository { url } => {
+            validate_repo_url(url)?;
+            let path = repositories_path();
+            let content = read_repositories(path)?;
+            let updated = remove_repository(&content, url)?;
+            write_repositories(path, &updated).await?;
+            run(&["update"]).await?;
+            Ok(json!({"repositories": repositories()?}))
+        }
         Action::PreviewApkInstall { package } => {
             validate_package(package)?;
             Ok(json!({"output": run(&["add", "--simulate", package]).await?}))
@@ -71,16 +97,145 @@ fn start_job(
     Ok(json!(started))
 }
 
-fn repositories() -> Result<Vec<String>, ApiError> {
-    let content = std::fs::read_to_string("/etc/apk/repositories")
-        .map_err(|e| ApiError::internal(format!("read /etc/apk/repositories: {e}")))?;
-    Ok(content
+const REPOSITORIES_PATH: &str = "/etc/apk/repositories";
+
+fn repositories_path() -> &'static str {
+    REPOSITORIES_PATH
+}
+
+fn read_repositories(path: &str) -> Result<String, ApiError> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| ApiError::internal(format!("read {path}: {e}")))?;
+    if content.len() > 64 * 1024 {
+        return Err(ApiError::internal(
+            "repositories file is larger than 64 KiB",
+        ));
+    }
+    Ok(content)
+}
+
+/// Split one repositories line into its optional `@tag` and the rest
+/// (URL plus any component tokens).
+fn split_repo_line(line: &str) -> (Option<String>, String) {
+    let trimmed = line.trim();
+    if let Some(rest) = trimmed.strip_prefix('@') {
+        let (tag, rest) = match rest.split_once(char::is_whitespace) {
+            Some((tag, rest)) => (tag.to_string(), rest.trim().to_string()),
+            None => (rest.to_string(), String::new()),
+        };
+        return (Some(tag), rest);
+    }
+    (None, trimmed.to_string())
+}
+
+fn repositories() -> Result<Vec<ApkRepository>, ApiError> {
+    Ok(repositories_from(&read_repositories(repositories_path())?))
+}
+
+fn repositories_from(content: &str) -> Vec<ApkRepository> {
+    content
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .take(64)
-        .map(str::to_string)
-        .collect())
+        .filter_map(|line| {
+            let (tag, url) = split_repo_line(line);
+            if url.is_empty() {
+                return None;
+            }
+            Some(ApkRepository { url, tag })
+        })
+        .collect()
+}
+
+/// Add the line, or update the tag of an existing URL (`None`
+/// unmasks). Comments and unrelated lines are preserved verbatim.
+fn upsert_repository(content: &str, url: &str, tag: Option<&str>) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut replaced = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let matched =
+            !trimmed.is_empty() && !trimmed.starts_with('#') && split_repo_line(trimmed).1 == url;
+        if matched {
+            // Replace the first match, collapse later duplicates.
+            if !replaced {
+                out.push(render_repo_line(url, tag));
+                replaced = true;
+            }
+        } else {
+            out.push(line.to_string());
+        }
+    }
+    if !replaced {
+        out.push(render_repo_line(url, tag));
+    }
+    let mut text = out.join("\n");
+    text.push('\n');
+    text
+}
+
+fn render_repo_line(url: &str, tag: Option<&str>) -> String {
+    tag.map_or_else(|| url.to_string(), |tag| format!("@{tag} {url}"))
+}
+
+/// Drop the line for `url`; errors when it is not configured.
+fn remove_repository(content: &str, url: &str) -> Result<String, ApiError> {
+    let mut out: Vec<String> = Vec::new();
+    let mut removed = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let matched =
+            !trimmed.is_empty() && !trimmed.starts_with('#') && split_repo_line(trimmed).1 == url;
+        if matched {
+            removed = true;
+        } else {
+            out.push(line.to_string());
+        }
+    }
+    if !removed {
+        return Err(ApiError::invalid("repository is not configured"));
+    }
+    let mut text = out.join("\n");
+    text.push('\n');
+    Ok(text)
+}
+
+async fn write_repositories(path: &str, content: &str) -> Result<(), ApiError> {
+    exec::run_as_user_atomic_write("root", path, content)
+        .await
+        .map_err(|error| ApiError::new(error.code, error.message))?;
+    Ok(())
+}
+
+/// Repository URLs reach the file as one line: absolute paths or
+/// http(s), no whitespace/control, no leading `-`.
+fn validate_repo_url(url: &str) -> Result<(), ApiError> {
+    let ok = !url.is_empty()
+        && url.len() <= 512
+        && !url.starts_with('-')
+        && (url.starts_with("http://") || url.starts_with("https://") || url.starts_with('/'))
+        && url.chars().all(|c| !c.is_whitespace() && !c.is_control());
+    if ok {
+        Ok(())
+    } else {
+        Err(ApiError::invalid(
+            "invalid repository URL (http(s):// or absolute path, no spaces)",
+        ))
+    }
+}
+
+fn validate_repo_tag(tag: &str) -> Result<(), ApiError> {
+    if tag.is_empty()
+        || tag.len() > 32
+        || !tag
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
+        return Err(ApiError::invalid(
+            "invalid repository tag (letters, digits, . _ -)",
+        ));
+    }
+    Ok(())
 }
 
 async fn installed() -> Result<Vec<ApkPackage>, ApiError> {
@@ -251,6 +406,58 @@ async fn run(args: &[&str]) -> Result<String, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_masked_repository_lines() {
+        let parsed = repositories_from("@edge http://a/edge/main\nhttp://b/v3/main\n# note\n");
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].tag.as_deref(), Some("edge"));
+        assert_eq!(parsed[0].url, "http://a/edge/main");
+        assert_eq!(parsed[1].tag, None);
+        assert_eq!(parsed[1].url, "http://b/v3/main");
+    }
+
+    #[test]
+    fn upsert_adds_updates_and_unmasks() {
+        let base = "# keep\nhttp://a/main\n";
+        let added = upsert_repository(base, "http://a/edge", Some("edge"));
+        assert!(added.contains("# keep"), "{added}");
+        assert!(added.contains("@edge http://a/edge"), "{added}");
+        // Update the tag of the existing URL.
+        let retagged = upsert_repository(&added, "http://a/edge", Some("beta"));
+        assert!(retagged.contains("@beta http://a/edge"), "{retagged}");
+        assert!(!retagged.contains("@edge"), "{retagged}");
+        // Unmask: same URL, no tag.
+        let unmasked = upsert_repository(&retagged, "http://a/edge", None);
+        assert!(unmasked.contains("\nhttp://a/edge\n"), "{unmasked}");
+        assert!(!unmasked.contains('@'), "{unmasked}");
+        // Idempotent unmasked add.
+        let again = upsert_repository(&unmasked, "http://a/edge", None);
+        assert_eq!(again.matches("http://a/edge").count(), 1, "{again}");
+    }
+
+    #[test]
+    fn remove_drops_only_the_matching_line() {
+        let base = "# c\n@edge http://a/edge\nhttp://a/main\n";
+        let out = remove_repository(base, "http://a/edge").unwrap();
+        assert!(!out.contains("edge"), "{out}");
+        assert!(out.contains("http://a/main"), "{out}");
+        assert!(out.contains("# c"), "{out}");
+        assert!(remove_repository(base, "http://nope").is_err());
+    }
+
+    #[test]
+    fn validates_repository_inputs() {
+        assert!(validate_repo_url("https://dl-cdn.alpinelinux.org/alpine/v3.20/main").is_ok());
+        assert!(validate_repo_url("/media/usb/repo").is_ok());
+        assert!(validate_repo_url("ftp://x").is_err());
+        assert!(validate_repo_url("/has space").is_err());
+        assert!(validate_repo_url("-rf").is_err());
+        assert!(validate_repo_tag("edge").is_ok());
+        assert!(validate_repo_tag("my-repo_1").is_ok());
+        assert!(validate_repo_tag("bad tag").is_err());
+        assert!(validate_repo_tag("").is_err());
+    }
 
     #[test]
     fn validates_queries_and_packages() {

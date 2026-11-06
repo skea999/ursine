@@ -125,9 +125,14 @@ upgrade, upgrade_regex, generations, rollback, wipe_history,
 diff_closures, store_gc, prune_generations.
 .TP
 .B packages_apk
-list_apk, search_apk, refresh_apk, list_apk_repositories, install_apk,
+list_apk, search_apk, refresh_apk, list_apk_repositories,
+add_apk_repository, remove_apk_repository, install_apk,
 preview_apk_install, remove_apk, upgrade_apk, list_apk_updates,
 upgrade_apk_package.
+add_apk_repository writes an apk-repositories line (an optional tag
+masks it: @tag url, enabled only via a world pin pkg@tag) and refreshes
+indexes; re-adding an existing URL updates its tag, an empty tag
+unmasks. remove_apk_repository is destructive and requires --yes.
 .TP
 .B packages_flatpak
 list_flatpak, list_flatpak_remotes, list_flatpak_updates, search_flatpak,

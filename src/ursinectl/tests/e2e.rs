@@ -77,7 +77,7 @@ fn status_prints_version_json() {
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
     assert!(v.get("version").is_some(), "{v}");
     // Wire contract every frontend depends on.
-    assert_eq!(v["protocol_version"], 3, "{v}");
+    assert_eq!(v["protocol_version"], 4, "{v}");
 }
 
 #[test]

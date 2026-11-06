@@ -12,6 +12,9 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `list_apk` | `apk info -v` + `apk info` (name/version pairing) |
 | `search_apk` | `apk search -v <query>` |
 | `refresh_apk` | `apk update` |
+| `list_apk_repositories` | parse `/etc/apk/repositories` (`[@tag] url`) |
+| `add_apk_repository` | upsert the line + `apk update` (atomic write + backup) |
+| `remove_apk_repository` | drop the line + `apk update` (atomic write + backup) |
 | `install_apk` | `apk add <package>` (progress via job log) |
 | `remove_apk` | `apk del <package>` |
 | `upgrade_apk` | `apk upgrade` (progress via job log) |

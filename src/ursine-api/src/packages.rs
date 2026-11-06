@@ -23,6 +23,17 @@ pub struct ApkUpdate {
     pub available: String,
 }
 
+/// One APK repository line (`apk-repositories(5)`: `[@tag] url`).
+/// `tag = Some("edge")` means the line is `@edge <url>` — a MASKED
+/// repository that apk ignores unless a world entry pins `pkg@edge`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApkRepository {
+    /// Everything after the optional tag (URL, optional components).
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+}
+
 /// One configured Flatpak remote.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlatpakRemote {

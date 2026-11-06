@@ -162,6 +162,8 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::SearchApk { .. } => "search_apk",
         Action::RefreshApk => "refresh_apk",
         Action::ListApkRepositories => "list_apk_repositories",
+        Action::AddApkRepository { .. } => "add_apk_repository",
+        Action::RemoveApkRepository { .. } => "remove_apk_repository",
         Action::InstallApk { .. } => "install_apk",
         Action::PreviewApkInstall { .. } => "preview_apk_install",
         Action::RemoveApk { .. } => "remove_apk",

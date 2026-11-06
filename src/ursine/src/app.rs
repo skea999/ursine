@@ -324,7 +324,19 @@ pub enum Message {
     PackageRemoveCancelled,
     PackageApkLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
     PackageApkUpdatesLoaded(u64, Result<Vec<ApkUpdate>, ApiError>),
-    PackageApkRepositoriesLoaded(u64, Result<Vec<String>, ApiError>),
+    PackageApkRepositoriesLoaded(u64, Result<Vec<ursine_api::ApkRepository>, ApiError>),
+    PackageApkRepoUrlChanged(String),
+    PackageApkRepoTagChanged(String),
+    PackageApkRepoAdd,
+    PackageApkRepoRemoveRequested(String),
+    PackageApkRepoRemoveConfirmed,
+    PackageApkRepoRemoveCancelled,
+    PackageApkRepoUnmask(String),
+    PackageApkRepoFinished(
+        u64,
+        String,
+        Result<Vec<ursine_api::ApkRepository>, ApiError>,
+    ),
     PackagePreviewFinished(u64, Result<String, ApiError>),
     PackageFlatpakLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
     PackageFlatpakUpdatesLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
@@ -1237,6 +1249,45 @@ impl cosmic::Application for App {
             }
             Message::PackageApkRepositoriesLoaded(epoch, result) => {
                 return self.finish_apk_repositories(epoch, result)
+            }
+            Message::PackageApkRepoUrlChanged(value) => self.packages.apk_repo_url = value,
+            Message::PackageApkRepoTagChanged(value) => self.packages.apk_repo_tag = value,
+            Message::PackageApkRepoAdd => {
+                let url = self.packages.apk_repo_url.trim().to_string();
+                if url.is_empty() {
+                    self.packages.error = Some("Enter a repository URL.".into());
+                } else {
+                    let tag = self.packages.apk_repo_tag.trim().to_string();
+                    let tag = if tag.is_empty() { None } else { Some(tag) };
+                    // Inputs clear only on success (finish_apk_repo).
+                    return self.apk_repo_action(
+                        "Repository saved.",
+                        client::apk_add_repository(self.token(), url, tag),
+                    );
+                }
+            }
+            Message::PackageApkRepoRemoveRequested(url) => {
+                self.packages.pending_apk_repo_remove = Some(url);
+            }
+            Message::PackageApkRepoRemoveConfirmed => {
+                if let Some(url) = self.packages.pending_apk_repo_remove.take() {
+                    return self.apk_repo_action(
+                        "Repository removed.",
+                        client::apk_remove_repository(self.token(), url),
+                    );
+                }
+            }
+            Message::PackageApkRepoRemoveCancelled => {
+                self.packages.pending_apk_repo_remove = None;
+            }
+            Message::PackageApkRepoFinished(epoch, label, result) => {
+                return self.finish_apk_repo(epoch, &label, result);
+            }
+            Message::PackageApkRepoUnmask(url) => {
+                return self.apk_repo_action(
+                    "Repository unmasked.",
+                    client::apk_add_repository(self.token(), url, None),
+                )
             }
             Message::PackagePreviewFinished(epoch, result) => {
                 if epoch != self.epoch {
@@ -2545,10 +2596,77 @@ impl App {
         Task::none()
     }
 
+    /// One repository mutation (add/remove/unmask) with the shared
+    /// busy flag; the reply replaces the list.
+    fn apk_repo_action(
+        &mut self,
+        label: &str,
+        future: impl std::future::Future<Output = Result<Vec<ursine_api::ApkRepository>, ApiError>>
+            + Send
+            + 'static,
+    ) -> Task<cosmic::Action<Message>> {
+        let Some(_session) = &self.session else {
+            return Task::none();
+        };
+        if self.packages.action_busy || self.job.is_some() {
+            return Task::none();
+        }
+        let label = label.to_string();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.error = None;
+        self.packages.message = None;
+        Task::future(async move { Message::PackageApkRepoFinished(epoch, label, future.await) })
+            .map(cosmic::Action::App)
+    }
+
+    fn finish_apk_repo(
+        &mut self,
+        epoch: u64,
+        label: &str,
+        result: Result<Vec<ursine_api::ApkRepository>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.packages.action_busy = false;
+        match result {
+            Ok(repositories) => {
+                self.packages.apply_apk_repositories(repositories);
+                self.packages.message = Some(label.to_string());
+                // The add form clears only after the daemon confirmed.
+                self.packages.apk_repo_url.clear();
+                self.packages.apk_repo_tag.clear();
+                self.packages.pending_apk_repo_remove = None;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.packages.error = Some(friendly(&error));
+                // The daemon may have saved the file and failed only
+                // `apk update`: refresh the list so the GUI matches
+                // the file (a retry then sees the real state).
+                if let Some(session) = &self.session {
+                    let token = session.token.clone();
+                    let epoch = self.epoch;
+                    return Task::future(async move {
+                        Message::PackageApkRepositoriesLoaded(
+                            epoch,
+                            client::apk_repositories(token).await,
+                        )
+                    })
+                    .map(cosmic::Action::App);
+                }
+            }
+        }
+        Task::none()
+    }
+
     fn finish_apk_repositories(
         &mut self,
         epoch: u64,
-        result: Result<Vec<String>, ApiError>,
+        result: Result<Vec<ursine_api::ApkRepository>, ApiError>,
     ) -> Task<cosmic::Action<Message>> {
         if epoch != self.epoch {
             return Task::none();

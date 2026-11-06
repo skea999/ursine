@@ -73,7 +73,10 @@ pub struct PackagesState {
     pub kind: Option<PackageKind>,
     pub apk: Vec<ApkPackage>,
     pub apk_updates: Vec<ApkUpdate>,
-    pub apk_repositories: Vec<String>,
+    pub apk_repositories: Vec<ursine_api::ApkRepository>,
+    /// Add-repository form inputs.
+    pub apk_repo_url: String,
+    pub apk_repo_tag: String,
     pub flatpak: Vec<FlatpakPackage>,
     pub flatpak_updates: Vec<FlatpakPackage>,
     pub flatpak_remotes: Vec<FlatpakRemote>,
@@ -93,6 +96,8 @@ pub struct PackagesState {
     pub pending_update: Option<PackageKind>,
     pub pending_orphans: bool,
     pub pending_install: Option<PendingInstall>,
+    /// APK repository waiting for the remove confirmation.
+    pub pending_apk_repo_remove: Option<String>,
     /// Open permissions editor (Flatpak installed apps only).
     pub permissions: Option<PermissionsEditor>,
 }
@@ -104,6 +109,8 @@ impl Default for PackagesState {
             apk: Vec::new(),
             apk_updates: Vec::new(),
             apk_repositories: Vec::new(),
+            apk_repo_url: String::new(),
+            apk_repo_tag: String::new(),
             flatpak: Vec::new(),
             flatpak_updates: Vec::new(),
             flatpak_remotes: Vec::new(),
@@ -121,6 +128,7 @@ impl Default for PackagesState {
             pending_update: None,
             pending_orphans: false,
             pending_install: None,
+            pending_apk_repo_remove: None,
             permissions: None,
         }
     }
@@ -151,6 +159,7 @@ impl PackagesState {
         self.pending_orphans = false;
         self.pending_install = None;
         self.permissions = None;
+        self.pending_apk_repo_remove = None;
     }
 
     pub fn apply_apk(&mut self, packages: Vec<ApkPackage>) {
@@ -164,7 +173,7 @@ impl PackagesState {
         self.apk_updates = updates;
     }
 
-    pub fn apply_apk_repositories(&mut self, repositories: Vec<String>) {
+    pub fn apply_apk_repositories(&mut self, repositories: Vec<ursine_api::ApkRepository>) {
         self.apk_repositories = repositories;
     }
 
@@ -387,17 +396,83 @@ impl PackagesState {
             button::suggested("Upgrade all")
                 .on_press_maybe((!self.action_busy).then_some(Message::PackageUpdateRequested)),
         ));
-        if kind == PackageKind::Apk && !self.apk_repositories.is_empty() {
-            upgrade = upgrade.add(settings::item(
-                "Repositories",
-                column(
-                    self.apk_repositories
-                        .iter()
-                        .map(|repository| text(repository.clone()).into())
-                        .collect::<Vec<Element<'_, Message>>>(),
-                )
-                .spacing(2),
+        if let Some(url) = &self.pending_apk_repo_remove {
+            items.push(
+                settings::section()
+                    .title("Confirm repository removal")
+                    .add(settings::item(
+                        "Consequences",
+                        text(format!(
+                            "Remove {url} from /etc/apk/repositories? Indexes refresh after the change."
+                        )),
+                    ))
+                    .add(settings::item(
+                        "Actions",
+                        row(vec![
+                            button::destructive("Remove")
+                                .on_press_maybe(
+                                    (!self.action_busy)
+                                        .then_some(Message::PackageApkRepoRemoveConfirmed),
+                                )
+                                .into(),
+                            button::text("Cancel")
+                                .on_press_maybe(
+                                    (!self.action_busy)
+                                        .then_some(Message::PackageApkRepoRemoveCancelled),
+                                )
+                                .into(),
+                        ])
+                        .spacing(8),
+                    ))
+                    .into(),
+            );
+        }
+
+        if kind == PackageKind::Apk {
+            let mut repos = settings::section().title("Repositories");
+            for repository in &self.apk_repositories {
+                let url = repository.url.clone();
+                let label = repository.tag.as_ref().map_or_else(
+                    || repository.url.clone(),
+                    |tag| format!("@{tag} {}", repository.url),
+                );
+                let mut actions = row(vec![button::destructive("Remove")
+                    .on_press_maybe(
+                        (!self.action_busy)
+                            .then_some(Message::PackageApkRepoRemoveRequested(url.clone())),
+                    )
+                    .into()])
+                .spacing(8);
+                if repository.tag.is_some() {
+                    let unmask: Element<'_, Message> = button::text("Unmask")
+                        .on_press_maybe(
+                            (!self.action_busy)
+                                .then_some(Message::PackageApkRepoUnmask(url.clone())),
+                        )
+                        .into();
+                    actions = actions.push(unmask);
+                }
+                repos = repos.add(settings::item(label, actions));
+            }
+            repos = repos.add(settings::item(
+                "Add repository",
+                row(vec![
+                    text_input("https://… or /media/…", self.apk_repo_url.clone())
+                        .on_input(Message::PackageApkRepoUrlChanged)
+                        .into(),
+                    text_input("mask tag (e.g. edge)", self.apk_repo_tag.clone())
+                        .on_input(Message::PackageApkRepoTagChanged)
+                        .into(),
+                    button::text("Add")
+                        .on_press_maybe(
+                            (!self.action_busy && !self.apk_repo_url.trim().is_empty())
+                                .then_some(Message::PackageApkRepoAdd),
+                        )
+                        .into(),
+                ])
+                .spacing(8),
             ));
+            items.push(repos.into());
         }
         if kind == PackageKind::Apk && !self.apk_updates.is_empty() {
             upgrade = upgrade.add(settings::item(
