@@ -98,6 +98,13 @@ pub struct PackagesState {
     pub pending_install: Option<PendingInstall>,
     /// APK repository waiting for the remove confirmation.
     pub pending_apk_repo_remove: Option<String>,
+    /// Add-remote form inputs (Flatpak).
+    pub flatpak_remote_name: String,
+    pub flatpak_remote_url: String,
+    /// Flatpak remote waiting for the remove confirmation; the bool is
+    /// the SCOPE captured at request time (a dropdown flip while the
+    /// confirm is open must not delete in the other installation).
+    pub pending_flatpak_remote_remove: Option<(String, bool)>,
     /// Open permissions editor (Flatpak installed apps only).
     pub permissions: Option<PermissionsEditor>,
 }
@@ -129,6 +136,9 @@ impl Default for PackagesState {
             pending_orphans: false,
             pending_install: None,
             pending_apk_repo_remove: None,
+            flatpak_remote_name: String::new(),
+            flatpak_remote_url: String::new(),
+            pending_flatpak_remote_remove: None,
             permissions: None,
         }
     }
@@ -160,6 +170,7 @@ impl PackagesState {
         self.pending_install = None;
         self.permissions = None;
         self.pending_apk_repo_remove = None;
+        self.pending_flatpak_remote_remove = None;
     }
 
     pub fn apply_apk(&mut self, packages: Vec<ApkPackage>) {
@@ -545,18 +556,87 @@ impl PackagesState {
             items.push(
                 settings::section()
                     .title("Remotes")
-                    .add(settings::item(
-                        "Configured Flatpak remotes",
-                        column(
-                            self.flatpak_remotes
-                                .iter()
-                                .map(|remote| {
-                                    text(format!("{} — {}", remote.name, remote.url)).into()
-                                })
-                                .collect::<Vec<Element<'_, Message>>>(),
-                        )
-                        .spacing(2),
+                    .add(self.pending_flatpak_remote_remove.as_ref().map_or_else(
+                        || {
+                            settings::item(
+                                "Add remote",
+                                row(vec![
+                                    text_input("name", self.flatpak_remote_name.clone())
+                                        .on_input(Message::FlatpakRemoteNameChanged)
+                                        .into(),
+                                    text_input("https://…", self.flatpak_remote_url.clone())
+                                        .on_input(Message::FlatpakRemoteUrlChanged)
+                                        .into(),
+                                    button::text("Add")
+                                        .on_press_maybe(
+                                            (!self.action_busy
+                                                && !self.flatpak_remote_name.trim().is_empty()
+                                                && !self.flatpak_remote_url.trim().is_empty())
+                                                .then_some(Message::FlatpakRemoteAdd),
+                                        )
+                                        .into(),
+                                ])
+                                .spacing(8),
+                            )
+                        },
+                        |(name, _system)| {
+                            settings::item(
+                                "Confirm removal",
+                                row(vec![
+                                    text(format!(
+                                        "Remove the remote {name}? Packages from it stop receiving updates."
+                                    ))
+                                    .into(),
+                                    button::destructive("Remove")
+                                        .on_press_maybe(
+                                            (!self.action_busy)
+                                                .then_some(Message::FlatpakRemoteRemoveConfirmed),
+                                        )
+                                        .into(),
+                                    button::text("Cancel")
+                                        .on_press_maybe(
+                                            (!self.action_busy)
+                                                .then_some(Message::FlatpakRemoteRemoveCancelled),
+                                        )
+                                        .into(),
+                                ])
+                                .spacing(8),
+                            )
+                        },
                     ))
+                    .add({
+                        if self.flatpak_remotes.is_empty() {
+                            settings::item("Configured", text("No remotes."))
+                        } else {
+                            settings::item(
+                                "Configured",
+                                column(
+                                    self.flatpak_remotes
+                                        .iter()
+                                        .map(|remote| {
+                                            let name = remote.name.clone();
+                                            row(vec![
+                                                text(format!("{} — {}", remote.name, remote.url))
+                                                    .width(Length::Fill)
+                                                    .into(),
+                                                button::text("Remove…").on_press_maybe(
+                                                    (!self.action_busy)
+                                                        .then_some(
+                                                            Message::FlatpakRemoteRemoveRequested(
+                                                                name,
+                                                            ),
+                                                        ),
+                                                ).into(),
+                                            ])
+                                            .spacing(8)
+                                            .into()
+                                        })
+                                        .collect::<Vec<Element<'_, Message>>>(),
+                                )
+                                .spacing(2),
+                            )
+                        }
+                    })
                     .into(),
             );
         }

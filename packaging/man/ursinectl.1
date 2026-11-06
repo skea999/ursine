@@ -141,7 +141,9 @@ unmasks. remove_apk_repository is destructive and requires --yes.
 list_flatpak, list_flatpak_remotes, list_flatpak_updates, search_flatpak,
 install_flatpak, get_flatpak_info, remove_flatpak, update_flatpak,
 update_flatpak_app, remove_flatpak_orphans, get_flatpak_permissions,
-set_flatpak_permissions.
+set_flatpak_permissions, add_flatpak_remote, remove_flatpak_remote.
+add_flatpak_remote registers a remote URL on the selected installation;
+remove_flatpak_remote is destructive and requires --yes.
 install_flatpak accepts an optional remote (default flathub);
 get_flatpak_info reports name, version, download and installed size for
 the install confirmation; list_flatpak_updates reports refs whose remote

@@ -332,6 +332,17 @@ pub enum Message {
     PackageApkRepoRemoveConfirmed,
     PackageApkRepoRemoveCancelled,
     PackageApkRepoUnmask(String),
+    FlatpakRemoteNameChanged(String),
+    FlatpakRemoteUrlChanged(String),
+    FlatpakRemoteAdd,
+    FlatpakRemoteRemoveRequested(String),
+    FlatpakRemoteRemoveConfirmed,
+    FlatpakRemoteRemoveCancelled,
+    FlatpakRemoteFinished(
+        u64,
+        String,
+        Result<Vec<ursine_api::FlatpakRemote>, ApiError>,
+    ),
     PackageApkRepoFinished(
         u64,
         String,
@@ -1329,6 +1340,42 @@ impl cosmic::Application for App {
             }
             Message::PackageFlatpakRemotesLoaded(epoch, result) => {
                 return self.finish_flatpak_remotes(epoch, result)
+            }
+            Message::FlatpakRemoteNameChanged(value) => self.packages.flatpak_remote_name = value,
+            Message::FlatpakRemoteUrlChanged(value) => self.packages.flatpak_remote_url = value,
+            Message::FlatpakRemoteAdd => {
+                let name = self.packages.flatpak_remote_name.trim().to_string();
+                let url = self.packages.flatpak_remote_url.trim().to_string();
+                if name.is_empty() || url.is_empty() {
+                    self.packages.error = Some("Enter a remote name and a location URL.".into());
+                } else {
+                    let system = self.packages.system;
+                    return self.flatpak_remote_action(
+                        "Remote added.",
+                        client::flatpak_add_remote(self.token(), name, url, system),
+                    );
+                }
+            }
+            Message::FlatpakRemoteRemoveRequested(name) => {
+                let system = self.packages.system;
+                self.packages.pending_flatpak_remote_remove = Some((name, system));
+            }
+            Message::FlatpakRemoteRemoveConfirmed => {
+                if self.packages.action_busy || self.job.is_some() {
+                    return Task::none();
+                }
+                if let Some((name, system)) = self.packages.pending_flatpak_remote_remove.take() {
+                    return self.flatpak_remote_action(
+                        "Remote removed.",
+                        client::flatpak_remove_remote(self.token(), name, system),
+                    );
+                }
+            }
+            Message::FlatpakRemoteRemoveCancelled => {
+                self.packages.pending_flatpak_remote_remove = None;
+            }
+            Message::FlatpakRemoteFinished(epoch, label, result) => {
+                return self.finish_flatpak_remote(epoch, &label, result);
             }
             Message::PackageApkSearchLoaded(epoch, result) => {
                 return self.finish_apk_search(epoch, result)
@@ -2759,6 +2806,58 @@ impl App {
         }
         match result {
             Ok(updates) => self.packages.apply_apk_updates(updates),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.packages.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    /// One remote mutation (add/remove) with the shared busy flag; the
+    /// reply replaces the remotes list.
+    fn flatpak_remote_action(
+        &mut self,
+        label: &str,
+        future: impl std::future::Future<Output = Result<Vec<ursine_api::FlatpakRemote>, ApiError>>
+            + Send
+            + 'static,
+    ) -> Task<cosmic::Action<Message>> {
+        let Some(_session) = &self.session else {
+            return Task::none();
+        };
+        if self.packages.action_busy || self.job.is_some() {
+            return Task::none();
+        }
+        let label = label.to_string();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.error = None;
+        self.packages.message = None;
+        Task::future(async move { Message::FlatpakRemoteFinished(epoch, label, future.await) })
+            .map(cosmic::Action::App)
+    }
+
+    fn finish_flatpak_remote(
+        &mut self,
+        epoch: u64,
+        label: &str,
+        result: Result<Vec<ursine_api::FlatpakRemote>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.packages.action_busy = false;
+        match result {
+            Ok(remotes) => {
+                self.packages.apply_flatpak_remotes(remotes);
+                self.packages.message = Some(label.to_string());
+                self.packages.flatpak_remote_name.clear();
+                self.packages.flatpak_remote_url.clear();
+                self.packages.pending_flatpak_remote_remove = None;
+            }
             Err(error) => {
                 if self.handle_session_error(&error) {
                     return Task::none();

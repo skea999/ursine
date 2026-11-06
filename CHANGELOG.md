@@ -14,10 +14,6 @@
   run `apk update`. The GUI gains a Repositories section with an add
   form (URL + mask tag), per-row Remove and Unmask buttons.
 
-## [Unreleased]
-
-### Added
-
 - Nix repositories = the flake registry of the target user: new
   `list_nix_repositories`, `add_nix_repository` and
   `remove_nix_repository` (destructive) manage `nix registry` entries
@@ -26,6 +22,12 @@
   bare installables prefixed for install. The nix panel gains a
   repository dropdown for search and a Flake repositories section
   with add/remove (remove confirms).
+
+- Flatpak remotes are editable: new `add_flatpak_remote` (location +
+  name on the current scope, errors on duplicates) and
+  `remove_flatpak_remote` (destructive, `--yes`; flatpak refuses while
+  packages still come from the remote) with an add form and a
+  confirming Remove in the GUI Remotes section.
 
 ## [0.26.0] — 2026-11-06
 

@@ -45,6 +45,27 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         Action::ListFlatpakUpdates { system } => {
             Ok(json!({"updates": updates(*system, ctx.as_user).await?}))
         }
+        Action::AddFlatpakRemote { name, url, system } => {
+            validate_remote_name(name)?;
+            validate_remote_url(url)?;
+            run(
+                *system,
+                ctx.as_user,
+                &["remote-add", scope(*system), name, url],
+            )
+            .await?;
+            Ok(json!({"remotes": remotes(Some(*system), ctx.as_user).await?}))
+        }
+        Action::RemoveFlatpakRemote { name, system } => {
+            validate_remote_name(name)?;
+            run(
+                *system,
+                ctx.as_user,
+                &["remote-delete", scope(*system), name],
+            )
+            .await?;
+            Ok(json!({"remotes": remotes(Some(*system), ctx.as_user).await?}))
+        }
         Action::SearchFlatpak { query, system } => Ok(json!({
             "packages": search(query, *system, ctx.as_user).await?,
         })),
@@ -417,6 +438,36 @@ fn parse_search(output: &str, system: bool) -> Vec<FlatpakPackage> {
     rows
 }
 
+/// Remote names reach argv positionally: flatpak would read a leading
+/// `-…` as a flag, so reject it (same charset as services).
+fn validate_remote_name(name: &str) -> Result<(), ApiError> {
+    if name.is_empty()
+        || name.len() > 64
+        || name.starts_with('-')
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
+        return Err(ApiError::invalid("invalid Flatpak remote name"));
+    }
+    Ok(())
+}
+
+/// Remote locations: `http(s)://` or `file://` on the SAME charset
+/// both exec guards accept (installable-atom: no whitespace, quotes,
+/// `%`, `&`, commas that could diverge between root and su paths).
+fn validate_remote_url(url: &str) -> Result<(), ApiError> {
+    let scheme_ok =
+        url.starts_with("http://") || url.starts_with("https://") || url.starts_with("file://");
+    if scheme_ok && ursine_api::is_safe_installable_atom(url) && !url.starts_with('-') {
+        Ok(())
+    } else {
+        Err(ApiError::invalid(
+            "invalid remote URL (http(s):// or file://, simple charset)",
+        ))
+    }
+}
+
 fn validate_app_id(app_id: &str) -> Result<(), ApiError> {
     if app_id.is_empty()
         || app_id.len() > 255
@@ -541,6 +592,19 @@ async fn run(system: bool, user: &str, args: &[&str]) -> Result<String, ApiError
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validates_flatpak_remote_inputs() {
+        assert!(validate_remote_name("flathub-beta").is_ok());
+        assert!(validate_remote_name("my.remote_1").is_ok());
+        assert!(validate_remote_name("--system").is_err());
+        assert!(validate_remote_name("bad name").is_err());
+        assert!(validate_remote_url("https://dl.flathub.org/repo").is_ok());
+        assert!(validate_remote_url("file:///media/usb/repo").is_ok());
+        assert!(validate_remote_url("ftp://x").is_err());
+        assert!(validate_remote_url("/plain/path").is_err());
+        assert!(validate_remote_url("https://x has space").is_err());
+    }
 
     #[test]
     fn parses_flatpak_list_columns() {

@@ -133,11 +133,18 @@ destructive (`--yes`).
 
 `list_flatpak [system=true]`, `list_flatpak_remotes`,
 `list_flatpak_updates [system=true]`, `search_flatpak query=… [system=true]`,
+`add_flatpak_remote name=… url=… system=true|false`,
+`remove_flatpak_remote name=… system=true|false`,
 `install_flatpak app_id=… [system=true] [remote=…]`,
 `get_flatpak_info app_id=… [remote=…] system=true|false`,
 `remove_flatpak app_id=… [system=true]`, `update_flatpak [system=true]`,
 `update_flatpak_app app_id=… [system=true]`,
 `remove_flatpak_orphans [system=true]`,
+
+`add_flatpak_remote` registers a location on the selected installation
+(errors when the name exists); `remove_flatpak_remote` is destructive
+(`--yes`) and flatpak itself refuses while packages still come from
+that remote.
 `get_flatpak_permissions app_id=… system=true|false`,
 `set_flatpak_permissions app_id=… system=true|false sockets=[…]
 devices=[…] filesystems=[…] env=[…]`

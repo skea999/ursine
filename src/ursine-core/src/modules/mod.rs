@@ -173,6 +173,8 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::ListFlatpak { .. } => "list_flatpak",
         Action::ListFlatpakRemotes { .. } => "list_flatpak_remotes",
         Action::ListFlatpakUpdates { .. } => "list_flatpak_updates",
+        Action::AddFlatpakRemote { .. } => "add_flatpak_remote",
+        Action::RemoveFlatpakRemote { .. } => "remove_flatpak_remote",
         Action::GetFlatpakPermissions { .. } => "get_flatpak_permissions",
         Action::SetFlatpakPermissions { .. } => "set_flatpak_permissions",
         Action::GetFlatpakInfo { .. } => "get_flatpak_info",

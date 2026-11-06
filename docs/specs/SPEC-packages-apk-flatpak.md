@@ -20,6 +20,8 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `upgrade_apk` | `apk upgrade` (progress via job log) |
 | `list_flatpak` | `flatpak list --columns=... --system/--user` |
 | `list_flatpak_remotes` | `flatpak remotes --columns=name,url [--system/--user]` |
+| `add_flatpak_remote` | `flatpak remote-add <scope> <name> <url>` |
+| `remove_flatpak_remote` | `flatpak remote-delete <scope> <name>` |
 | `list_flatpak_updates` | `flatpak remote-ls <scope> --app/--runtime --updates --columns=…` |
 | `get_flatpak_permissions` | read override keyfile + `flatpak info --show-permissions` |
 | `set_flatpak_permissions` | render override keyfile (four lists replaced, other keys/groups preserved) + atomic write |
@@ -56,6 +58,9 @@ Sidebar entries **APK packages** and **Flatpak applications**. Each panel has:
 
 - source dropdown (APK/Flatpak);
 - Flatpak system/user dropdown;
+- Remotes section: add form (name + URL for the current scope) and a
+  per-remote Remove behind a confirmation (flatpak refuses while
+  packages still come from the remote);
 - Flatpak Show dropdown (Apps | Runtimes) over rows tagged `kind`
   (list runs `flatpak list --app` and `--runtime` — the ref column has
   no kind prefix);

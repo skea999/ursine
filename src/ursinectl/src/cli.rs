@@ -62,7 +62,8 @@ MODULES (wire name; short alias in parentheses):
                       list_flatpak_updates, search_flatpak,
                       install_flatpak, get_flatpak_info, remove_flatpak,
                       update_flatpak, update_flatpak_app,
-                      remove_flatpak_orphans, get_flatpak_permissions,
+                      remove_flatpak_orphans, add_flatpak_remote,
+                      remove_flatpak_remote, get_flatpak_permissions,
                       set_flatpak_permissions
   printers            list_printers, printer_jobs, add_printer,
                       add_printer_manual, remove_printer,
@@ -327,9 +328,9 @@ pub fn is_destructive(action: &Action) -> bool {
         CancelPrinterJobs, CrontabSet, DeleteFirewallService, DeleteSnapshot, DeleteSnapshots,
         DeleteUser, ForgetNetwork, FormatDisk, PartitionCreate, PartitionDelete, PruneGenerations,
         Remove, RemoveAll, RemoveApk, RemoveApkRepository, RemoveFirewallPort,
-        RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans, RemoveNixRepository,
-        RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot, Rollback,
-        SetFirewallEnabled, SetFlatpakPermissions, SetNetworkIpv4, SetPassword, StoreGc,
+        RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans, RemoveFlatpakRemote,
+        RemoveNixRepository, RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot,
+        Rollback, SetFirewallEnabled, SetFlatpakPermissions, SetNetworkIpv4, SetPassword, StoreGc,
         ThemeApply, UnmountDisk, UpdateFlatpak, UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage,
         UpgradeRegex, WipeHistory,
     };
@@ -357,6 +358,7 @@ pub fn is_destructive(action: &Action) -> bool {
             | FormatDisk { .. }
             | RemoveApkRepository { .. }
             | RemoveNixRepository { .. }
+            | RemoveFlatpakRemote { .. }
             | PartitionCreate { .. }
             | PartitionDelete { .. }
             | SetFirewallEnabled { enabled: false, .. }
@@ -626,14 +628,14 @@ mod tests {
     #[test]
     fn destructive_classification_is_exhaustive() {
         use Action::{
-            CancelPrinterJobs, CreateFirewallService, CrontabSet, DeleteFirewallService,
-            DeleteSnapshot, DeleteSnapshots, DeleteUser, FormatDisk, ListApk, PartitionCreate,
-            PartitionDelete, PruneGenerations, Remove, RemoveAll, RemoveApk, RemoveApkRepository,
-            RemoveFirewallPort, RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans,
-            RemoveNixRepository, RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot,
-            Rollback, Search, SetFirewallEnabled, SetPassword, StoreGc, ThemeApply, UnmountDisk,
-            UpdateFlatpak, UpdateFlatpakApp, Upgrade, UpgradeApk, UpgradeApkPackage, UpgradeRegex,
-            WipeHistory,
+            AddFlatpakRemote, CancelPrinterJobs, CreateFirewallService, CrontabSet,
+            DeleteFirewallService, DeleteSnapshot, DeleteSnapshots, DeleteUser, FormatDisk,
+            ListApk, PartitionCreate, PartitionDelete, PruneGenerations, Remove, RemoveAll,
+            RemoveApk, RemoveApkRepository, RemoveFirewallPort, RemoveFirewallService,
+            RemoveFlatpak, RemoveFlatpakOrphans, RemoveFlatpakRemote, RemoveNixRepository,
+            RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot, Rollback, Search,
+            SetFirewallEnabled, SetPassword, StoreGc, ThemeApply, UnmountDisk, UpdateFlatpak,
+            UpdateFlatpakApp, Upgrade, UpgradeApk, UpgradeApkPackage, UpgradeRegex, WipeHistory,
         };
         let destructive = [
             Remove {
@@ -729,6 +731,10 @@ mod tests {
             RemoveNixRepository {
                 name: "myflake".into(),
             },
+            RemoveFlatpakRemote {
+                name: "flathub".into(),
+                system: false,
+            },
             PartitionCreate {
                 device: "/dev/sda".into(),
                 start_mib: 1,
@@ -779,6 +785,11 @@ mod tests {
                 repo: None,
             },
             SetFirewallEnabled { enabled: true },
+            AddFlatpakRemote {
+                name: "r".into(),
+                url: "https://example.invalid/repo".into(),
+                system: false,
+            },
             CreateFirewallService {
                 service: "s".into(),
                 ports: vec![],

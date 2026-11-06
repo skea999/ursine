@@ -1299,6 +1299,49 @@ pub async fn flatpak_remotes(
         .map_err(|e| ApiError::internal(format!("cannot read flatpak remotes: {e}")))
 }
 
+pub async fn flatpak_add_remote(
+    token: SessionToken,
+    name: String,
+    url: String,
+    system: bool,
+) -> Result<Vec<FlatpakRemote>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::AddFlatpakRemote { name, url, system },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let remotes = value
+        .get("remotes")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon flatpak remotes response has no remotes"))?;
+    serde_json::from_value(remotes)
+        .map_err(|e| ApiError::internal(format!("cannot read flatpak remotes: {e}")))
+}
+
+pub async fn flatpak_remove_remote(
+    token: SessionToken,
+    name: String,
+    system: bool,
+) -> Result<Vec<FlatpakRemote>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::RemoveFlatpakRemote { name, system },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let remotes = value
+        .get("remotes")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon flatpak remotes response has no remotes"))?;
+    serde_json::from_value(remotes)
+        .map_err(|e| ApiError::internal(format!("cannot read flatpak remotes: {e}")))
+}
+
 pub async fn flatpak_info(
     token: SessionToken,
     app_id: String,

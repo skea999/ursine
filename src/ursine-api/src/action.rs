@@ -179,6 +179,19 @@ pub enum Action {
     ListFlatpakUpdates {
         system: bool,
     },
+    /// Add a Flatpak remote to the selected installation
+    /// (`flatpak remote-add`; errors when the name exists).
+    AddFlatpakRemote {
+        name: String,
+        url: String,
+        system: bool,
+    },
+    /// Remove a Flatpak remote (`flatpak remote-delete`; refuses while
+    /// packages still come from it unless flatpak itself allows it).
+    RemoveFlatpakRemote {
+        name: String,
+        system: bool,
+    },
     /// Read the editable Flatpak override state plus the effective
     /// sandbox permissions for one installed app.
     GetFlatpakPermissions {
