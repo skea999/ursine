@@ -38,7 +38,7 @@
 - [x] Network: DHCP/static IPv4, forget, VPN. Done 2026-11-05 in two CI-green commits (b667a79 IPv4 DHCP/static + per-connection editor + space-safe argv, 530667c forget + VPN controls via saved profiles). VM smoke: set ipv4 on a test profile, forget a test Wi-Fi profile, connect/disconnect the wireguard VPN.
 - [x] Firewall: enable/disable, zone management, custom services, active rules summary. Done 2026-11-06 (72c3036): enable/disable = default-zone target toggle (decision recorded), custom service definitions (create/delete), status carries per-zone target/interfaces/rich rules + derived enabled + custom_services. Zone create/delete out of scope (not in plan lines). VM smoke: toggle filtering, create/delete a test service.
 - [x] Disks: UUID, usage/free percent, SMART health when `smartctl` exists.
-- [ ] Disks: format/partition behind explicit enablement.
+- [x] Disks: format/partition behind explicit enablement. Done 2026-11-06 (1ebcf8b): format_disk/partition_create/partition_delete triple-gated (disks_format config default off + typed confirm_device + --yes), unmounted-target guard, blank-disk pre-flight, GUI flows behind the flag. VM smoke: with flag on, format a scratch image-backed loop device + create/delete a partition.
 
 #### Theming (uniform desktop, SPEC-theming) — 2026-10-27
 

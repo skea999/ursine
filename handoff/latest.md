@@ -6,6 +6,13 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-06 — Disks format/partition complete (main, 1 commit)
+
+**Status**: DONE — `1ebcf8b` CI-green. Destructive trio (`format_disk`, `partition_create`, `partition_delete`) behind the triple gate recorded in session-state key_decisions: `disks_format = true` config key (default off, restart required), `confirm_device` typed exactly equal to `device`, CLI `--yes`. Safety rails: mounted target/children rejected via lsblk, `parted print` pre-flight turns the blank-disk case into a clear "create a partition table first" error, `DISK_FSTYPES` shared between daemon and GUI through ursine-api, GUI flows one-at-a-time with input preserved on errors and Mount disabled while a flow is open. Review: 10 findings (4 medium) all fixed; guide `--yes` list also backfilled with the firewall/network/flatpak names it had missed. TASKS Disks line ticked.
+
+- VM smoke: attach a loop-backed image, format it, create/delete a partition with the flag on; verify the gate message with the flag off.
+- Next: **Bluetooth pairing agent PIN/passkey** (TASKS v2), then printer live job progress.
+
 ## Session 2026-11-06 — Firewall extras complete (main, 1 commit)
 
 **Status**: DONE — `72c3036` CI-green. Enable/disable = default-zone target toggle (firewalld has no global switch; decision recorded in session-state key_decisions: `enabled=false` sets ACCEPT, `enabled=true` REJECT, permanent+reload, DROP→REJECT round-trip documented, GUI confirms before disable, CLI treats it destructive). Custom service definitions create/delete with a single `ls /etc/firewalld/services` listing (no per-service `--path-service` N+1). Status now carries the active-rules summary: per-zone `target`/`interfaces`/`rich_rules` (from `--list-all` + `--list-rich-rules`), derived `enabled`, `custom_services`. Review: 9 findings (1 high — delete confirm, 2 medium — shared name input + N+1) all fixed. TASKS Firewall line ticked; zone create/delete stays out of scope (not in plan lines).
