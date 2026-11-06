@@ -8,7 +8,7 @@ A schema-driven settings GUI for the niri Wayland compositor — the user SELECT
 
 - **Schema file** in `ursine-api`: declarative description of every niri option (path, type, default, constraints, widget hint, help text). Versioned per supported niri release; `niri --version` checked at runtime
 - **Parsing**: existing `~/.config/niri/config.kdl` parsed via `kdl` crate; known nodes rendered into forms; **unknown/user-added nodes preserved verbatim** on write (round-trip safety: we only rewrite what we manage)
-- **Writing**: serialize managed sections + preserved unknown nodes; atomic write (temp + rename); `.bak` backup of previous version; `niri validate` runs BEFORE commit — invalid config never lands
+- **Writing**: serialize managed sections + preserved unknown nodes; atomic write (temp + rename); the previous config rotates through `.ursine-backup[.1|.2]` (max THREE copies); `niri validate` runs BEFORE commit — invalid config never lands
 - **Sections (v1 forms)**: input (keyboard: layouts, repeat; touchpad: tap, natural scroll, dwt), pointer speed, outputs (mode, scale, position, VRR, transform), layout (gaps, struts, border/focus-ring: width+colors, preset widths/heights), animations (on/off, durations, curves from schema), keybinds (capture widget: press combo → recorded binding + action dropdown), gestures, environment variables (add/remove list), spawn-at-startup (add/remove list), cursor (size, theme), screenshot path prefix, hotkey overlay toggle
 - **Live validation**: `niri validate --config <tmp>` on every change batch; errors mapped back to the offending form field
 

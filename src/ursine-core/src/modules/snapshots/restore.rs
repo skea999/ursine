@@ -75,7 +75,7 @@ fn plan(
 
 pub(super) async fn apply(snapshot: &str, target: &str) -> Result<serde_json::Value, ApiError> {
     // Re-run the preview checks: the path can change between confirm and apply.
-    let (_, _, backup) = plan(snapshot, target)?;
+    let (_, target_path, backup) = plan(snapshot, target)?;
     if let Some(backup) = &backup {
         std::fs::rename(target, backup)
             .map_err(|e| ApiError::internal(format!("move existing target aside: {e}")))?;
@@ -96,6 +96,8 @@ pub(super) async fn apply(snapshot: &str, target: &str) -> Result<serde_json::Va
             return Err(error);
         }
     };
+    // Rotation runs after success: the new backup counts toward the cap.
+    prune_restore_backups(&target_path).await;
     Ok(json!({
         "dry_run": false,
         "snapshot": snapshot,
@@ -104,6 +106,78 @@ pub(super) async fn apply(snapshot: &str, target: &str) -> Result<serde_json::Va
         "stdout": out.stdout,
         "stderr": out.stderr,
     }))
+}
+
+/// Restore backups kept per target: the newest snapshot wins, older
+/// ones rotate out — at most THREE copies exist at any time.
+const MAX_RESTORE_BACKUPS: usize = 3;
+
+/// Best-effort rotation: delete restore backups beyond the newest
+/// [`MAX_RESTORE_BACKUPS`]. Runs AFTER a successful restore (the new
+/// backup already exists); failures never fail the restore itself —
+/// leftover files stay visible next to the target.
+///
+/// The scan and unlink run on the blocking pool; a backup that plain
+/// removal cannot delete (read-only subvolume, EROFS) falls back to
+/// `btrfs subvolume delete`.
+async fn prune_restore_backups(target: &Path) {
+    let (Some(dir), Some(name)) = (target.parent(), target.file_name()) else {
+        return;
+    };
+    let dir = dir.to_path_buf();
+    let prefix = format!("{}.ursine-backup-", name.to_string_lossy());
+    let stale = tokio::task::spawn_blocking(move || -> Vec<std::path::PathBuf> {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return Vec::new();
+        };
+        let mut backups: Vec<(u64, std::path::PathBuf)> = Vec::new();
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().into_owned();
+            if let Some(stamp) = file_name.strip_prefix(&prefix) {
+                if let Ok(stamp) = stamp.parse::<u64>() {
+                    backups.push((stamp, entry.path()));
+                }
+            }
+        }
+        // Newest stamp first; drop everything past the cap.
+        backups.sort_by_key(|(stamp, _)| std::cmp::Reverse(*stamp));
+        backups
+            .into_iter()
+            .skip(MAX_RESTORE_BACKUPS)
+            .map(|(_, path)| path)
+            .collect()
+    })
+    .await
+    .unwrap_or_default();
+    for path in stale {
+        // Backups are moved btrfs subvolumes (directories); fall back to
+        // plain file removal for non-directory leftovers.
+        let removed = tokio::task::spawn_blocking({
+            let path = path.clone();
+            move || {
+                std::fs::remove_dir_all(&path)
+                    .or_else(|_| std::fs::remove_file(&path))
+                    .is_ok()
+            }
+        })
+        .await
+        .unwrap_or(false);
+        if removed {
+            continue;
+        }
+        // Read-only subvolume: unlink fails with EROFS, the btrfs ioctl
+        // still deletes it.
+        let Ok(program) = btrbk::btrfs_path() else {
+            continue;
+        };
+        let path_arg = path.to_string_lossy().into_owned();
+        let _ = crate::modules::packages_nix::exec::run_root_program(
+            program,
+            &["subvolume", "delete", &path_arg],
+            btrbk::MUTATE_TIMEOUT,
+        )
+        .await;
+    }
 }
 
 fn validated_path<'a>(value: &'a str, label: &str) -> Result<&'a Path, ApiError> {
@@ -129,7 +203,37 @@ fn validated_path<'a>(value: &'a str, label: &str) -> Result<&'a Path, ApiError>
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)] // tests use the host temp dir
     use super::*;
+
+    #[tokio::test]
+    async fn restore_backups_rotate_to_three() {
+        let dir = std::env::temp_dir().join(format!("ursine-restore-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("config.kdl");
+        for stamp in [100u64, 200, 300, 400, 500] {
+            std::fs::create_dir_all(dir.join(format!("config.kdl.ursine-backup-{stamp}"))).unwrap();
+        }
+        prune_restore_backups(&target).await;
+        let mut stamps: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with("config.kdl.ursine-backup-"))
+            .collect();
+        stamps.sort();
+        assert_eq!(
+            stamps,
+            vec![
+                "config.kdl.ursine-backup-300".to_string(),
+                "config.kdl.ursine-backup-400".to_string(),
+                "config.kdl.ursine-backup-500".to_string(),
+            ],
+            "newest three must survive"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn rejects_relative_and_traversal_paths() {

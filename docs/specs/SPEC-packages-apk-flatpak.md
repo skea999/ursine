@@ -49,7 +49,8 @@ center as the Nix store. Both backends are capability-gated and audited.
 - Audit uses the normal module/action path; no secrets are logged.
 - Override writes: ids pass the strict charset, paths are built from
   fixed prefixes, content is validated (tokens/filesystems/env), the
-  keyfile is written atomically with a `.ursine-backup`, and every key
+  keyfile is written atomically with a rotating `.ursine-backup[.1|.2]`
+  (max THREE copies), and every key
   outside the four edited lists is preserved (no `--reset`).
 
 ## GUI

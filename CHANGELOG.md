@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- File backups now rotate with a hard cap of THREE copies per target:
+  `run_as_user_write` (niri config) and `run_as_user_atomic_write`
+  (apk repositories, Flatpak overrides) keep
+  `<name>.ursine-backup[.1|.2]`, and snapshot restores prune older
+  `<name>.ursine-backup-<ts>` copies after a successful restore
+  (previously unbounded — one new file per restore, never deleted).
+
 ### Added
 
 - APK repositories are now editable from the Package manager: new

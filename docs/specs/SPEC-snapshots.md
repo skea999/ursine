@@ -16,7 +16,7 @@ Expose btrbk's own functionality — nothing reimplemented. Ursine integrates bt
 | `snapshots.list` | `btrbk --format raw list snapshots` → parsed |
 | `snapshots.stats` | `btrbk --format raw stats` |
 | `snapshots.create` | `btrbk snapshot [<section>]` |
-| `snapshots.restore` | `btrfs subvolume snapshot <snapshot> <target>` — CONFIRMATION REQUIRED in GUI (destructive); preview validates paths and exact argv first. Existing target is moved to `<target>.ursine-backup-<ts>` before the snapshot; failure restores it. |
+| `snapshots.restore` | `btrfs subvolume snapshot <snapshot> <target>` — CONFIRMATION REQUIRED in GUI (destructive); preview validates paths and exact argv first. Existing target is moved to `<target>.ursine-backup-<ts>` before the snapshot; failure restores it. Backups rotate: only the newest THREE restore backups per target are kept (older ones are pruned after a successful restore). |
 | `snapshots.delete` | GUI single-snapshot dropdown + bulk delete for selected stats sources; daemon validates each path against the current btrbk list, then `btrfs subvolume delete`. Confirmation required. |
 | `snapshots.getConfig` | parsed view of `/etc/btrbk/btrbk.conf` (sources, targets, retention, timestamp/scheduler) |
 | `snapshots.setConfig` | Managed global options written as a top block, preserving sections/comments; `.bak` backup; validated with `btrbk --format raw list config` before atomic replace. GUI exposes dropdowns. |
