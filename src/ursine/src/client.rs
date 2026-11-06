@@ -1641,6 +1641,55 @@ pub async fn firewall_set_default(
         .map_err(|e| ApiError::internal(format!("cannot read firewall: {e}")))
 }
 
+pub async fn firewall_set_enabled(
+    token: SessionToken,
+    enabled: bool,
+) -> Result<FirewallStatus, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Firewall,
+        Action::SetFirewallEnabled { enabled },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read firewall: {e}")))
+}
+
+pub async fn firewall_create_service(
+    token: SessionToken,
+    service: String,
+    ports: Vec<String>,
+) -> Result<FirewallStatus, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Firewall,
+        Action::CreateFirewallService { service, ports },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read firewall: {e}")))
+}
+
+pub async fn firewall_delete_service(
+    token: SessionToken,
+    service: String,
+) -> Result<FirewallStatus, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::Firewall,
+        Action::DeleteFirewallService { service },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("cannot read firewall: {e}")))
+}
+
 pub async fn firewall_add_service(
     token: SessionToken,
     zone: String,

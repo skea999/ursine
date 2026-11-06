@@ -1,7 +1,9 @@
 //! Firewall screen: firewalld zones, services and ports.
 
 use cosmic::iced::Length;
-use cosmic::widget::{button, column, dropdown, row, scrollable, settings, text, text_input};
+use cosmic::widget::{
+    button, column, dropdown, row, scrollable, settings, text, text_input, toggler,
+};
 use cosmic::Element;
 use ursine_api::FirewallStatus;
 
@@ -17,6 +19,15 @@ pub struct FirewallState {
     pub zone: String,
     pub service: String,
     pub port: String,
+    /// Disable confirmation armed (security-sensitive).
+    pub pending_disable: bool,
+    /// Custom-service delete waiting for confirmation.
+    pub pending_delete: Option<String>,
+    /// Name input of the "New custom service" form (separate from the
+    /// zone-scoped `service` field).
+    pub new_service: String,
+    /// Custom-service definition port list (`8080/tcp 443/tcp`).
+    pub new_service_ports: String,
 }
 
 impl FirewallState {
@@ -74,9 +85,43 @@ impl FirewallState {
             .collect::<Vec<_>>();
         let selected = zones.iter().position(|zone| *zone == self.zone);
         let zones_for_zone = zones.clone();
+        if self.pending_disable {
+            items.push(
+                settings::section()
+                    .title("Confirm disable")
+                    .add(settings::item(
+                        "Consequences",
+                        text("Stop filtering on the default zone (target ACCEPT)? Traffic the firewall blocked will pass."),
+                    ))
+                    .add(settings::item(
+                        "Actions",
+                        row(vec![
+                            button::destructive("Disable filtering")
+                                .on_press_maybe(
+                                    (!self.action_busy)
+                                        .then_some(Message::FirewallEnabledConfirmed),
+                                )
+                                .into(),
+                            button::text("Cancel")
+                                .on_press_maybe(
+                                    (!self.action_busy)
+                                        .then_some(Message::FirewallEnabledCancelled),
+                                )
+                                .into(),
+                        ])
+                        .spacing(8),
+                    ))
+                    .into(),
+            );
+        }
+
         items.push(
             settings::section()
                 .title("Zone setup")
+                .add(settings::item(
+                    "Filtering",
+                    toggler(status.enabled).on_toggle(Message::FirewallEnabledToggled),
+                ))
                 .add(settings::item(
                     "Default zone",
                     dropdown(
@@ -127,14 +172,96 @@ impl FirewallState {
                 .into(),
         );
 
+        if let Some(name) = &self.pending_delete {
+            items.push(
+                settings::section()
+                    .title("Confirm delete")
+                    .add(settings::item(
+                        "Consequences",
+                        text(format!(
+                            "Delete the custom service definition {name}? Zones referencing it lose the service."
+                        )),
+                    ))
+                    .add(settings::item(
+                        "Actions",
+                        row(vec![
+                            button::destructive("Delete")
+                                .on_press_maybe(
+                                    (!self.action_busy)
+                                        .then_some(Message::FirewallDeleteConfirmed),
+                                )
+                                .into(),
+                            button::text("Cancel")
+                                .on_press_maybe(
+                                    (!self.action_busy)
+                                        .then_some(Message::FirewallDeleteCancelled),
+                                )
+                                .into(),
+                        ])
+                        .spacing(8),
+                    ))
+                    .into(),
+            );
+        }
+
+        let mut custom = settings::section().title("Custom services");
+        if status.custom_services.is_empty() {
+            custom = custom.add(settings::item(
+                "Definitions",
+                text("none (built-in services only)"),
+            ));
+        }
+        for service in &status.custom_services {
+            let name = service.clone();
+            custom = custom.add(settings::item(
+                service.clone(),
+                button::text("Delete…").on_press_maybe(
+                    (!self.action_busy).then_some(Message::FirewallDeleteService(name)),
+                ),
+            ));
+        }
+        custom = custom.add(settings::item(
+            "New custom service",
+            row(vec![
+                text_input("myapp", self.new_service.clone())
+                    .on_input(Message::FirewallNewServiceChanged)
+                    .into(),
+                text_input("ports: 8080/tcp 8443/tcp", self.new_service_ports.clone())
+                    .on_input(Message::FirewallPortsChanged)
+                    .into(),
+                button::text("Create")
+                    .on_press_maybe((!self.action_busy).then_some(Message::FirewallCreateService))
+                    .into(),
+            ])
+            .spacing(8),
+        ));
+        items.push(custom.into());
+
         for zone in &status.zones {
             let mut section = settings::section().title(format!(
                 "{} zone{}",
                 zone.name,
                 if zone.default { " · default" } else { "" }
             ));
-            if zone.services.is_empty() && zone.ports.is_empty() {
+            section = section.add(settings::item(
+                "Target",
+                text(if zone.target.is_empty() {
+                    "unknown".to_string()
+                } else {
+                    zone.target.clone()
+                }),
+            ));
+            if !zone.interfaces.is_empty() {
+                section = section.add(settings::item(
+                    "Interfaces",
+                    text(zone.interfaces.join(", ")),
+                ));
+            }
+            if zone.services.is_empty() && zone.ports.is_empty() && zone.rich_rules.is_empty() {
                 section = section.add(settings::item("Rules", text("none")));
+            }
+            for rule in &zone.rich_rules {
+                section = section.add(settings::item("rich rule", text(rule.clone())));
             }
             for service in &zone.services {
                 let zone_name = zone.name.clone();

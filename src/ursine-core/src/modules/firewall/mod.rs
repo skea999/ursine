@@ -73,6 +73,52 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             run(&["--reload"]).await?;
             Ok(json!(read_status().await?))
         }
+        Action::SetFirewallEnabled { enabled } => {
+            let status = read_status().await?;
+            if !status.running {
+                return Err(ApiError::unavailable(
+                    "firewalld is not running",
+                    "rc-service firewalld start",
+                ));
+            }
+            if !valid_zone(&status.default_zone) {
+                return Err(ApiError::internal(
+                    "firewalld reported an invalid default zone",
+                ));
+            }
+            let target = if *enabled { "REJECT" } else { "ACCEPT" };
+            run(&[
+                &format!("--zone={}", status.default_zone),
+                &format!("--set-target={target}"),
+                "--permanent",
+            ])
+            .await?;
+            run(&["--reload"]).await?;
+            Ok(json!(read_status().await?))
+        }
+        Action::CreateFirewallService { service, ports } => {
+            validate_service(service)?;
+            for port in ports {
+                validate_port(port)?;
+            }
+            run(&[&format!("--new-service={service}"), "--permanent"]).await?;
+            for port in ports {
+                run(&[
+                    &format!("--service={service}"),
+                    &format!("--add-port={port}"),
+                    "--permanent",
+                ])
+                .await?;
+            }
+            run(&["--reload"]).await?;
+            Ok(json!(read_status().await?))
+        }
+        Action::DeleteFirewallService { service } => {
+            validate_service(service)?;
+            run(&[&format!("--delete-service={service}"), "--permanent"]).await?;
+            run(&["--reload"]).await?;
+            Ok(json!(read_status().await?))
+        }
         Action::ReloadFirewall => {
             run(&["--reload"]).await?;
             Ok(json!(read_status().await?))
@@ -95,28 +141,87 @@ async fn read_status() -> Result<FirewallStatus, ApiError> {
         if !valid_zone(name) {
             continue;
         }
-        let services = run(&[&format!("--zone={name}"), "--list-services"])
+        // One call carries target/services/ports/interfaces; rich rules
+        // get their own list (values contain spaces).
+        let list_all = run(&[&format!("--zone={name}"), "--list-all"]).await?;
+        let rich_rules = run(&[&format!("--zone={name}"), "--list-rich-rules"])
             .await?
-            .split_whitespace()
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
             .map(str::to_string)
             .collect();
-        let ports = run(&[&format!("--zone={name}"), "--list-ports"])
-            .await?
-            .split_whitespace()
-            .map(str::to_string)
-            .collect();
-        zones.push(FirewallZone {
+        let mut zone = FirewallZone {
             name: name.to_string(),
             default: name == default_zone,
-            services,
-            ports,
-        });
+            services: Vec::new(),
+            ports: Vec::new(),
+            target: String::new(),
+            interfaces: Vec::new(),
+            rich_rules,
+        };
+        parse_list_all(&list_all, &mut zone);
+        zones.push(zone);
     }
+    let default_target = zones
+        .iter()
+        .find(|zone| zone.default)
+        .map(|zone| zone.target.clone())
+        .unwrap_or_default();
+    let enabled = !default_target.eq_ignore_ascii_case("ACCEPT");
+    let custom_services = list_custom_services().await?;
     Ok(FirewallStatus {
         running,
         default_zone,
         zones,
+        enabled,
+        custom_services,
     })
+}
+
+/// Parse `firewall-cmd --list-all` into the zone (values are
+/// space-separated tokens; a key line is `  key: value`).
+fn parse_list_all(output: &str, zone: &mut FirewallZone) {
+    for line in output.lines() {
+        let trimmed = line.trim();
+        let Some((key, value)) = trimmed.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        match key.trim() {
+            "target" => zone.target = value.to_string(),
+            "services" => {
+                zone.services = value.split_whitespace().map(str::to_string).collect();
+            }
+            "ports" => {
+                zone.ports = value.split_whitespace().map(str::to_string).collect();
+            }
+            "interfaces" => {
+                zone.interfaces = value.split_whitespace().map(str::to_string).collect();
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Service definitions that live under `/etc/firewalld` (custom) as
+/// opposed to the distro's `/usr/lib/firewalld` predefined set. One
+/// directory listing instead of a `--path-service` call per service.
+async fn list_custom_services() -> Result<Vec<String>, ApiError> {
+    let outcome = exec::run_root_program("/bin/ls", &["/etc/firewalld/services"], TIMEOUT).await;
+    let listing = match outcome {
+        Ok(output) => output.stdout,
+        // No directory means no custom services (fresh install).
+        Err(_) => String::new(),
+    };
+    let mut custom: Vec<String> = listing
+        .lines()
+        .filter_map(|line| line.trim().strip_suffix(".xml"))
+        .filter(|name| valid_service(name))
+        .map(str::to_string)
+        .collect();
+    custom.sort();
+    Ok(custom)
 }
 
 fn valid_zone(zone: &str) -> bool {
@@ -135,16 +240,20 @@ fn validate_zone(zone: &str) -> Result<(), ApiError> {
     }
 }
 
-fn validate_service(service: &str) -> Result<(), ApiError> {
-    if service.is_empty()
-        || service.len() > 64
-        || !service
+fn valid_service(service: &str) -> bool {
+    !service.is_empty()
+        && service.len() <= 64
+        && service
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
-    {
-        return Err(ApiError::invalid("invalid firewall service"));
+}
+
+fn validate_service(service: &str) -> Result<(), ApiError> {
+    if valid_service(service) {
+        Ok(())
+    } else {
+        Err(ApiError::invalid("invalid firewall service"))
     }
-    Ok(())
 }
 
 fn validate_port(port: &str) -> Result<(), ApiError> {
@@ -177,6 +286,39 @@ async fn run(args: &[&str]) -> Result<String, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_list_all_into_zone() {
+        let mut zone = FirewallZone {
+            name: "public".into(),
+            default: true,
+            rich_rules: vec!["rule family=ipv4 drop".into()],
+            ..FirewallZone::default()
+        };
+        parse_list_all(
+            concat!(
+                "public (active)\n",
+                "  target: default\n",
+                "  services: ssh dhcpv6-client\n",
+                "  ports: 8080/tcp 443/tcp\n",
+                "  interfaces: eth0\n",
+                "  sources:\n",
+                "  rich rules:\n",
+            ),
+            &mut zone,
+        );
+        assert_eq!(zone.target, "default");
+        assert_eq!(zone.services, ["ssh", "dhcpv6-client"]);
+        assert_eq!(zone.ports, ["8080/tcp", "443/tcp"]);
+        assert_eq!(zone.interfaces, ["eth0"]);
+        // list-all does not carry rich rules; they stay untouched here.
+        assert_eq!(zone.rich_rules, ["rule family=ipv4 drop"]);
+        // ACCEPT = firewall off for the default zone.
+        let mut zone = FirewallZone::default();
+        parse_list_all("target: ACCEPT\nports:\n", &mut zone);
+        assert_eq!(zone.target, "ACCEPT");
+        assert!(zone.ports.is_empty());
+    }
 
     #[test]
     fn validates_firewall_inputs() {

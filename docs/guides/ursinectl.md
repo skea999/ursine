@@ -198,7 +198,21 @@ action is destructive: it requires `--yes`.
 `add_firewall_service zone=… service=…`,
 `remove_firewall_service zone=… service=…`,
 `add_firewall_port zone=… port=…`,
-`remove_firewall_port zone=… port=…`, `reload_firewall`
+`remove_firewall_port zone=… port=…`, `reload_firewall`,
+`set_firewall_enabled enabled=true|false`,
+`create_firewall_service service=… [ports=[…]]`,
+`delete_firewall_service service=…`
+
+`get_firewall` also reports the per-zone `target`, `interfaces` and
+`rich_rules` (the active-rules summary), the derived `enabled` flag
+(default-zone target `ACCEPT` = filtering off) and the
+`custom_services` definitions under `/etc/firewalld`.
+`set_firewall_enabled` has no firewalld global switch: it sets the
+default zone target to `REJECT` (on) or `ACCEPT` (off), permanent +
+reload — `enabled=false` is destructive and needs `--yes`.
+`create_firewall_service` defines a named service with optional ports;
+add it to zones with `add_firewall_service`;
+`delete_firewall_service` removes the definition (`--yes`).
 
 ### snapshots
 

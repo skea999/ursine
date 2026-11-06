@@ -4,6 +4,17 @@
 
 ### Added
 
+- Firewall enable/disable and custom services: `set_firewall_enabled`
+  toggles the default-zone target (`REJECT` on / `ACCEPT` off —
+  firewalld has no global switch), `create_firewall_service` /
+  `delete_firewall_service` manage named service definitions with
+  ports, and `get_firewall` now carries the active-rules summary
+  (per-zone target, interfaces, rich rules, derived `enabled` flag,
+  `custom_services` list from `/etc/firewalld`). The GUI gains a
+  Filtering toggle with a disable confirmation, a Custom services
+  section and richer zone rows; `enabled=false` and
+  `delete_firewall_service` are destructive in `ursinectl`.
+
 - Network IPv4 configuration: `set_network_ipv4` switches a connection
   profile between DHCP and static IPv4 (addresses/gateway/DNS, all
   validated), re-activates the profile when it is active, and reports

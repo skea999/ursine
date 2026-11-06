@@ -173,7 +173,13 @@ list_services, service_action.
 .B firewall
 get_firewall, set_default_firewall_zone, add_firewall_service,
 remove_firewall_service, add_firewall_port, remove_firewall_port,
-reload_firewall.
+reload_firewall, set_firewall_enabled, create_firewall_service,
+delete_firewall_service.
+get_firewall reports zone targets, interfaces, rich rules, the derived
+enabled flag and custom service definitions. set_firewall_enabled
+toggles the default zone target (ACCEPT off / REJECT on; off requires
+--yes). create/delete_firewall_service manage custom service
+definitions (delete requires --yes).
 .TP
 .B snapshots
 list_snapshots, stats, create_snapshot, restore_snapshot,

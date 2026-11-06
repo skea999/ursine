@@ -385,6 +385,24 @@ pub enum Action {
         port: String,
     },
     /// Reload firewalld.
+    /// Toggle filtering on the default zone: `enabled=false` sets the
+    /// target to `ACCEPT` (traffic passes), `enabled=true` restores
+    /// `REJECT`. firewalld has no global on/off switch, so the toggle
+    /// is the default zone's target.
+    SetFirewallEnabled {
+        enabled: bool,
+    },
+    /// Create a custom service definition (ports optional); add it to
+    /// zones afterwards with `add_firewall_service`.
+    CreateFirewallService {
+        service: String,
+        #[serde(default)]
+        ports: Vec<String>,
+    },
+    /// Delete a custom service definition.
+    DeleteFirewallService {
+        service: String,
+    },
     ReloadFirewall,
 
     // -- snapshots (btrbk) --

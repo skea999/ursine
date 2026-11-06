@@ -78,7 +78,8 @@ MODULES (wire name; short alias in parentheses):
   firewall            get_firewall, set_default_firewall_zone,
                       add_firewall_service, remove_firewall_service,
                       add_firewall_port, remove_firewall_port,
-                      reload_firewall
+                      reload_firewall, set_firewall_enabled,
+                      create_firewall_service, delete_firewall_service
   snapshots           list_snapshots, stats, create_snapshot,
                       restore_snapshot, get_btrbk_config, init_btrbk_config,
                       set_btrbk_config, delete_snapshot, delete_snapshots
@@ -320,10 +321,11 @@ fn expand_value(raw: &str) -> Result<serde_json::Value, String> {
 /// action lands in the API it must be added here (review checklist).
 pub fn is_destructive(action: &Action) -> bool {
     use Action::{
-        CancelPrinterJobs, CrontabSet, DeleteSnapshot, DeleteSnapshots, DeleteUser, ForgetNetwork,
-        PruneGenerations, Remove, RemoveAll, RemoveApk, RemoveFirewallPort, RemoveFirewallService,
-        RemoveFlatpak, RemoveFlatpakOrphans, RemovePrinter, RemoveRegex, RemoveScannerDevice,
-        RestoreSnapshot, Rollback, SetFlatpakPermissions, SetNetworkIpv4, SetPassword, StoreGc,
+        CancelPrinterJobs, CrontabSet, DeleteFirewallService, DeleteSnapshot, DeleteSnapshots,
+        DeleteUser, ForgetNetwork, PruneGenerations, Remove, RemoveAll, RemoveApk,
+        RemoveFirewallPort, RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans,
+        RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot, Rollback,
+        SetFirewallEnabled, SetFlatpakPermissions, SetNetworkIpv4, SetPassword, StoreGc,
         ThemeApply, UnmountDisk, UpdateFlatpak, UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage,
         UpgradeRegex, WipeHistory,
     };
@@ -347,6 +349,8 @@ pub fn is_destructive(action: &Action) -> bool {
             | SetFlatpakPermissions { .. }
             | SetNetworkIpv4 { .. }
             | ForgetNetwork { .. }
+            | DeleteFirewallService { .. }
+            | SetFirewallEnabled { enabled: false, .. }
             | RestoreSnapshot { dry_run: false, .. }
             | DeleteSnapshot { .. }
             | DeleteSnapshots { .. }
@@ -612,12 +616,13 @@ mod tests {
     #[test]
     fn destructive_classification_is_exhaustive() {
         use Action::{
-            CancelPrinterJobs, CrontabSet, DeleteSnapshot, DeleteSnapshots, DeleteUser, ListApk,
-            PruneGenerations, Remove, RemoveAll, RemoveApk, RemoveFirewallPort,
-            RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans, RemovePrinter, RemoveRegex,
-            RemoveScannerDevice, RestoreSnapshot, Rollback, Search, SetPassword, StoreGc,
-            ThemeApply, UnmountDisk, UpdateFlatpak, UpdateFlatpakApp, Upgrade, UpgradeApk,
-            UpgradeApkPackage, UpgradeRegex, WipeHistory,
+            CancelPrinterJobs, CreateFirewallService, CrontabSet, DeleteFirewallService,
+            DeleteSnapshot, DeleteSnapshots, DeleteUser, ListApk, PruneGenerations, Remove,
+            RemoveAll, RemoveApk, RemoveFirewallPort, RemoveFirewallService, RemoveFlatpak,
+            RemoveFlatpakOrphans, RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot,
+            Rollback, Search, SetFirewallEnabled, SetPassword, StoreGc, ThemeApply, UnmountDisk,
+            UpdateFlatpak, UpdateFlatpakApp, Upgrade, UpgradeApk, UpgradeApkPackage, UpgradeRegex,
+            WipeHistory,
         };
         let destructive = [
             Remove {
@@ -698,6 +703,10 @@ mod tests {
             UnmountDisk {
                 device: "/dev/sda1".into(),
             },
+            DeleteFirewallService {
+                service: "s".into(),
+            },
+            SetFirewallEnabled { enabled: false },
         ];
         for action in &destructive {
             assert!(is_destructive(action), "must require --yes: {action:?}");
@@ -733,6 +742,11 @@ mod tests {
             },
             ListApk,
             Search { query: "x".into() },
+            SetFirewallEnabled { enabled: true },
+            CreateFirewallService {
+                service: "s".into(),
+                ports: vec![],
+            },
         ];
         for action in &benign {
             assert!(!is_destructive(action), "must NOT gate: {action:?}");

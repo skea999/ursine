@@ -220,12 +220,21 @@ pub enum Message {
     FirewallZoneChanged(String),
     FirewallDefaultZoneSelected(usize),
     FirewallServiceChanged(String),
+    FirewallPortsChanged(String),
     FirewallPortChanged(String),
     FirewallAddService,
     FirewallAddPort,
     FirewallRemoveService(String, String),
     FirewallRemovePort(String, String),
     FirewallReload,
+    FirewallEnabledToggled(bool),
+    FirewallEnabledConfirmed,
+    FirewallEnabledCancelled,
+    FirewallCreateService,
+    FirewallNewServiceChanged(String),
+    FirewallDeleteService(String),
+    FirewallDeleteConfirmed,
+    FirewallDeleteCancelled,
     FirewallActionFinished(u64, String, Result<ursine_api::FirewallStatus, ApiError>),
     RefreshScanners,
     ScannersLoaded(u64, Result<ursine_api::ScannerConfigView, ApiError>),
@@ -855,6 +864,7 @@ impl cosmic::Application for App {
                 }
             }
             Message::FirewallServiceChanged(value) => self.firewall.service = value,
+            Message::FirewallPortsChanged(value) => self.firewall.new_service_ports = value,
             Message::FirewallPortChanged(value) => self.firewall.port = value,
             Message::FirewallAddService => {
                 return self.firewall_action(
@@ -888,6 +898,58 @@ impl cosmic::Application for App {
                     client::firewall_remove_port(self.token(), zone, port),
                 )
             }
+            Message::FirewallEnabledToggled(enabled) => {
+                // Turning filtering off is security-sensitive: confirm
+                // first (mirrors the CLI --yes rule for enabled=false).
+                if enabled {
+                    return self.firewall_action(
+                        "Firewall filtering enabled.",
+                        client::firewall_set_enabled(self.token(), true),
+                    );
+                }
+                self.firewall.pending_disable = true;
+            }
+            Message::FirewallEnabledConfirmed => {
+                self.firewall.pending_disable = false;
+                return self.firewall_action(
+                    "Firewall filtering disabled (default zone target ACCEPT).",
+                    client::firewall_set_enabled(self.token(), false),
+                );
+            }
+            Message::FirewallEnabledCancelled => self.firewall.pending_disable = false,
+            Message::FirewallCreateService => {
+                let service = self.firewall.new_service.trim().to_string();
+                if service.is_empty() {
+                    self.firewall.error = Some("Enter a service name.".into());
+                } else {
+                    let ports: Vec<String> = self
+                        .firewall
+                        .new_service_ports
+                        .split_whitespace()
+                        .map(str::to_string)
+                        .collect();
+                    self.firewall.new_service.clear();
+                    self.firewall.new_service_ports.clear();
+                    return self.firewall_action(
+                        "Custom service created.",
+                        client::firewall_create_service(self.token(), service, ports),
+                    );
+                }
+            }
+            Message::FirewallNewServiceChanged(value) => self.firewall.new_service = value,
+            Message::FirewallDeleteService(service) => {
+                // Confirmation first (SPEC + Cockpit destructive rule).
+                self.firewall.pending_delete = Some(service);
+            }
+            Message::FirewallDeleteConfirmed => {
+                if let Some(service) = self.firewall.pending_delete.take() {
+                    return self.firewall_action(
+                        "Custom service deleted.",
+                        client::firewall_delete_service(self.token(), service),
+                    );
+                }
+            }
+            Message::FirewallDeleteCancelled => self.firewall.pending_delete = None,
             Message::FirewallReload => {
                 return self.firewall_action("reload", client::firewall_reload(self.token()))
             }
