@@ -6,6 +6,13 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-06 — Printers live job progress (main) — v2 CODE LIST CLOSED
+
+**Status**: DONE — `3fddaf0` CI-green. Printers screen subscribes to a 3 s tick while visible; the silent load path avoids the busy flicker, never clears a persistent error before the reply, and may overlap an in-flight read so a finished mutation's reload is never dropped (newer reply wins). Review: 3 medium fixed. TASKS Printers line ticked.
+
+- **This was the last required v2 code item.** Remaining v1.0 closure work is user/VM-side: APKBUILDs in `feralos-aports`, real FeralOS PAM/activation/module smoke, then the v1.0 tag.
+- VM smokes pending for this week's features: flatpak override write path (get/set + Session Bus policy survives), firewall toggle + test service, disks loop-device format/partition with `disks_format=true`, bluetooth legacy-PIN + numeric pairing, printer live refresh.
+
 ## Session 2026-11-06 — Bluetooth pairing agent complete (main, 1 commit)
 
 **Status**: DONE — `7e442e3` CI-green. `set_bluetooth_pairing_pin` keeps the PIN in daemon RAM only (flag-only on the wire, stdin on the CLI, audit logs action names only) and registers a zbus `org.bluez.Agent1` (KeyboardDisplay + SetDefaultAgent) that answers RequestPinCode/RequestPasskey; RequestConfirmation matches numerically (leading-zero PINs included) and DENIES when unset — the clear path runs UnregisterAgent + drops the export (race window closes with deny, not auto-accept). Registration is mutex-serialized with export rollback; PIN stored only after registration succeeds; without a PIN the legacy `--agent NoInputNoOutput` pair path stays. GUI: password input + status flag. Review: 1 high + 4 medium + 3 low fixed (1 false positive). TASKS Bluetooth line ticked.

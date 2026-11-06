@@ -30,7 +30,7 @@
 - [x] Flatpak: remote dropdown, app/runtime split, update-available list, permissions editor, size/progress, target user. Done 2026-11-04 in five CI-green commits (26707ae remote+sizes, 7a57d81 kind+Show, a5bcf23 updates, 48cd194 permissions editor, f1b020e as_user); progress stayed on the job-log path. VM smoke still needed for the override write path.
 - [x] Printers: paper/duplex/color via CUPS `-o` options.
 - [x] Printers: job state/size/submitted details.
-- [ ] Printers: live job progress.
+- [x] Printers: live job progress. Done 2026-11-06 (3fddaf0): Printers screen auto-refreshes every 3s via a silent load (no busy flicker, errors persist until success, action reloads never dropped behind a tick).
 - [x] Bluetooth: battery + connected details.
 - [x] Bluetooth: pairing agent PIN/passkey. Done 2026-11-06 (7e442e3): SetBluetoothPairingPin holds the PIN in daemon RAM only, zbus org.bluez.Agent1 answers PIN/passkey/confirmation (numeric match, deny-when-unset, unregister on clear), legacy NoInputNoOutput kept without a PIN, GUI password input with flag-only status. VM smoke: pair a legacy PIN device and a numeric-comparison device.
 - [x] Network: IP/gateway/DNS details.
