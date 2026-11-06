@@ -361,17 +361,78 @@ fn parse_search_payload(value: serde_json::Value) -> Result<SearchPage, ApiError
 pub async fn search(
     token: SessionToken,
     query: String,
+    repo: Option<String>,
     as_user: Option<String>,
 ) -> Result<SearchPage, ApiError> {
     let value = call_with_timeout(
         token,
         ModuleId::PackagesNix,
-        Action::Search { query },
+        Action::Search { query, repo },
         as_user,
         SEARCH_TIMEOUT,
     )
     .await?;
     parse_search_payload(value)
+}
+
+pub async fn nix_repositories(
+    token: SessionToken,
+    as_user: Option<String>,
+) -> Result<Vec<ursine_api::NixRepository>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesNix,
+        Action::ListNixRepositories,
+        as_user,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let repositories = value.get("repositories").cloned().ok_or_else(|| {
+        ApiError::internal("daemon nix repositories response has no repositories")
+    })?;
+    serde_json::from_value(repositories)
+        .map_err(|e| ApiError::internal(format!("cannot read nix repositories: {e}")))
+}
+
+pub async fn nix_add_repository(
+    token: SessionToken,
+    name: String,
+    url: String,
+    as_user: Option<String>,
+) -> Result<Vec<ursine_api::NixRepository>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesNix,
+        Action::AddNixRepository { name, url },
+        as_user,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let repositories = value.get("repositories").cloned().ok_or_else(|| {
+        ApiError::internal("daemon nix repositories response has no repositories")
+    })?;
+    serde_json::from_value(repositories)
+        .map_err(|e| ApiError::internal(format!("cannot read nix repositories: {e}")))
+}
+
+pub async fn nix_remove_repository(
+    token: SessionToken,
+    name: String,
+    as_user: Option<String>,
+) -> Result<Vec<ursine_api::NixRepository>, ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesNix,
+        Action::RemoveNixRepository { name },
+        as_user,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let repositories = value.get("repositories").cloned().ok_or_else(|| {
+        ApiError::internal("daemon nix repositories response has no repositories")
+    })?;
+    serde_json::from_value(repositories)
+        .map_err(|e| ApiError::internal(format!("cannot read nix repositories: {e}")))
 }
 
 /// Run one `packages_nix` action with the timeout that action needs.

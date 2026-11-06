@@ -14,6 +14,19 @@
   run `apk update`. The GUI gains a Repositories section with an add
   form (URL + mask tag), per-row Remove and Unmask buttons.
 
+## [Unreleased]
+
+### Added
+
+- Nix repositories = the flake registry of the target user: new
+  `list_nix_repositories`, `add_nix_repository` and
+  `remove_nix_repository` (destructive) manage `nix registry` entries
+  (`user` entries editable, `global` read-only — no ursine-side state
+  file), and `search` takes `repo=` to query any registry flake with
+  bare installables prefixed for install. The nix panel gains a
+  repository dropdown for search and a Flake repositories section
+  with add/remove (remove confirms).
+
 ## [0.26.0] — 2026-11-06
 
 ### Added

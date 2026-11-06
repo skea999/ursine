@@ -46,6 +46,17 @@ pub struct SearchResult {
     pub description: Option<String>,
 }
 
+/// One flake registry entry from `nix registry list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NixRepository {
+    /// Registry name without the `flake:` prefix (e.g. `nixpkgs`).
+    pub name: String,
+    /// Flake reference (e.g. `github:NixOS/nixpkgs`).
+    pub url: String,
+    /// `user` or `global` (only `user` entries are editable here).
+    pub scope: String,
+}
+
 /// Outcome of a mutating profile command (install/remove/upgrade/...).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandOutcome {

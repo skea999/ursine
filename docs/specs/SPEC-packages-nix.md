@@ -23,7 +23,10 @@ channels / `nix-env` are out of scope by decision (skea999).
 | `nix.removeRegex` | asUser | `nix profile remove --regex <pattern>` |
 | `nix.upgrade` | asUser | `nix profile upgrade <element>` / `--all` |
 | `nix.upgradeRegex` | asUser | `nix profile upgrade --regex <pattern>` |
-| `nix.search` | asUser | `nix search nixpkgs <query> --json` → `SearchResult[]` |
+| `nix.search` | asUser | `nix search <repo> <query> --json` → `SearchResult[]` (repo defaults to `nixpkgs`; custom repos prefix bare installables) |
+| `nix.listRepositories` | asUser | `nix registry list` → `NixRepository[]` (name/url/scope) |
+| `nix.addRepository` | asUser | `nix registry add <name> <flake-ref>` |
+| `nix.removeRepository` | asUser | `nix registry remove <name>` (destructive in the CLI) |
 | `nix.generations` | asUser | `nix profile history` → lines |
 | `nix.rollback` | asUser | `nix profile rollback [--to N]` |
 | `nix.wipeHistory` | asUser | `nix profile wipe-history [--older-than D] [--dry-run]` |
@@ -44,6 +47,7 @@ generation is never deleted; `pruneGenerations` computes the plan first, so the
 GUI can preview it before running. Verified against nix 2.31.5: `history` emits
 ANSI escapes and has no `(current)` marker; `--delete-generations +N` needs root.
 
+- Registry entries live in the acting user's nix flake registry (`~/.config/nix/registry.json` via `nix registry …`): `global` entries are listed read-only, only `user` entries are editable — no ursine-side state file.
 - `asUser` defaults to the authenticated principal; daemon verifies target user exists and is a normal user (uid >= 1000) before exec
 - Long ops (install/upgrade) run as daemon jobs: exact output streams to `/run/ursine/jobs/<id>.log` and frontends poll `job_output` (supersedes the earlier same-connection JSON progress-event design; see Package progress)
 

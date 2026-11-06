@@ -14,7 +14,7 @@ use std::time::Duration;
 use serde_json::json;
 use ursine_api::{
     normalize_installable, timeouts, validate_installable, Action, ApiError, CommandOutcome,
-    ErrorCode, InstalledPackage, ModuleId,
+    ErrorCode, InstalledPackage, ModuleId, NixRepository, SearchResult,
 };
 
 use super::ModuleCtx;
@@ -25,6 +25,91 @@ const SEARCH_TIMEOUT: Duration = Duration::from_secs(timeouts::SEARCH_SECS);
 const HISTORY_TIMEOUT: Duration = Duration::from_secs(timeouts::HISTORY_SECS);
 const MUTATE_TIMEOUT: Duration = Duration::from_secs(timeouts::MUTATE_SECS);
 const GC_TIMEOUT: Duration = Duration::from_secs(timeouts::GC_SECS);
+
+fn repo_is_custom(flake: &str) -> bool {
+    flake != "nixpkgs"
+}
+
+/// Prefix bare search installables with the flake that produced them
+/// so `nix profile add` resolves against the same registry entry.
+fn prefix_installables(results: &mut [SearchResult], flake: &str) {
+    for result in results.iter_mut() {
+        if let Some(installable) = &result.installable {
+            if !installable.contains('#') {
+                result.installable = Some(format!("{flake}#{installable}"));
+            }
+        }
+    }
+}
+
+/// `nix registry list` → rows (`user   flake:NAME ref` / `global …`).
+async fn list_repositories(user: &str) -> Result<Vec<NixRepository>, ApiError> {
+    let program = exec::nix_path()?;
+    let out = exec::run_as_user_argv(user, program, &["registry", "list"], MUTATE_TIMEOUT).await?;
+    Ok(parse_registry_list(&out.stdout))
+}
+
+fn parse_registry_list(output: &str) -> Vec<NixRepository> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let scope = fields.next()?;
+            let flake = fields.next()?;
+            let name = flake.strip_prefix("flake:")?;
+            let url = fields.collect::<Vec<_>>().join(" ");
+            if url.is_empty() || name.is_empty() {
+                return None;
+            }
+            if scope != "user" && scope != "global" {
+                return None;
+            }
+            Some(NixRepository {
+                name: name.to_string(),
+                url,
+                scope: scope.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// Registry names: flake-ref name charset, no leading `-`.
+fn validate_repo_name(name: &str) -> Result<(), ApiError> {
+    if name.is_empty()
+        || name.len() > 64
+        || name.starts_with('-')
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '+'))
+    {
+        return Err(ApiError::invalid(
+            "invalid repository name (letters, digits, . _ - +)",
+        ));
+    }
+    Ok(())
+}
+
+/// Flake references (`github:owner/repo`, `git+https://…`, …): no
+/// whitespace or control characters, no leading `-`.
+fn validate_repo_url(url: &str) -> Result<(), ApiError> {
+    let ok = !url.is_empty()
+        && url.len() <= 256
+        && !url.starts_with('-')
+        && url.chars().all(|c| {
+            c.is_ascii_alphanumeric()
+                || matches!(
+                    c,
+                    ':' | '/' | '.' | '_' | '-' | '+' | '~' | '%' | '#' | '?' | '=' | '@' | '&'
+                )
+        });
+    if ok {
+        Ok(())
+    } else {
+        Err(ApiError::invalid(
+            "invalid flake reference (e.g. github:owner/repo)",
+        ))
+    }
+}
 
 /// Profile selected by `nix profile` for a regular user. Resolve it in the
 /// user's login environment so `XDG/NIX_STATE_HOME` overrides are honoured, and
@@ -193,19 +278,63 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             .await?;
             Ok(json!(parse::parse_profile_list(&out.stdout)?))
         }
-        Action::Search { query } => {
+        Action::Search { query, repo } => {
             exec::validate_query(query)?;
+            let flake = match repo {
+                Some(repo) => {
+                    validate_repo_name(repo)?;
+                    repo.clone()
+                }
+                None => "nixpkgs".to_string(),
+            };
             let out = exec::run_as_user_search(
                 user,
-                &[("search", ""), ("nixpkgs", ""), (query, ""), ("--json", "")],
+                &[
+                    ("search", ""),
+                    (flake.as_str(), ""),
+                    (query, ""),
+                    ("--json", ""),
+                ],
                 SEARCH_TIMEOUT,
             )
             .await?;
-            let page = parse::parse_search(&out.stdout)?;
+            let mut page = parse::parse_search(&out.stdout)?;
+            // Bare installables must resolve against the searched flake.
+            if repo_is_custom(&flake) {
+                prefix_installables(&mut page.results, &flake);
+            }
             Ok(json!({
                 "results": page.results,
                 "truncated": page.truncated,
             }))
+        }
+        Action::ListNixRepositories => {
+            Ok(json!({"repositories": list_repositories(ctx.as_user).await?}))
+        }
+        Action::AddNixRepository { name, url } => {
+            validate_repo_name(name)?;
+            validate_repo_url(url)?;
+            let program = exec::nix_path()?;
+            exec::run_as_user_argv(
+                ctx.as_user,
+                program,
+                &["registry", "add", name, url],
+                MUTATE_TIMEOUT,
+            )
+            .await?;
+            Ok(json!({"repositories": list_repositories(ctx.as_user).await?}))
+        }
+        Action::RemoveNixRepository { name } => {
+            validate_repo_name(name)?;
+            let program = exec::nix_path()?;
+            exec::run_as_user_argv(
+                ctx.as_user,
+                program,
+                &["registry", "remove", name],
+                MUTATE_TIMEOUT,
+            )
+            .await?;
+            Ok(json!({"repositories": list_repositories(ctx.as_user).await?}))
         }
         Action::Install { package } => {
             let installable = normalize_installable(package)?;
@@ -472,6 +601,59 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_registry_list() {
+        let out = "user   flake:nixpkgs github:NixOS/nixpkgs/nixos-26.05\n\
+global flake:agenix github:ryantm/agenix\nweird line\n";
+        let rows = parse_registry_list(out);
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        assert_eq!(rows[0].name, "nixpkgs");
+        assert_eq!(rows[0].url, "github:NixOS/nixpkgs/nixos-26.05");
+        assert_eq!(rows[0].scope, "user");
+        assert_eq!(rows[1].scope, "global");
+        assert_eq!(rows[1].name, "agenix");
+    }
+
+    #[test]
+    fn prefixes_search_installables_with_the_custom_flake() {
+        let mut results = vec![
+            SearchResult {
+                attr: "legacyPackages.x86_64-linux.hello".into(),
+                installable: Some("hello".into()),
+                pname: None,
+                version: None,
+                description: None,
+            },
+            SearchResult {
+                attr: "packages.x86_64-linux.foo".into(),
+                installable: Some("myflake#foo".into()),
+                pname: None,
+                version: None,
+                description: None,
+            },
+        ];
+        prefix_installables(&mut results, "myflake");
+        assert_eq!(results[0].installable.as_deref(), Some("myflake#hello"));
+        assert_eq!(results[1].installable.as_deref(), Some("myflake#foo"));
+        // Default flake keeps bare installables (nixpkgs# normalization
+        // happens at install time).
+        assert!(!repo_is_custom("nixpkgs"));
+        assert!(repo_is_custom("myflake"));
+    }
+
+    #[test]
+    fn validates_registry_inputs() {
+        assert!(validate_repo_name("my-flake").is_ok());
+        assert!(validate_repo_name("edge2").is_ok());
+        assert!(validate_repo_name("-edge").is_err());
+        assert!(validate_repo_name("bad name").is_err());
+        assert!(validate_repo_url("github:NixOS/nixpkgs").is_ok());
+        assert!(validate_repo_url("git+https://example.com/repo?ref=x").is_ok());
+        assert!(validate_repo_url("").is_err());
+        assert!(validate_repo_url("has space").is_err());
+        assert!(validate_repo_url("-rf").is_err());
+    }
 
     #[test]
     fn bare_names_get_the_nixpkgs_prefix() {

@@ -43,9 +43,24 @@ pub enum Action {
     // -- packages.nix --
     /// List installed packages in the target user's profile.
     ListInstalled,
-    /// Search nixpkgs (slow: UI shows progress).
+    /// Search a registry flake (default `nixpkgs`; slow: UI shows progress).
     Search {
         query: String,
+        /// Registry flake to search (default `nixpkgs`); bare installables
+        /// in the results come back prefixed with it.
+        #[serde(default)]
+        repo: Option<String>,
+    },
+    /// Flake registry entries (`nix registry list`).
+    ListNixRepositories,
+    /// Add a user-scope registry entry (`nix registry add`).
+    AddNixRepository {
+        name: String,
+        url: String,
+    },
+    /// Remove a user-scope registry entry (`nix registry remove`).
+    RemoveNixRepository {
+        name: String,
     },
     /// Install a package into the target user's profile.
     Install {

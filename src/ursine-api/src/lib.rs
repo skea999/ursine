@@ -52,7 +52,7 @@ pub use niri::{
 };
 pub use nix::{
     installable_from_attr, is_safe_installable_atom, normalize_installable, validate_installable,
-    CommandOutcome, InstalledPackage, SearchResult,
+    CommandOutcome, InstalledPackage, NixRepository, SearchResult,
 };
 pub use packages::{
     ApkPackage, ApkRepository, ApkUpdate, FlatpakEnvVar, FlatpakInfo, FlatpakPackage,

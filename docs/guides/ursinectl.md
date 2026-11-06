@@ -97,12 +97,21 @@ audit log). Run `ursinectl --help` for the grouped list.
 
 ### packages_nix (`nix`)
 
-`list_installed`, `search query=…`, `install package=…`,
+`list_installed`, `search query=… [repo=…]`, `install package=…`,
+`list_nix_repositories`, `add_nix_repository name=… url=…`,
+`remove_nix_repository name=…`,
 `remove package=…`, `remove_all`, `remove_regex pattern=… [dry_run=true]`,
 `upgrade [package=… | all=true]`, `upgrade_regex pattern=… [dry_run=true]`,
 `generations`, `rollback [generation=…]`,
 `wipe_history [older_than=…] dry_run=…`, `diff_closures [generation=…]`,
 `store_gc`, `prune_generations keep=… dry_run=…`
+
+`list_nix_repositories` shows the flake registry of the target user
+(`user` entries editable, `global` read-only). `search repo=…` runs
+against any registry flake and returns bare installables prefixed with
+that flake, so Install resolves against the searched repository;
+`repo` defaults to `nixpkgs`. `remove_nix_repository` is destructive
+(`--yes`).
 
 ### packages_apk (`apk`)
 

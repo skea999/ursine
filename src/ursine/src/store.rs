@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use crate::package_row::package_row;
+use cosmic::iced::Length;
 use cosmic::widget::{button, column, dropdown, row, scrollable, settings, text, text_input};
 use cosmic::Element;
 use ursine_api::{Action, CommandOutcome, InstalledPackage, SearchResult};
@@ -332,6 +333,18 @@ pub struct StoreState {
     pub error: Option<String>,
     pub as_user_input: String,
     pub search_query: String,
+    /// Registry flake the search runs against (default `nixpkgs`).
+    pub search_repo: String,
+    /// Flake registry entries for the target user (+ global, read-only).
+    pub repositories: Vec<ursine_api::NixRepository>,
+    /// Add-repository form inputs.
+    pub repo_name: String,
+    pub repo_url: String,
+    /// Repository waiting for the remove confirmation.
+    pub pending_repo_remove: Option<String>,
+    /// Bumped after every registry mutation: an in-flight list reply
+    /// that predates it is stale and gets dropped.
+    pub repo_seq: u64,
     pub search_results: Vec<SearchResult>,
     pub search_busy: bool,
     pub search_done: bool,
@@ -363,6 +376,12 @@ impl Default for StoreState {
             error: None,
             as_user_input: String::new(),
             search_query: String::new(),
+            search_repo: "nixpkgs".to_string(),
+            repositories: Vec::new(),
+            repo_name: String::new(),
+            repo_url: String::new(),
+            pending_repo_remove: None,
+            repo_seq: 0,
             search_results: Vec::new(),
             search_busy: false,
             search_done: false,
@@ -386,6 +405,27 @@ impl Default for StoreState {
 }
 
 impl StoreState {
+    /// Names offered by the search Repository dropdown: `nixpkgs` first,
+    /// then every registry entry (single source for view + handler).
+    pub fn search_repo_names(&self) -> Vec<String> {
+        let mut names = vec!["nixpkgs".to_string()];
+        for repository in &self.repositories {
+            if !names.contains(&repository.name) {
+                names.push(repository.name.clone());
+            }
+        }
+        names
+    }
+
+    /// Drop a `search_repo` that a removal deleted (fall back to `nixpkgs`).
+    pub fn revalidate_search_repo(&mut self) {
+        if self.search_repo != "nixpkgs"
+            && !self.repositories.iter().any(|r| r.name == self.search_repo)
+        {
+            self.search_repo = "nixpkgs".to_string();
+        }
+    }
+
     /// `None` means the principal's own profile; the daemon resolves it.
     pub fn target_user(&self) -> Option<String> {
         let user = self.as_user_input.trim();
@@ -466,7 +506,7 @@ impl StoreState {
     pub fn view(&self) -> Element<'_, Message> {
         let header = row(vec![
             text::title2("Nix store").into(),
-            text("").width(cosmic::iced::Length::Fill).into(),
+            text("").width(Length::Fill).into(),
             button::standard(if self.busy {
                 "Refreshing…"
             } else {
@@ -550,6 +590,7 @@ impl StoreState {
         items.push(self.upgrade_all_view());
         items.push(self.advanced_view());
         items.push(self.search_view());
+        items.push(self.repositories_view());
         items.push(self.installed_view());
         items.push(self.generations_view());
 
@@ -559,8 +600,21 @@ impl StoreState {
     fn search_view(&self) -> Element<'_, Message> {
         let can_search = !self.search_busy && !self.search_query.trim().is_empty();
         let can_act = self.scope_ready();
+        let repo_names = self.search_repo_names();
+        let repo_selected = repo_names
+            .iter()
+            .position(|name| *name == self.search_repo)
+            .unwrap_or(0);
         let mut section = settings::section()
-            .title("Search nixpkgs")
+            .title("Search")
+            .add(settings::item(
+                "Repository",
+                dropdown(
+                    repo_names,
+                    Some(repo_selected),
+                    Message::StoreSearchRepoChanged,
+                ),
+            ))
             .add(settings::item(
                 "Query",
                 row(vec![
@@ -599,7 +653,10 @@ impl StoreState {
         if self.search_busy {
             section = section.add(settings::item(
                 "Status",
-                text("Searching nixpkgs. This can take several minutes."),
+                text(format!(
+                    "Searching {}. This can take several minutes.",
+                    self.search_repo
+                )),
             ));
         }
         if let Some(error) = &self.search_error {
@@ -651,6 +708,82 @@ impl StoreState {
             }
         }
 
+        section.into()
+    }
+
+    fn repositories_view(&self) -> Element<'_, Message> {
+        let mut section = settings::section().title("Flake repositories");
+        if let Some(name) = &self.pending_repo_remove {
+            section = section.add(settings::item(
+                "Confirm removal",
+                row(vec![
+                    text(format!("Remove the registry entry {name}?")).into(),
+                    button::destructive("Remove")
+                        .on_press_maybe(
+                            (self.scope_ready() && !self.action_busy && !self.search_busy)
+                                .then_some(Message::StoreRepoRemoveConfirmed),
+                        )
+                        .into(),
+                    button::text("Cancel")
+                        .on_press(Message::StoreRepoRemoveCancelled)
+                        .into(),
+                ])
+                .spacing(8),
+            ));
+        }
+        if self.repositories.is_empty() && self.error.is_none() {
+            section = section.add(settings::item(
+                "Entries",
+                text("Only the default nixpkgs registry entry (nothing extra)."),
+            ));
+        }
+        for repository in &self.repositories {
+            let name = repository.name.clone();
+            let row_items = vec![
+                text(format!(
+                    "{} → {} · {}",
+                    repository.name, repository.url, repository.scope
+                ))
+                .width(Length::Fill)
+                .into(),
+                if repository.scope == "user" {
+                    button::destructive("Remove")
+                        .on_press_maybe(
+                            (self.scope_ready() && !self.action_busy && !self.search_busy)
+                                .then_some(Message::StoreRepoRemoveRequested(name.clone())),
+                        )
+                        .into()
+                } else {
+                    text("").into()
+                },
+            ];
+            section = section.add(settings::item(
+                repository.name.clone(),
+                row(row_items).spacing(8),
+            ));
+        }
+        section = section.add(settings::item(
+            "Add repository",
+            row(vec![
+                text_input("name", self.repo_name.clone())
+                    .on_input(Message::StoreRepoNameChanged)
+                    .into(),
+                text_input("github:owner/repo", self.repo_url.clone())
+                    .on_input(Message::StoreRepoUrlChanged)
+                    .into(),
+                button::text("Add")
+                    .on_press_maybe(
+                        (self.scope_ready()
+                            && !self.action_busy
+                            && !self.search_busy
+                            && !self.repo_name.trim().is_empty()
+                            && !self.repo_url.trim().is_empty())
+                        .then_some(Message::StoreRepoAdd),
+                    )
+                    .into(),
+            ])
+            .spacing(8),
+        ));
         section.into()
     }
 

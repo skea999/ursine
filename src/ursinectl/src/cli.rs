@@ -50,7 +50,8 @@ MODULES (wire name; short alias in parentheses):
   packages_nix(nix)   list_installed, search, install, remove, remove_all,
                       remove_regex, upgrade, upgrade_regex, generations,
                       rollback, wipe_history, diff_closures, store_gc,
-                      prune_generations
+                      prune_generations, list_nix_repositories,
+                      add_nix_repository, remove_nix_repository
   packages_apk(apk)   list_apk, search_apk, refresh_apk,
                       list_apk_repositories, add_apk_repository,
                       remove_apk_repository, install_apk,
@@ -326,10 +327,11 @@ pub fn is_destructive(action: &Action) -> bool {
         CancelPrinterJobs, CrontabSet, DeleteFirewallService, DeleteSnapshot, DeleteSnapshots,
         DeleteUser, ForgetNetwork, FormatDisk, PartitionCreate, PartitionDelete, PruneGenerations,
         Remove, RemoveAll, RemoveApk, RemoveApkRepository, RemoveFirewallPort,
-        RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans, RemovePrinter, RemoveRegex,
-        RemoveScannerDevice, RestoreSnapshot, Rollback, SetFirewallEnabled, SetFlatpakPermissions,
-        SetNetworkIpv4, SetPassword, StoreGc, ThemeApply, UnmountDisk, UpdateFlatpak,
-        UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage, UpgradeRegex, WipeHistory,
+        RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans, RemoveNixRepository,
+        RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot, Rollback,
+        SetFirewallEnabled, SetFlatpakPermissions, SetNetworkIpv4, SetPassword, StoreGc,
+        ThemeApply, UnmountDisk, UpdateFlatpak, UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage,
+        UpgradeRegex, WipeHistory,
     };
     matches!(
         action,
@@ -354,6 +356,7 @@ pub fn is_destructive(action: &Action) -> bool {
             | DeleteFirewallService { .. }
             | FormatDisk { .. }
             | RemoveApkRepository { .. }
+            | RemoveNixRepository { .. }
             | PartitionCreate { .. }
             | PartitionDelete { .. }
             | SetFirewallEnabled { enabled: false, .. }
@@ -441,7 +444,8 @@ mod tests {
         assert_eq!(
             a,
             Action::Search {
-                query: "niri".into()
+                query: "niri".into(),
+                repo: None,
             }
         );
     }
@@ -626,9 +630,10 @@ mod tests {
             DeleteSnapshot, DeleteSnapshots, DeleteUser, FormatDisk, ListApk, PartitionCreate,
             PartitionDelete, PruneGenerations, Remove, RemoveAll, RemoveApk, RemoveApkRepository,
             RemoveFirewallPort, RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans,
-            RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot, Rollback, Search,
-            SetFirewallEnabled, SetPassword, StoreGc, ThemeApply, UnmountDisk, UpdateFlatpak,
-            UpdateFlatpakApp, Upgrade, UpgradeApk, UpgradeApkPackage, UpgradeRegex, WipeHistory,
+            RemoveNixRepository, RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot,
+            Rollback, Search, SetFirewallEnabled, SetPassword, StoreGc, ThemeApply, UnmountDisk,
+            UpdateFlatpak, UpdateFlatpakApp, Upgrade, UpgradeApk, UpgradeApkPackage, UpgradeRegex,
+            WipeHistory,
         };
         let destructive = [
             Remove {
@@ -721,6 +726,9 @@ mod tests {
             RemoveApkRepository {
                 url: "https://example.invalid/x".into(),
             },
+            RemoveNixRepository {
+                name: "myflake".into(),
+            },
             PartitionCreate {
                 device: "/dev/sda".into(),
                 start_mib: 1,
@@ -766,7 +774,10 @@ mod tests {
                 all: true,
             },
             ListApk,
-            Search { query: "x".into() },
+            Search {
+                query: "x".into(),
+                repo: None,
+            },
             SetFirewallEnabled { enabled: true },
             CreateFirewallService {
                 service: "s".into(),

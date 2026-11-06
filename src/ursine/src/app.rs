@@ -454,6 +454,19 @@ pub enum Message {
     StoreAsUserChanged(String),
     StoreSearchChanged(String),
     StoreSearchSubmitted,
+    StoreSearchRepoChanged(usize),
+    StoreReposLoaded(u64, u64, Result<Vec<ursine_api::NixRepository>, ApiError>),
+    StoreRepoNameChanged(String),
+    StoreRepoUrlChanged(String),
+    StoreRepoAdd,
+    StoreRepoRemoveRequested(String),
+    StoreRepoRemoveConfirmed,
+    StoreRepoRemoveCancelled,
+    StoreRepoFinished(
+        u64,
+        String,
+        Result<Vec<ursine_api::NixRepository>, ApiError>,
+    ),
     StoreSearchLoaded(u64, u64, StoreScope, Result<SearchPage, ApiError>),
     StoreInstallChanged(String),
     StoreRegexChanged(String),
@@ -1705,6 +1718,59 @@ impl cosmic::Application for App {
             Message::StoreAsUserChanged(value) => self.store.set_target_user(value),
             Message::StoreSearchChanged(query) => self.store.search_query = query,
             Message::StoreSearchSubmitted => return self.search_store(),
+            Message::StoreSearchRepoChanged(index) => {
+                // Same list the view renders (single source).
+                if let Some(name) = self.store.search_repo_names().get(index) {
+                    self.store.search_repo.clone_from(name);
+                }
+            }
+            Message::StoreReposLoaded(epoch, seq, result) => {
+                return self.finish_store_repos(epoch, seq, result);
+            }
+            Message::StoreRepoNameChanged(value) => self.store.repo_name = value,
+            Message::StoreRepoUrlChanged(value) => self.store.repo_url = value,
+            Message::StoreRepoAdd => {
+                let name = self.store.repo_name.trim().to_string();
+                let url = self.store.repo_url.trim().to_string();
+                if name.is_empty() || url.is_empty() {
+                    self.store.error =
+                        Some("Enter a repository name and a flake reference.".into());
+                } else {
+                    return self.store_repo_action(
+                        "Registry entry added.",
+                        client::nix_add_repository(
+                            self.token(),
+                            name,
+                            url,
+                            self.store.current_scope().as_user(),
+                        ),
+                    );
+                }
+            }
+            Message::StoreRepoRemoveRequested(name) => {
+                self.store.pending_repo_remove = Some(name);
+            }
+            Message::StoreRepoRemoveConfirmed => {
+                // Keep the pending row when a search is running: the
+                // guard in store_repo_action must not eat the confirm.
+                if self.store.action_busy || self.store.search_busy {
+                    return Task::none();
+                }
+                if let Some(name) = self.store.pending_repo_remove.take() {
+                    return self.store_repo_action(
+                        "Registry entry removed.",
+                        client::nix_remove_repository(
+                            self.token(),
+                            name,
+                            self.store.current_scope().as_user(),
+                        ),
+                    );
+                }
+            }
+            Message::StoreRepoRemoveCancelled => self.store.pending_repo_remove = None,
+            Message::StoreRepoFinished(epoch, label, result) => {
+                return self.finish_store_repo(epoch, &label, result);
+            }
             Message::StoreSearchLoaded(epoch, seq, scope, result) => {
                 self.finish_store_search(epoch, seq, &scope, result);
             }
@@ -5216,11 +5282,106 @@ impl App {
         self.store.busy = true;
         self.store.error = None;
         let token = session.token.clone();
+        let repos_token = token.clone();
         let as_user = scope.as_user();
-        Task::future(async move {
+        let repos_as_user = scope.as_user();
+        let repos_seq = self.store.repo_seq;
+        let snapshot = Task::future(async move {
             Message::StoreLoaded(epoch, scope, client::store_snapshot(token, as_user).await)
         })
-        .map(cosmic::Action::App)
+        .map(cosmic::Action::App);
+        let repos = Task::future(async move {
+            Message::StoreReposLoaded(
+                epoch,
+                repos_seq,
+                client::nix_repositories(repos_token, repos_as_user).await,
+            )
+        })
+        .map(cosmic::Action::App);
+        Task::batch(vec![snapshot, repos])
+    }
+
+    /// One registry mutation (add/remove) with the store busy flags.
+    fn store_repo_action(
+        &mut self,
+        label: &str,
+        future: impl std::future::Future<Output = Result<Vec<ursine_api::NixRepository>, ApiError>>
+            + Send
+            + 'static,
+    ) -> Task<cosmic::Action<Message>> {
+        let Some(_session) = &self.session else {
+            return Task::none();
+        };
+        if self.store.action_busy || self.store.search_busy {
+            return Task::none();
+        }
+        let label = label.to_string();
+        let epoch = self.epoch;
+        self.store.action_busy = true;
+        self.store.action_label = Some(label.clone());
+        self.store.action_started = Some(std::time::Instant::now());
+        self.store.error = None;
+        Task::future(async move { Message::StoreRepoFinished(epoch, label, future.await) })
+            .map(cosmic::Action::App)
+    }
+
+    fn finish_store_repo(
+        &mut self,
+        epoch: u64,
+        label: &str,
+        result: Result<Vec<ursine_api::NixRepository>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.store.action_busy = false;
+        self.store.action_started = None;
+        match result {
+            Ok(repositories) => {
+                self.store.repositories = repositories;
+                self.store.repo_seq = self.store.repo_seq.wrapping_add(1);
+                self.store.revalidate_search_repo();
+                self.store.action_message = Some(label.to_string());
+                self.store.repo_name.clear();
+                self.store.repo_url.clear();
+                self.store.pending_repo_remove = None;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.store.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn finish_store_repos(
+        &mut self,
+        epoch: u64,
+        seq: u64,
+        result: Result<Vec<ursine_api::NixRepository>, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        if seq != self.store.repo_seq {
+            // A registry mutation finished while this list was in flight:
+            // its reply predates the mutation and must not win.
+            return Task::none();
+        }
+        match result {
+            Ok(repositories) => self.store.repositories = repositories,
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                // Registry listing is secondary: keep the store usable.
+                self.store.repositories.clear();
+                self.store.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
     }
 
     fn finish_store(
@@ -5271,12 +5432,16 @@ impl App {
         let scope = self.store.current_scope();
         let epoch = self.epoch;
         let as_user = scope.as_user();
+        let mut repo = self.store.search_repo.trim().to_string();
+        if repo.is_empty() {
+            repo = "nixpkgs".to_string();
+        }
         Task::future(async move {
             Message::StoreSearchLoaded(
                 epoch,
                 seq,
                 scope,
-                client::search(token, query, as_user).await,
+                client::search(token, query, Some(repo), as_user).await,
             )
         })
         .map(cosmic::Action::App)

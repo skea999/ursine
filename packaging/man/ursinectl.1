@@ -122,7 +122,10 @@ for the grouped list.
 .B packages_nix
 list_installed, search, install, remove, remove_all, remove_regex,
 upgrade, upgrade_regex, generations, rollback, wipe_history,
-diff_closures, store_gc, prune_generations.
+diff_closures, store_gc, prune_generations, list_nix_repositories,
+add_nix_repository, remove_nix_repository.
+search takes repo= (default nixpkgs) to run against any registry
+flake; remove_nix_repository is destructive and requires --yes.
 .TP
 .B packages_apk
 list_apk, search_apk, refresh_apk, list_apk_repositories,
