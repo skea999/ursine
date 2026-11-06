@@ -1,0 +1,1 @@
+{"ts":1793963257730,"topic":"Firewall extras complete","content":"Today: Firewall extras done (72c3036 CI green): enable/disable via default-zone target, custom services, active-rules summary; TASKS Firewall ticked; 430 tests. Next: Disks format/partition, then Bluetooth pairing, printer progress. VM smoke: firewall toggle + test service","tags":[],"importance":"normal"}

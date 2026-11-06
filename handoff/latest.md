@@ -6,6 +6,13 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-06 — Firewall extras complete (main, 1 commit)
+
+**Status**: DONE — `72c3036` CI-green. Enable/disable = default-zone target toggle (firewalld has no global switch; decision recorded in session-state key_decisions: `enabled=false` sets ACCEPT, `enabled=true` REJECT, permanent+reload, DROP→REJECT round-trip documented, GUI confirms before disable, CLI treats it destructive). Custom service definitions create/delete with a single `ls /etc/firewalld/services` listing (no per-service `--path-service` N+1). Status now carries the active-rules summary: per-zone `target`/`interfaces`/`rich_rules` (from `--list-all` + `--list-rich-rules`), derived `enabled`, `custom_services`. Review: 9 findings (1 high — delete confirm, 2 medium — shared name input + N+1) all fixed. TASKS Firewall line ticked; zone create/delete stays out of scope (not in plan lines).
+
+- VM smoke: toggle filtering twice (confirm path), create + delete a test service, check zone rows show target/interfaces.
+- Next: **Disks format/partition** (TASKS v2: explicit destructive confirmation, exact device typed — SPEC-disks already sketches it), then Bluetooth pairing agent PIN/passkey, printer live progress.
+
 ## Session 2026-11-05 — Network v2 detail complete (main, 2 commits)
 
 **Status**: DONE — two slices, each with gate + review + green CI: `b667a79` IPv4 DHCP/static per connection (`SetNetworkIpv4`, per-connection settings in `get_network`, GUI editor with reconnect confirm; blocker: the argv guard rejected the empty `""` values nmcli uses to clear properties — now shared `run_root_program_guarded` allows empty args and space-safe names via `run_root_program_value`, which also fixes connection names like `Home Wi-Fi`) and `530667c` forget + VPN (`ForgetNetwork` destructive, `SetNetworkConnection` up/down non-destructive per the DisconnectNetwork precedent + SPEC-confirm-list, saved profiles with kind/active in the view, VPN section for `vpn`/`wireguard`, destructive Forget confirmation). TASKS Network line ticked.
