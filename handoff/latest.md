@@ -20,6 +20,14 @@ See `AGENTS.md` for project context and milestone history.
 - VM smoke: pair a legacy PIN device (alphanumeric ok) and a numeric-comparison device (numeric PIN required).
 - Next: **Printers live job progress** — the last v2 code item; after that only APKBUILDs in feralos-aports, real FeralOS smoke and the v1.0 tag remain (user/VM work).
 
+## Session 2026-11-06 — Repositories: apk + nix + flatpak (main, 4 commits)
+
+**Status**: DONE — all four commits CI-green: `80c686d` APK add/remove/mask (`@tag url` per apk-repositories(5) = MASKED repo unless world pins `pkg@tag` — the `@edge` ask; upsert semantics: re-add updates the tag, empty tag/Unmask clears; atomic write + backup + `apk update` after each mutation), `f1c838a` test-thread stack fix (the growing `Action` enum pushed debug frames past libtest's 2 MiB default → `RUST_MIN_STACK=16777216` in CI Test/gui jobs + the canonical test command in build-and-test.md), `1724ca6` Nix flake repositories via the NATIVE registry (decision recorded: no ursine-side state file; `repo=` search prefixes bare installables; GUI dropdown + Flake repositories section; global entries read-only), `1605cfd` Flatpak remote-add/delete (scope captured when the confirm opens; URL charset = installable-atom so root/su guards agree). Protocol bumped to **v4** (`list_apk_repositories` rows are `{url, tag}`).
+
+- Review closure: apk 3 high + 2 medium + 4 low (1 low rejected: 0600 backup = established niri/flatpak pattern), nix 3 medium + 5 low, flatpak 3 high + 3 medium + 1 low (1 low with recorded rationale: panel-invisible `job` flag, guard stays in the dispatcher, inputs survive). CHANGELOG's three Unreleased blocks merged into one.
+- Also fixed: `Search` action gained `repo` (serde default, old clients ok); `Action::Search { repo: None }` literals updated in tests.
+- VM smoke: apk add a repo with `@edge` tag then Unmask; nix add/remove a registry entry + `search repo=…`; flatpak add a remote + Remove (scope flip while confirm open must not hit the other installation).
+
 ## Session 2026-11-06 — Disks format/partition complete (main, 1 commit)
 
 **Status**: DONE — `1ebcf8b` CI-green. Destructive trio (`format_disk`, `partition_create`, `partition_delete`) behind the triple gate recorded in session-state key_decisions: `disks_format = true` config key (default off, restart required), `confirm_device` typed exactly equal to `device`, CLI `--yes`. Safety rails: mounted target/children rejected via lsblk, `parted print` pre-flight turns the blank-disk case into a clear "create a partition table first" error, `DISK_FSTYPES` shared between daemon and GUI through ursine-api, GUI flows one-at-a-time with input preserved on errors and Mount disabled while a flow is open. Review: 10 findings (4 medium) all fixed; guide `--yes` list also backfilled with the firewall/network/flatpak names it had missed. TASKS Disks line ticked.
