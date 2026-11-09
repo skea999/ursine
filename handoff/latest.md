@@ -6,6 +6,20 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-09 — No D-Bus (Webmin study + full removal) (main, commit `31a9087`)
+
+**Status**: Pushed `1dde913..31a9087`, CI `42616422224` watched (pending green at handoff). User decision after a Webmin study (source: `useradmin/user-lib.pl` — direct passwd/shadow/group edits, no bus, no polkit): **D-Bus is never used**; fewest components possible; capabilities name the exact CLI + install fix; Home shows that fix; delete dead code/files.
+
+- New invariant 3 in `rules/ursine.md` + AGENTS.md "Minimal components" workflow principle + overview Auth model. Protocol **v5** (breaking removals).
+- Users rewritten: `/etc/passwd` parse, `useradd -U`/BusyBox `adduser -D` + explicit `!` lock step, `userdel`/`deluser -r`, direct `/etc/shadow` write (unique tmp + rename + parent fsync, SHADOW_LOCK across the concurrent accept loop, quoted-value runner for spaced fullnames, spawn_blocking). Capability `accountsservice`→`shadow` (exact candidate-path probe).
+- Bluetooth: `agent.rs` deleted, `set_bluetooth_pairing_pin` + `pairing_pin_set` + GUI PIN section removed; pairing = `bluetoothctl --agent NoInputNoOutput pair`.
+- Theming: `ThemingTarget::Eog` removed (21→20), gsettings/dconf writers + dconf rotation deleted; settings.ini is the source of truth; `user` param dropped from run_blocking/write_target/gtk_settings.
+- Capabilities CLI-first: Disks also requires `parted` (`apk add util-linux udisks2 parted`); Bluez/NM binary-only probes (socket probes dropped — trade-off recorded); Home prints `reason - fix` on activated features.
+- zbus gone from workspace + ursine-core Cargo (libcosmic transitive dep documented). Docs: SPEC-users rewritten, 8 other SPECs + ROADMAP/TASKS/intent/PROJECT/capability-map/overview + CHANGELOG.
+- Review: 1 potential blocker rejected (is_safe_atom accepts `/`; spaced fullnames → `run_root_program_value`) + 2 high (shadow tmp atomicity, SHADOW_LOCK) + mediums/lows all fixed; trade-offs in session-state.
+- Gate: fmt/clippy/tests (RUST_MIN_STACK)/static/docs/typos all PASS.
+- VM smoke pending: create user with spaced fullname + admin wheel; set password (check shadow `!`→hash, mode/owner preserved); delete with home cleanup; pair a Just Works bluetooth device; theming apply writes settings.ini only (no dconf); Home shows `apk add parted`-style fixes on activated-but-missing features.
+
 ## Session 2026-11-09 — Uniform backup rotation: `[backup_configs]` (main, commit `2fa4d0e`)
 
 **Status**: Pushed `13a6b4b..2fa4d0e`, CI `42599246428` watched (pending green at handoff). User request: ONE uniform backup mechanism for every config file, count from a settings file (`[backup_configs] copies = 3` in `/etc/ursine/config.toml`, clamp 1..=10, restart to apply), backups also for files changed via CLI (crontab named explicitly, theming confirmed).
