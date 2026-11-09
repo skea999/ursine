@@ -32,7 +32,7 @@
 - [x] Printers: job state/size/submitted details.
 - [x] Printers: live job progress. Done 2026-11-06 (3fddaf0): Printers screen auto-refreshes every 3s via a silent load (no busy flicker, errors persist until success, action reloads never dropped behind a tick).
 - [x] Bluetooth: battery + connected details.
-- [x] Bluetooth: pairing agent PIN/passkey. Done 2026-11-06 (7e442e3): SetBluetoothPairingPin holds the PIN in daemon RAM only, zbus org.bluez.Agent1 answers PIN/passkey/confirmation (numeric match, deny-when-unset, unregister on clear), legacy NoInputNoOutput kept without a PIN, GUI password input with flag-only status. VM smoke: pair a legacy PIN device and a numeric-comparison device.
+- [x] Bluetooth: pairing. Shipped 2026-11-06 with a zbus PIN agent; REMOVED 2026-11-09 (no-D-Bus invariant 3) — pairing is `bluetoothctl --agent NoInputNoOutput pair` only, `set_bluetooth_pairing_pin` deleted. VM smoke: pair a Just Works device.
 - [x] Network: IP/gateway/DNS details.
 - [x] Network: Ethernet connect/disconnect.
 - [x] Network: DHCP/static IPv4, forget, VPN. Done 2026-11-05 in two CI-green commits (b667a79 IPv4 DHCP/static + per-connection editor + space-safe argv, 530667c forget + VPN controls via saved profiles). VM smoke: set ipv4 on a test profile, forget a test Wi-Fi profile, connect/disconnect the wireguard VPN.
@@ -114,7 +114,7 @@
 
 ### Done — v0.4 users + niri baseline (0.7.0)
 
-- [x] Users backend: accountsservice list/create/delete/set-password, `/etc/group` memberships, `usermod` group replacement, uid policy, self-wheel lockout guard, SHA-512 crypt hashing off the async worker | P0
+- [x] Users backend: `/etc/passwd` list + `useradd`/`userdel` (BusyBox fallback) + direct `/etc/shadow` password write (rewritten 2026-11-09, no D-Bus), `/etc/group` memberships, `usermod` group replacement, uid policy, self-wheel lockout guard, SHA-512 crypt hashing off the async worker | P0
 - [x] Users GUI: create (admin toggle), select, password + confirmation, supplementary groups, delete confirmation with home cleanup | P0
 - [x] Niri backend: KDL round-trip for layout gaps, animations, touchpad, cursor; `niri validate` gate; atomic user-scoped write + backup; fail-closed passwd lookup; validate action | P0
 - [x] Niri GUI: managed-section forms, validation result, save | P0

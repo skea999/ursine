@@ -2,22 +2,33 @@
 
 ## Objective
 
-Users and group management via the accountsservice D-Bus API (`org.freedesktop.Accounts`) — already present on every FeralOS install (greetd/regreet). Ursine replaces the need for gnome-control-center's user panel with a lightweight libcosmic panel backed by the same daemon API.
+Users and group management without D-Bus (invariant 3) — the Webmin
+pattern: list straight from `/etc/passwd` + `/etc/group`, create/delete
+through the system's own user CLI (shadow `useradd`/`userdel`, BusyBox
+`adduser`/`deluser` fallback), and write passwords directly into
+`/etc/shadow` (the hash we already computed — no `usermod -p`
+portability traps, BusyBox would store that value as plaintext).
 
 ## Tech Stack
 
-- `zbus` (pure Rust D-Bus, async, tokio-compatible) — no libdbus C bindings
-- accountsservice covers: create/delete users, set real name, set groups via daemon+`usermod` where accountsservice lacks the call (groups: accountsservice has no full group API — group membership via `/etc/group` edit through our own validated code path is NOT allowed in v1; use `usermod` exec as root)
-- Group-membership tooling is selected at runtime: `usermod` (shadow) first, then `addgroup`/`delgroup` (Alpine/BusyBox), then `gpasswd` (minimal shadow). No distro is assumed at build time.
+- No `zbus`, no accountsservice: `/etc/passwd` parsed read-only; account
+  creation/deletion execs the system user CLI as root with absolute
+  trusted paths and argv only.
+- Group-membership tooling is selected at runtime: `usermod` (shadow)
+  first, then `addgroup`/`delgroup` (Alpine/BusyBox), then `gpasswd`
+  (minimal shadow). No distro is assumed at build time.
+- Passwords are hashed in-process (crypt SHA-512 via `pwhash`) and
+  written atomically into `/etc/shadow` (tmp + rename, original
+  owner/group/mode preserved).
 
 ## API surface
 
 | Action | Implementation |
 |---|---|
-| `users.list` | accountsservice ListCachedUsers + properties (uid, real name, shell, home) |
-| `users.create` | accountsservice CreateUser(name, fullname, accountType) then SetPassword("!") to create the account locked; the GUI sets a real password separately |
-| `users.delete` | accountsservice DeleteUser(uid, removeFiles bool) — CONFIRMATION in GUI |
-| `users.setPassword` | accountsservice SetPassword (hashed) |
+| `users.list` | parse `/etc/passwd` (uid 1000..60000) + supplementary memberships from `/etc/group` |
+| `users.create` | `useradd -m -d /home/<n> -c <fullname> -s /bin/sh -U <n>` (BusyBox `adduser -D -g … -s … -h …` fallback) — account is created locked; the GUI sets a real password separately |
+| `users.delete` | `userdel [-r] <name>` (BusyBox `deluser [-r]` fallback), name resolved from uid via `/etc/passwd` — CONFIRMATION in GUI |
+| `users.setPassword` | write the computed hash into the account's `/etc/shadow` field directly (atomic tmp + rename, owner/group/mode preserved) |
 | `users.setGroups` | runtime tool: `usermod -G ...`, `addgroup`/`delgroup` diff, or `gpasswd -a/-d` (validated group names, argv items) |
 | `users.groups.list` | parse `/etc/group` read-only |
 
@@ -35,31 +46,35 @@ cargo test -p ursine-core users
 
 ```text
 src/ursine-core/src/modules/users/
-├─ mod.rs        action handlers
-├─ accounts.rs   zbus proxy for org.freedesktop.Accounts
+├─ mod.rs        action handlers (backup account files before mutations)
+├─ accounts.rs   /etc/passwd reader + useradd/userdel exec + /etc/shadow write
 └─ groups.rs     /etc/group reader + usermod exec wrapper
 ```
 
 ## Code Style
 
 ```rust
-let accounts = AccountsProxy::new(&conn).await?;
-accounts.create_user(&name, &fullname, account_type).await?;
-accounts.set_password(&user_path, &hashed).await?;
+accounts::create(&name, &fullname).await?;          // useradd / adduser
+accounts::set_password(uid, &hashed)?;             // direct shadow write
+groups::set_groups(&user.name, &new_groups).await?; // usermod / addgroup
 ```
 
 - Passwords: received in request, hashed immediately (crypt SHA-512 via `pwhash` crate), never stored, never logged, never in audit (audit records "password set for uid X", no value)
+- Before every mutation the account files (`/etc/passwd`, `/etc/shadow`, `/etc/group`, `/etc/gshadow`) rotate through the uniform `backup_configs` slots
 
 ## Testing Strategy
 
-- Unit: /etc/group parser fixtures; input validation (username rules reused from FeralOS installer validators: `[a-z_][a-z0-9_-]*`)
-- Integration (`#[ignore]`, needs accountsservice running): create/modify/delete a throwaway user in a container with accountsservice
+- Unit: `/etc/passwd` + `/etc/group` parser fixtures; shadow field
+  replacement; input validation (username rules reused from FeralOS
+  installer validators: `[a-z_][a-z0-9_-]*`)
+- Integration: create/delete a throwaway user in a container (system
+  user CLI present; no daemon bus required)
 
 ## Boundaries
 
-- Always: `ensure_available(accountsservice)`; validation before D-Bus; audit create/delete/setPassword/setGroups (without secrets); confirmation for delete
-- Ask first: any direct /etc/passwd or /etc/shadow write (forbidden v1); adding user-session settings (avatars etc.)
-- Never: plaintext passwords beyond request lifetime; deleting uid < 1000 (system users); modifying the invoking principal's own admin group without a second confirmation
+- Always: `ensure_available(shadow)`; validation before exec; audit create/delete/setPassword/setGroups (without secrets); confirmation for delete
+- The ONLY allowed `/etc/shadow` access is the atomic hash replacement in `set_password` (invariant 3 permits direct file edits; this is the Webmin path)
+- Never: plaintext passwords beyond request lifetime; deleting uid < 1000 (system users); modifying the invoking principal's own admin group without a second confirmation; any D-Bus call
 
 ## Success Criteria
 

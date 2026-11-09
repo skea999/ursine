@@ -33,8 +33,8 @@ pub enum Capability {
     Bluez,
     /// `NetworkManager` is available.
     NetworkManager,
-    /// org.freedesktop.Accounts reachable on D-Bus.
-    Accountsservice,
+    /// User-management CLI present (shadow `useradd` or `BusyBox` `adduser`).
+    Shadow,
     /// niri binary + user config present.
     Niri,
     /// PID 1 is dinit.
@@ -61,7 +61,7 @@ impl Capability {
         Self::Udisks2,
         Self::Bluez,
         Self::NetworkManager,
-        Self::Accountsservice,
+        Self::Shadow,
         Self::Niri,
         Self::Dinit,
         Self::Theming,
@@ -82,7 +82,7 @@ impl Capability {
             Self::Udisks2 => "udisks2",
             Self::Bluez => "bluez",
             Self::NetworkManager => "network_manager",
-            Self::Accountsservice => "accountsservice",
+            Self::Shadow => "shadow",
             Self::Niri => "niri",
             Self::Dinit => "dinit",
             Self::Theming => "theming",
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn all_capabilities_are_listed_once() {
-        assert_eq!(Capability::ALL.len(), 17);
+        assert_eq!(Capability::ALL.len(), 17); // count unchanged: renamed in place
         assert!(Capability::ALL.contains(&Capability::Apk));
         assert!(Capability::ALL.contains(&Capability::Flatpak));
         assert!(Capability::ALL.contains(&Capability::Theming));

@@ -1,4 +1,5 @@
-//! users — accountsservice D-Bus plus root `usermod` for groups.
+//! users — system account files + user CLIs (Webmin pattern: no D-Bus)
+//! plus root `usermod` for groups.
 
 mod accounts;
 mod groups;
@@ -9,7 +10,7 @@ use ursine_api::{Action, ApiError};
 use super::ModuleCtx;
 
 pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
-    // The account files are rewritten by accountsservice/usermod CLIs, not
+    // The account files are rewritten by the user CLIs, not
     // by us: rotate them first so every membership/password change keeps
     // three previous versions (uniform slot backups). A failure part-way
     // through the four rotations leaves earlier files rotated and later
@@ -26,7 +27,12 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         Ok::<(), ApiError>(())
     };
     match action {
-        Action::ListUsers => Ok(json!({ "users": accounts::list().await? })),
+        Action::ListUsers => {
+            let users = tokio::task::spawn_blocking(accounts::list)
+                .await
+                .map_err(|e| ApiError::internal(format!("users task failed: {e}")))??;
+            Ok(json!({ "users": users }))
+        }
         Action::CreateUser {
             name,
             fullname,
@@ -39,7 +45,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             }
             // Locked password; the GUI sets it explicitly after creation.
             backup_accounts().await?;
-            accounts::create(name, fullname, *admin, "!").await?;
+            accounts::create(name, fullname).await?;
             if *admin {
                 groups::add_group(name, "wheel").await?;
             }
@@ -68,7 +74,10 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             .map_err(|_| ApiError::internal("password hashing task failed"))?
             .map_err(|_| ApiError::internal("password hashing failed"))?;
             backup_accounts().await?;
-            accounts::set_password(*uid, &hashed).await?;
+            let uid = *uid;
+            tokio::task::spawn_blocking(move || accounts::set_password(uid, &hashed))
+                .await
+                .map_err(|e| ApiError::internal(format!("password task failed: {e}")))??;
             Ok(json!({"password_set": uid}))
         }
         Action::ListGroups => Ok(json!({"groups": groups::list_groups()?})),
@@ -77,8 +86,9 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             groups: new_groups,
         } => {
             reject_system_uid(*uid)?;
-            let user = accounts::list()
-                .await?
+            let user = tokio::task::spawn_blocking(accounts::list)
+                .await
+                .map_err(|e| ApiError::internal(format!("users task failed: {e}")))??
                 .into_iter()
                 .find(|user| user.uid == *uid)
                 .ok_or_else(|| ApiError::new(ursine_api::ErrorCode::NotFound, "user not found"))?;

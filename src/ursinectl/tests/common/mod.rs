@@ -609,13 +609,6 @@ pub const SAMPLES: &[Sample] = &[
     },
     Sample {
         module: ursine_api::ModuleId::Bluetooth,
-        action: "set_bluetooth_pairing_pin",
-        pairs: &[("pin", "1234")],
-        destructive: false,
-        dispatch: Dispatch::Gate,
-    },
-    Sample {
-        module: ursine_api::ModuleId::Bluetooth,
         action: "bluetooth_action",
         pairs: &[("address", "AA:BB:CC:DD:EE:FF"), ("op", "pair")],
         destructive: false,
@@ -827,48 +820,55 @@ pub const SAMPLES: &[Sample] = &[
         destructive: true,
         dispatch: Dispatch::Gate,
     },
-    // -- users (accountsservice absent → gate) --
+    // -- users (the shadow/useradd or BusyBox adduser CLI is present in
+    // the CI image, so the capability gate passes; the list is empty
+    // because the container has no uid >= 1000 login users) --
     Sample {
         module: ursine_api::ModuleId::Users,
         action: "list_users",
         pairs: &[],
         destructive: false,
-        dispatch: Dispatch::Gate,
+        dispatch: Dispatch::Ok,
     },
     Sample {
         module: ursine_api::ModuleId::Users,
         action: "create_user",
         pairs: &[("name", "t"), ("fullname", "Test"), ("admin", "false")],
         destructive: false,
-        dispatch: Dispatch::Gate,
+        // Runs the real useradd when the gate passes (the tool is present
+        // in the CI image): skip, the account logic is unit-tested.
+        dispatch: Dispatch::Skip,
     },
     Sample {
         module: ursine_api::ModuleId::Users,
         action: "delete_user",
         pairs: &[("uid", "1000"), ("remove_files", "false")],
         destructive: true,
-        dispatch: Dispatch::Gate,
+        // Would really delete uid 1000 when the container has one.
+        dispatch: Dispatch::Skip,
     },
     Sample {
         module: ursine_api::ModuleId::Users,
         action: "set_password",
         pairs: &[("uid", "1000"), ("new_password", "-")],
         destructive: true,
-        dispatch: Dispatch::Gate,
+        // Writes /etc/shadow for a real uid when present.
+        dispatch: Dispatch::Skip,
     },
     Sample {
         module: ursine_api::ModuleId::Users,
         action: "list_groups",
         pairs: &[],
         destructive: false,
-        dispatch: Dispatch::Gate,
+        dispatch: Dispatch::Ok,
     },
     Sample {
         module: ursine_api::ModuleId::Users,
         action: "set_groups",
         pairs: &[("uid", "1000"), ("groups", "[\"wheel\"]")],
         destructive: false,
-        dispatch: Dispatch::Gate,
+        // Would really rewrite group membership when the uid exists.
+        dispatch: Dispatch::Skip,
     },
     // -- niri (absent → gate) --
     Sample {
@@ -1054,7 +1054,6 @@ pub const ALL_ACTIONS: &[&str] = &[
     "restore_snapshot",
     "rollback",
     "scan_bluetooth",
-    "set_bluetooth_pairing_pin",
     "search",
     "search_apk",
     "search_flatpak",

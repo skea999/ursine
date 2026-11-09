@@ -1,4 +1,4 @@
-//! Users screen: accountsservice listing and root group/password actions.
+//! Users screen: passwd listing and root group/password actions.
 
 use cosmic::iced::Length;
 use cosmic::widget::{button, column, row, scrollable, settings, text, text_input, toggler};

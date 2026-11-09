@@ -22,7 +22,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 getrandom.workspace = true
-zbus.workspace = true
 pwhash.workspace = true
 kdl.workspace = true
 regex.workspace = true

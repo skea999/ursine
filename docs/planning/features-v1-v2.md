@@ -70,7 +70,7 @@ Rules applied to every feature:
 - Delete all snapshots for selected sources.
 - Capability gate: btrbk + btrfs.
 
-### users (accountsservice)
+### users (passwd/shadow + user CLI, no D-Bus — decision 2026-11-09)
 
 - List human users with UID, name, full name, shell, home, groups.
 - Create locked user.

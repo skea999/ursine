@@ -25,7 +25,6 @@ pub(super) const BEGIN: &str = "#ursine-theme begin";
 pub(super) const END: &str = "#ursine-theme end";
 
 pub(super) fn run_blocking(
-    user: &str,
     home: &Path,
     uid: u32,
     gid: u32,
@@ -39,16 +38,10 @@ pub(super) fn run_blocking(
         )
     })?;
     let snapshot = snapshot_for(source, home)?;
-    // ONE dconf rotation per apply: the session targets (GTK button
-    // layout, eog) rewrite the same `~/.config/dconf/user` through
-    // gsettings — rotating per target would evict the pre-apply state
-    // within a single apply. Missing file (fresh session) → no-op.
-    crate::backup_configs::rotate(&home.join(".config/dconf/user"), copies, Some((uid, gid)))?;
     let statuses = target_statuses(home);
     let mut results = Vec::with_capacity(statuses.len());
     for status in &statuses {
         results.push(write_target(
-            user,
             status,
             home,
             uid,
@@ -72,7 +65,6 @@ pub(super) enum Applied {
 
 #[allow(clippy::too_many_arguments)] // one routing helper per target
 fn write_target(
-    user: &str,
     status: &TargetStatus,
     home: &Path,
     uid: u32,
@@ -91,12 +83,8 @@ fn write_target(
         };
     }
     let outcome = match target {
-        ThemingTarget::Gtk3 => {
-            gtk_settings(user, home, uid, gid, show_minimize, snap, "gtk-3.0", copies)
-        }
-        ThemingTarget::Gtk4 => {
-            gtk_settings(user, home, uid, gid, show_minimize, snap, "gtk-4.0", copies)
-        }
+        ThemingTarget::Gtk3 => gtk_settings(home, uid, gid, show_minimize, snap, "gtk-3.0", copies),
+        ThemingTarget::Gtk4 => gtk_settings(home, uid, gid, show_minimize, snap, "gtk-4.0", copies),
         ThemingTarget::Gtk2 => gtk2(home, uid, gid, snap, copies),
         ThemingTarget::Qt5 => qtct(home, uid, gid, snap, "qt5ct", copies),
         ThemingTarget::Qt6 => qtct(home, uid, gid, snap, "qt6ct", copies),
@@ -117,7 +105,6 @@ fn write_target(
         | ThemingTarget::Wezterm
         | ThemingTarget::Cava
         | ThemingTarget::Galculator => apps::write_target(target, home, uid, gid, snap, copies),
-        ThemingTarget::Eog => Ok(eog_view_background(user, uid, &snap.colors.background)),
     };
     match outcome {
         Ok(Applied::Wrote(detail)) => TargetResult {
@@ -143,7 +130,6 @@ fn write_target(
 /// clobbered — no matter which source won.
 #[allow(clippy::too_many_arguments)] // follows the shared target signature
 fn gtk_settings(
-    user: &str,
     home: &Path,
     uid: u32,
     gid: u32,
@@ -217,60 +203,7 @@ fn gtk_settings(
     };
     write_owned(home, &css_path, css_body.as_bytes(), uid, gid, copies)?;
     give_away(&css_path, uid, gid).ok();
-    // The live session value (dconf -> settings portal -> GtkSettings)
-    // overrides settings.ini on GNOME sessions: mirror the trio into
-    // button-layout as well, through the user's session bus.
-    let gnote = apply_session_button_layout(user, uid, show_minimize);
-    Ok(Applied::Wrote(format!("{note}; {gnote}")))
-}
-
-/// Run one fixed shell script as the target user on the session bus.
-fn run_session_script(user: &str, script: &str) -> Result<(), ApiError> {
-    let Ok(handle) = tokio::runtime::Handle::try_current() else {
-        return Err(ApiError::internal("no runtime"));
-    };
-    handle
-        .block_on(crate::modules::packages_nix::exec::run_as_user_script(
-            user,
-            script,
-            std::time::Duration::from_secs(10),
-        ))
-        .map(|_| ())
-}
-
-/// eog paints its image canvas from its own `GSettings` key (not the GTK
-/// theme): mirror the palette background into it (soft — schema may be
-/// absent, e.g. flatpak-only installs).
-fn eog_view_background(user: &str, uid: u32, background: &str) -> Applied {
-    let script = format!(
-        "export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus; export XDG_RUNTIME_DIR=/run/user/{uid}; gsettings set org.gnome.eog.view background-color \"{background}\" || true"
-    );
-    match run_session_script(user, &script) {
-        Ok(()) => Applied::Wrote("eog view background set".to_string()),
-        Err(error) => Applied::Kept(format!("eog gsettings skipped ({})", error.message)),
-    }
-}
-
-/// Best-effort live update of the session's `button-layout` (what the
-/// settings portal serves to GTK). Failures fall back to settings.ini only.
-fn apply_session_button_layout(user: &str, uid: u32, show_minimize: bool) -> String {
-    let script = gsettings_script(uid, show_minimize);
-    match run_session_script(user, &script) {
-        Ok(()) => "gsettings button-layout updated".to_string(),
-        Err(error) => format!("gsettings skipped ({})", error.message),
-    }
-}
-
-/// Shell one-liner (no quotes/newlines: `run_as_user_script` contract).
-fn gsettings_script(uid: u32, show_minimize: bool) -> String {
-    let layout = if show_minimize {
-        ":minimize,maximize,close"
-    } else {
-        ":maximize,close"
-    };
-    format!(
-        "export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus; export XDG_RUNTIME_DIR=/run/user/{uid}; gsettings set org.gnome.desktop.wm.preferences button-layout {layout}; gsettings set org.gnome.desktop.interface gtk-decoration-layout {layout} || true"
-    )
+    Ok(Applied::Wrote(note))
 }
 
 /// Point size for propagated fonts: scaled 11pt, clamped to sane bounds.
@@ -795,7 +728,6 @@ mod tests {
         let home = temp_home("gtk");
         let detail = wrote(
             gtk_settings(
-                "u",
                 &home,
                 0,
                 0,
@@ -825,7 +757,6 @@ mod tests {
         // GTK4/libadwaita directory gets the element selector instead.
         wrote(
             gtk_settings(
-                "u",
                 &home,
                 0,
                 0,
@@ -857,17 +788,7 @@ mod tests {
         // DMS-style symlink pointing at its palette file.
         std::os::unix::fs::symlink("dank-colors.css", dir.join("gtk.css")).unwrap();
         let detail = wrote(
-            gtk_settings(
-                "u",
-                &home,
-                0,
-                0,
-                true,
-                &snapshot(ThemeSource::Dms),
-                "gtk-3.0",
-                3,
-            )
-            .unwrap(),
+            gtk_settings(&home, 0, 0, true, &snapshot(ThemeSource::Dms), "gtk-3.0", 3).unwrap(),
         );
         assert!(detail.contains("imports shell palette"), "{detail}");
         // The shell file itself is never rewritten…
@@ -968,20 +889,13 @@ mod tests {
 
     #[test]
     fn minimize_toggle_switches_layout_and_kde_buttons() {
-        // On: classic trio everywhere.
-        let on = gsettings_script(1000, true);
-        assert!(on.contains(":minimize,maximize,close"));
-        // Off: minimize dropped from GTK, live key and kwin letters.
-        let off = gsettings_script(1000, false);
-        assert!(off.contains(":maximize,close"));
-        assert!(!off.contains("minimize"));
+        // Off: minimize dropped from GTK settings.ini and kwin letters.
         let home = temp_home("min-off");
         kde(&home, 0, 0, false, &snapshot(ThemeSource::Dms), 3).unwrap();
         let globals = std::fs::read_to_string(home.join(".config/kdeglobals")).unwrap();
         assert!(globals.contains("ButtonsOnRight=AX"), "{globals}");
         assert!(!globals.contains("IAX"), "{globals}");
         gtk_settings(
-            "u",
             &home,
             0,
             0,
@@ -998,40 +912,9 @@ mod tests {
     }
 
     #[test]
-    fn eog_target_sets_view_background_and_degrades_softly() {
-        // Outside a tokio runtime (unit test) the session runner reports
-        // soft-skip instead of failing the target.
-        let applied = eog_view_background("u", 1000, "#10140f");
-        match applied {
-            Applied::Kept(detail) => assert!(detail.contains("eog gsettings skipped"), "{detail}"),
-            Applied::Wrote(detail) => assert!(detail.contains("view background"), "{detail}"),
-        }
-        // The script itself must survive the no-single-quote contract and
-        // quote the hex (a bare # would start a shell comment).
-        let script = format!(
-            "export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus; export XDG_RUNTIME_DIR=/run/user/{uid}; gsettings set org.gnome.eog.view background-color \"{bg}\" || true",
-            uid = 1000,
-            bg = "#10140f"
-        );
-        assert!(!script.contains('\''));
-        assert!(script.contains("background-color \"#10140f\""));
-    }
-
-    #[test]
-    fn gsettings_script_targets_the_user_bus_and_both_keys() {
-        let script = gsettings_script(1000, true);
-        assert!(script.contains("unix:path=/run/user/1000/bus"));
-        assert!(script
-            .contains("org.gnome.desktop.wm.preferences button-layout :minimize,maximize,close"));
-        assert!(script.contains("gtk-decoration-layout :minimize,maximize,close"));
-        assert!(!script.contains('\'') && !script.contains('\n'));
-    }
-
-    #[test]
     fn portal_target_reports_derivation_not_a_write() {
         let status = TargetStatus::available(ThemingTarget::Portal, "portal");
         let result = write_target(
-            "u",
             &status,
             Path::new("/nonexistent"),
             0,
@@ -1049,7 +932,6 @@ mod tests {
     fn unavailable_targets_are_skipped_with_detail() {
         let status = TargetStatus::unavailable(ThemingTarget::Kde, "KDE tools not installed");
         let result = write_target(
-            "u",
             &status,
             Path::new("."),
             0,

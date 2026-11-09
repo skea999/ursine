@@ -1,7 +1,8 @@
 //! Individual capability checks and their UI hints.
 //!
-//! Cheap probes only: `stat` and tiny reads. Anything expensive is deferred
-//! to a later milestone (D-Bus name probing lands with the users module).
+//! Cheap probes only: `stat` and tiny reads. Every check names the exact
+//! CLI its module runs (no D-Bus probing — invariant 3) and every hint is
+//! the install command for that binary.
 
 use std::path::{Path, PathBuf};
 
@@ -76,21 +77,32 @@ pub fn check_capability(sys: &dyn Sysinfo, cap: Capability) -> bool {
                 || sys.read_trimmed(Path::new("/proc/1/comm")).as_deref() == Some("openrc-init")
         }
         Capability::Udisks2 => {
+            // The disks module runs all three: lsblk (list), udisksctl
+            // (info/mount), parted (partition/format).
             (sys.cmd_in_path("lsblk") || sys.path_exists(Path::new("/usr/bin/lsblk")))
                 && (sys.cmd_in_path("udisksctl")
                     || sys.path_exists(Path::new("/usr/bin/udisksctl")))
+                && (sys.cmd_in_path("parted")
+                    || sys.path_exists(Path::new("/usr/sbin/parted"))
+                    || sys.path_exists(Path::new("/usr/bin/parted")))
         }
         Capability::Bluez => {
-            (sys.cmd_in_path("bluetoothctl") || sys.path_exists(Path::new("/usr/bin/bluetoothctl")))
-                && sys.path_exists(Path::new("/run/dbus/system_bus_socket"))
+            sys.cmd_in_path("bluetoothctl") || sys.path_exists(Path::new("/usr/bin/bluetoothctl"))
         }
         Capability::NetworkManager => {
-            (sys.cmd_in_path("nmcli") || sys.path_exists(Path::new("/usr/bin/nmcli")))
-                && sys.path_exists(Path::new("/run/dbus/system_bus_socket"))
+            sys.cmd_in_path("nmcli") || sys.path_exists(Path::new("/usr/bin/nmcli"))
         }
-        // Proxy for "D-Bus system bus is up"; the real name probe arrives with
-        // the users module (zbus).
-        Capability::Accountsservice => sys.path_exists(Path::new("/run/dbus/system_bus_socket")),
+        // The module runs `useradd`/`userdel` (shadow) with BusyBox
+        // `adduser`/`deluser` as the fallback — same candidate paths
+        // accounts.rs probes (keep the two in lockstep).
+        Capability::Shadow => ["useradd", "adduser"].iter().any(|cmd| {
+            if sys.cmd_in_path(cmd) {
+                return true;
+            }
+            ["/usr/sbin", "/sbin", "/usr/bin"]
+                .iter()
+                .any(|dir| sys.path_exists(&Path::new(dir).join(cmd)))
+        }),
         Capability::Niri => sys.cmd_in_path("niri"),
         Capability::Dinit => {
             sys.read_trimmed(Path::new("/proc/1/comm")).as_deref() == Some("dinit")
@@ -147,7 +159,10 @@ pub fn hints(cap: Capability) -> (&'static str, &'static str) {
             "apk add firewalld && rc-service firewalld start",
         ),
         Capability::OpenRc => ("OpenRC is not available", "boot an OpenRC system"),
-        Capability::Udisks2 => ("UDisks2 is not available", "apk add udisks2 util-linux"),
+        Capability::Udisks2 => (
+            "lsblk/udisksctl/parted not all installed",
+            "apk add util-linux udisks2 parted",
+        ),
         Capability::Bluez => (
             "BlueZ is not available",
             "apk add bluez && rc-service bluetooth start",
@@ -156,7 +171,7 @@ pub fn hints(cap: Capability) -> (&'static str, &'static str) {
             "NetworkManager is not available",
             "apk add networkmanager && rc-service networkmanager start",
         ),
-        Capability::Accountsservice => ("system D-Bus is not available", "start dbus"),
+        Capability::Shadow => ("user CLI not found", "apk add shadow"),
         Capability::Niri => ("niri not installed", "apk add niri"),
         Capability::Dinit => ("PID 1 is not dinit", "boot with dinit (OpenRC fallback)"),
         Capability::Theming => (

@@ -28,7 +28,7 @@ Standalone tools exist (system-config-printer, blueman, nm-applet, firewalld-gui
 
 Single backend, thin frontends:
 
-- `ursined` — root daemon, dinit service. Owns ALL logic: modules for packages (apk/flatpak/nix), users (accountsservice), snapshots (btrfs/btrbk), niri config, capabilities detection. Stateless: the system itself is the database.
+- `ursined` — root daemon, dinit service. Owns ALL logic: modules for packages (apk/flatpak/nix), users (passwd/shadow + user CLI), snapshots (btrfs/btrbk), niri config, capabilities detection. Stateless: the system itself is the database.
 - `ursine` — native GUI (**libcosmic**, COSMIC toolkit based on iced — Rust UI), thin API client. Security decision 2026-10-19 over visual coherence with the GTK Wayle shell.
 - `ursine-web` — web frontend served by the daemon itself; talks the same API. PAM login today, OIDC later. Stack TBD in v3; **must be memory-safe** (`docs/specs/SPEC-web.md`).
 - `ursine-api` / `ursine-core` — shared crates: API types + module implementations.

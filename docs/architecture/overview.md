@@ -27,6 +27,8 @@ Why one repo: `ursine-api` types change atomically with daemon and GUI; one Carg
 
 No polkit. The polkit/JS-rule machinery was rejected as over-engineering for software where the daemon, GUI and rules are all ours. polkit stays installed on desktops for third-party tools (NetworkManager, fwupd, cups-pk-helper use it independently); Ursine does not touch it.
 
+No D-Bus either (decision 2026-11-09). Ursine never opens a bus connection, never depends on `zbus` directly (libcosmic still pulls it transitively — documented in `docs/static-analysis-exceptions.md`), and never runs session-bus tools like `gsettings` — the same "fewest components" reasoning that rejected polkit: we are the GUI over the system's own commands and files. The reference is **Webmin**: it administers Unix by parsing and rewriting `/etc/passwd`, `/etc/shadow` and `/etc/group` directly and by calling system CLIs, with no bus and no agent framework. System CLIs we call (`nmcli`, `bluetoothctl`, `firewall-cmd`, `useradd`) may use D-Bus internally; that is their component, never ours.
+
 ```text
 Desktop GUI: connect unix socket → prompt password ONCE per session
              → daemon verifies via PAM (service /etc/pam.d/ursine, pam_unix)
@@ -54,7 +56,7 @@ The system IS the database. The daemon is stateless:
 | apk packages | apk's own db |
 | flatpak | its own repo |
 | nix | /nix/store + per-user profiles |
-| users | shadow/accountsservice |
+| users | passwd/shadow + useradd CLI (Webmin pattern) |
 | snapshots | btrfs subvolumes |
 | audit | JSONL append-only + logrotate (both already in FeralOS base) |
 | session tokens | daemon RAM |
@@ -126,7 +128,7 @@ GitHub CI (`.github/workflows/ci.yml`, to be created at v0.1) — **all jobs in 
 | packages.flatpak | flatpak | --user via asUser, --system root |
 | packages.nix | nix | profiles per asUser; flagship (no GUI exists anywhere) |
 | snapshots | btrfs/btrbk | store owns snapshots: manual + auto pre-update; settings panel dropped (single owner avoids duplication) |
-| users | accountsservice D-Bus | installed already (greetd/regreet) |
+| users | passwd/shadow + useradd CLI | shadow provides useradd; BusyBox adduser fallback |
 | niri | config.kdl editor | validate via `niri validate` live; nothing like it exists |
 | capabilities | internal | feeds GUI panel gating |
 

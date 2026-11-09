@@ -34,7 +34,7 @@ pub enum ModuleId {
     Network,
     /// btrbk snapshot management.
     Snapshots,
-    /// Users and groups via accountsservice.
+    /// Users and groups via the system user CLI + account files.
     Users,
     /// niri compositor configuration.
     Niri,

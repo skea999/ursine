@@ -15,7 +15,7 @@ Runtime detection of what the machine supports: a `Capabilities` registry built 
 | `btrbk` | `/usr/bin/btrbk` exists |
 | `btrfs` | `/sys/fs/btrfs` present AND `btrfs filesystem show` exit 0 (cached per refresh) |
 | `nix` | `/nix/store` exists AND `nix` in PATH |
-| `accountsservice` | D-Bus name `org.freedesktop.Accounts` reachable |
+| `shadow` | user CLI present (`useradd` from shadow, or BusyBox `adduser`) |
 | `niri` | `niri` binary AND `$XDG_CONFIG_HOME/niri` or `~/.config/niri` present |
 | `cups` (v2) | D-Bus/IPP reachable |
 | `openrc` | `/run/openrc` exists or PID 1 is `openrc-init` (tooling alone is not enough) |

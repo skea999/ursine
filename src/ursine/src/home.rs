@@ -113,7 +113,7 @@ const MODULES: &[ModuleEntry] = &[
     ModuleEntry {
         title: "Users",
         module: Some(ModuleId::Users),
-        requires: &[Capability::Accountsservice],
+        requires: &[Capability::Shadow],
         any: false,
         panel: Some(Panel::Users),
     },
@@ -209,9 +209,10 @@ impl HomeState {
                         format!("{}: available", required.as_str())
                     }
                     Some(report) => format!(
-                        "{}: {}",
+                        "{}: {} — {}",
                         required.as_str(),
-                        report.reason.as_deref().unwrap_or("unavailable")
+                        report.reason.as_deref().unwrap_or("unavailable"),
+                        report.fix.as_deref().unwrap_or("see docs")
                     ),
                     None => format!("{}: unknown", required.as_str()),
                 };

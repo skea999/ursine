@@ -16,7 +16,10 @@ use crate::token::SessionToken;
 /// mutation output.
 /// v4: `list_apk_repositories` rows are `{url, tag}` objects (was a list
 /// of raw strings).
-pub const PROTOCOL_VERSION: u16 = 4;
+/// v5: no D-Bus — `set_bluetooth_pairing_pin` removed (pairing is
+/// bluetoothctl's own agent), `BluetoothView.pairing_pin_set` removed,
+/// capability `accountsservice` renamed to `shadow` (user CLI probe).
+pub const PROTOCOL_VERSION: u16 = 5;
 
 const fn wire_version() -> u16 {
     PROTOCOL_VERSION

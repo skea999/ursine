@@ -12,7 +12,7 @@ Gate: skea999 approves module boundaries, dependency direction and build order B
 | `capabilities` | runtime detection (stat/proc checks), `ensure_available()` per action, `capabilities.refresh` + `config.init` APIs | `daemon-core` |
 | `packages-nix` | nix module: list installed (per-user profiles), install, remove, search, upgrade — via `nix profile` executed as `asUser` | `daemon-core`, `capabilities` |
 | `snapshots` | btrbk integration module: expose btrbk's own functionality (list, run, stats, restore, retention) against its config; automatic pre-update `btrbk run` hook. Never reimplement snapshot logic | `daemon-core`, `capabilities` |
-| `users` | users module via accountsservice D-Bus: list, create, modify, delete users; group membership | `daemon-core`, `capabilities` |
+| `users` | users module via account files + user CLI (no D-Bus): list, create, modify, delete users; group membership | `daemon-core`, `capabilities` |
 | `niri-editor` | niri module: schema-driven FORMS for every niri config option (user selects, never types raw KDL); keybind capture UI; unknown KDL nodes preserved verbatim; atomic write + `.bak` backup; live `niri validate` | `daemon-core`, `capabilities` |
 | `gui` | `ursine` via **libcosmic** (COSMIC toolkit, iced-based, pinned rev): login (PAM prompt), navigation shell, nix store view, snapshots panel, users panel, niri forms, capability-gated panels, `config.init` button. Thin API client, zero logic | `protocol` (client of `daemon-core`) |
 | `packaging-infra` | `flake.nix` (musl static), `.github/workflows/ci.yml` (feature test matrix — every feature combination THAT EXISTS, clippy/fmt gate, flake check/build, Release on tag), Docker Alpine local build docs, dinit service file | all (written last, kept green) |

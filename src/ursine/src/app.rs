@@ -204,9 +204,6 @@ pub enum Message {
     BluetoothPower(bool),
     BluetoothScan,
     BluetoothAction(String, ursine_api::BluetoothOp),
-    BluetoothPinChanged(String),
-    BluetoothPinSet,
-    BluetoothPinClear,
     BluetoothActionFinished(u64, String, Result<ursine_api::BluetoothView, ApiError>),
     RefreshDisks,
     DisksLoaded(u64, Result<ursine_api::DiskView, ApiError>),
@@ -878,26 +875,6 @@ impl cosmic::Application for App {
             }
             Message::BluetoothScan => {
                 return self.bluetooth_action("scan", client::bluetooth_scan(self.token()))
-            }
-            Message::BluetoothPinChanged(value) => self.bluetooth.pin_input = value,
-            Message::BluetoothPinSet => {
-                let pin = self.bluetooth.pin_input.trim().to_string();
-                if pin.is_empty() {
-                    self.bluetooth.error = Some("Enter a PIN first.".into());
-                } else {
-                    self.bluetooth.pin_input.clear();
-                    return self.bluetooth_action(
-                        "Pairing PIN set (RAM only, never logged).",
-                        client::bluetooth_set_pairing_pin(self.token(), Some(pin)),
-                    );
-                }
-            }
-            Message::BluetoothPinClear => {
-                self.bluetooth.pin_input.clear();
-                return self.bluetooth_action(
-                    "Pairing PIN cleared.",
-                    client::bluetooth_set_pairing_pin(self.token(), None),
-                );
             }
             Message::BluetoothAction(address, op) => {
                 return self.bluetooth_action(
@@ -3699,7 +3676,7 @@ impl App {
             Screen::Snapshots => {
                 self.cap_available(Capability::Btrbk) && self.cap_available(Capability::Btrfs)
             }
-            Screen::Users => self.cap_available(Capability::Accountsservice),
+            Screen::Users => self.cap_available(Capability::Shadow),
             Screen::Niri => self.cap_available(Capability::Niri),
             Screen::Printers => self.cap_available(Capability::Cups),
             Screen::Scanners => self.cap_available(Capability::Sane),

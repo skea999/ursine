@@ -75,7 +75,7 @@ MODULES (wire name; short alias in parentheses):
                       connect_network, disconnect_network, forget_network,
                       set_network_connection, set_network_ipv4
   bluetooth           get_bluetooth, set_bluetooth_power, scan_bluetooth,
-                      bluetooth_action, set_bluetooth_pairing_pin
+                      bluetooth_action
   disks               list_disks, mount_disk, unmount_disk,
                       format_disk, partition_create, partition_delete
   services            list_services, service_action

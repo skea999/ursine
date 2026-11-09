@@ -176,8 +176,13 @@ pub(super) fn parse_group_names(raw: &str) -> Vec<String> {
 pub(super) fn memberships(user: &str) -> Result<Vec<String>, ApiError> {
     let raw = std::fs::read_to_string("/etc/group")
         .map_err(|e| ApiError::internal(format!("read /etc/group: {e}")))?;
-    Ok(raw
-        .lines()
+    Ok(memberships_from(&raw, user))
+}
+
+/// Pure membership lookup against an already-read `/etc/group` dump
+/// (callers with many users read the file once).
+pub(super) fn memberships_from(raw: &str, user: &str) -> Vec<String> {
+    raw.lines()
         .filter_map(|line| {
             let mut fields = line.split(':');
             let group = fields.next()?;
@@ -189,7 +194,7 @@ pub(super) fn memberships(user: &str) -> Result<Vec<String>, ApiError> {
                 .any(|member| member == user)
                 .then(|| group.to_string())
         })
-        .collect())
+        .collect()
 }
 
 pub(super) fn list_groups() -> Result<Vec<String>, ApiError> {

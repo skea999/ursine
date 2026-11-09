@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **No D-Bus, ever** (invariant 3, Webmin pattern): Ursine no longer
+  links `zbus` or runs `gsettings`/session-bus tools. Users module
+  rewritten — list from `/etc/passwd` + `/etc/group`, create/delete
+  through `useradd`/`userdel` (BusyBox `adduser`/`deluser` fallback),
+  passwords written directly into `/etc/shadow` (atomic, owner/group/
+  mode preserved); capability `accountsservice` renamed to `shadow`
+  (probes the user CLI). Bluetooth loses its custom pairing agent:
+  `set_bluetooth_pairing_pin` and `BluetoothView.pairing_pin_set` are
+  removed — pairing is `bluetoothctl --agent NoInputNoOutput pair`
+  (bluetoothctl owns its agent). Theming stops writing dconf through
+  `gsettings`: the eog target and the live `button-layout` mirror are
+  removed (`settings.ini` remains the source of truth). Protocol
+  bumped to **v5** (breaking removals above).
+- Capabilities name the exact CLI their module runs: Disks now also
+  requires `parted` (`apk add util-linux udisks2 parted`), BlueZ and
+  NetworkManager probe the binary only (no D-Bus socket probes). The
+  Home screen prints each unavailable feature's fix command (e.g.
+  `apk add parted` on activated features).
+
 ### Added
 
 - `[backup_configs] copies = N` in `/etc/ursine/config.toml` (default 3,

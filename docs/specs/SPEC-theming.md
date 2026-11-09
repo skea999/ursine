@@ -91,7 +91,6 @@ directly creatable for an installed binary):
 | Terminals | **alacritty**: `alacritty.toml` `import = ["dank-theme.toml"]` (DMS file exists but is never imported — create the import; for wayle source write `[colors]` directly); **kitty** `include`; **ghostty** `theme`/colors; **foot** `include`; **wezterm** — same pattern | that terminal's config file/dir exists |
 | cava | `~/.config/cava/config` `[color]` / theme section | config exists |
 | galculator | `~/.config/galculator/galculator.conf` `[general]` display colors (`display_bkg_color`, result/stack/module colors) merged from the palette — its display ignores GTK theming | config file or binary present |
-| eog | `org.gnome.eog.view background-color` session gsettings (eog paints its canvas from its own key, not the GTK theme) | `/usr/bin/eog` or its desktop file |
 | Generic Electron | best-effort `electron-flags.conf` (`--gtk-version=4`) so Electron follows GTK; colors only via per-app settings when available | flags file writable / app present |
 | Everything else | covered by the toolkit layers above (GTK/Qt/KDE/portal/env) — nautilus, LibreOffice, KeepassXC, missioncenter, filezilla, remmina, eog, zim, galculator, simple-scan … | — |
 
@@ -127,7 +126,7 @@ Notes:
 - **GUI toggle**: the Theming section shows "Show minimize button"
   (checkbox); `theme_detect` reads the current state back from
   `settings.ini`, `theme_apply { show_minimize }` writes it into the GTK
-  layout, the live `button-layout` key and the kwin letters (`IAX`/`AX`).
+  layout and the kwin letters (`IAX`/`AX`) — file-based only; no live gsettings (invariant 3: no D-Bus).
 - **Grafica**: the wrapper carries the uniform control restyle (size,
   radius, palette alpha) in every case, and — decisive on GTK3 — the legacy
   `theme_*` aliases that map the shell's GTK4-style palette onto GTK3

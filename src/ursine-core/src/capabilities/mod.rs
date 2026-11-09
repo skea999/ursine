@@ -100,7 +100,7 @@ pub fn module_switch(modules: &ModulesConfig, cap: Capability) -> TriState {
         Capability::Udisks2 => modules.disks,
         Capability::Bluez => modules.bluetooth,
         Capability::NetworkManager => modules.network,
-        Capability::Accountsservice => modules.users,
+        Capability::Shadow => modules.users,
         Capability::Niri => modules.niri,
         Capability::Theming => modules.theming,
         Capability::Crontab => modules.crontab,
@@ -141,15 +141,20 @@ mod tests {
     #[test]
     fn detects_btrbk_and_nix() {
         let r = registry(Fake {
-            paths: vec!["/nix/store".into(), "/run/dbus/system_bus_socket".into()],
-            cmds: vec!["btrbk".into(), "nix".into(), "niri".into()],
+            paths: vec!["/nix/store".into()],
+            cmds: vec![
+                "btrbk".into(),
+                "nix".into(),
+                "niri".into(),
+                "useradd".into(),
+            ],
             proc1: Some("dinit".into()),
         });
         assert!(r.check(Capability::Btrbk));
         assert!(r.check(Capability::Nix));
         assert!(r.check(Capability::Niri));
         assert!(r.check(Capability::Dinit));
-        assert!(r.check(Capability::Accountsservice));
+        assert!(r.check(Capability::Shadow));
     }
 
     #[test]
