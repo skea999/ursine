@@ -6,6 +6,17 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-09 — Uniform backup rotation: `[backup_configs]` (main, commit `2fa4d0e`)
+
+**Status**: Pushed `13a6b4b..2fa4d0e`, CI `42599246428` watched (pending green at handoff). User request: ONE uniform backup mechanism for every config file, count from a settings file (`[backup_configs] copies = 3` in `/etc/ursine/config.toml`, clamp 1..=10, restart to apply), backups also for files changed via CLI (crontab named explicitly, theming confirmed).
+
+- New `ursine_core::backup_configs`: slot naming `<file>.ursine-backup[.N]`, rotate BEFORE live replace, rotation failure aborts the write (shell exit 42); legacy schemes (timestamped restore/scanner copies, dot-prefixed atomic slots, btrbk `.conf.bak`) pruned to the same cap. `rotate`/`rotate_async`/`rotate_move`/`rotate_store` + owner chown for user-home files; NotFound-tolerant shift (concurrent writers).
+- Direct writes covered: config.toml (governs its own backups), niri/apk/flatpak shell scripts (shared `ROTATE_FN`, behavioural sh test), theming `write_owned` chain (copies threaded end-to-end, owner-aware), COSMIC entries, dconf (rotated ONCE per apply), airscan.conf, btrbk.conf, snapshot restores (`rotate_move`; btrfs resolved before rotating; blocking-pool move; rollback errors surface the slot).
+- CLI-changed files rotated before the CLI runs: crontab → `/var/backups/ursine/crontab.<user>` (0600, fail-closed), nix registry JSON, flatpak `repo/config`, `/etc/apk/world` (add/del), `/etc/firewalld`, NM `system-connections`, `/etc/cups/printers.conf`, account files (passwd/shadow/group/gshadow). Excluded with rationale in SPEC-daemon-core: nix profile generations, flatpak/apk DBs, systemd symlinks, audit JSONL.
+- Reviews: 2 passes (2m+4l, then 1h+4m+5l) — all fixed; 1 scanners finding rejected (code already `symlink_metadata`). Gate: fmt/clippy/tests/static/docs/typos all PASS.
+- Env fix: host `git credential.helper` (libsecret) hangs after server restart → repo-local `credential.helper = !gh auth git-credential`.
+- VM smoke pending: rotate a config twice (verify slots), crontab set (check `/var/backups/ursine`), nix registry add/remove (check `~/.config/nix/registry.json.ursine-backup`), `[backup_configs] copies = 1` behavior.
+
 ## Session 2026-11-06 — Printers live job progress (main) — v2 CODE LIST CLOSED
 
 **Status**: DONE — `3fddaf0` CI-green. Printers screen subscribes to a 3 s tick while visible; the silent load path avoids the busy flicker, never clears a persistent error before the reply, and may overlap an in-flight read so a finished mutation's reload is never dropped (newer reply wins). Review: 3 medium fixed. TASKS Printers line ticked.
