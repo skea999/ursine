@@ -219,6 +219,23 @@ async fn root_manages_other_users_crontab_and_theming() {
             "adduser failed: {}",
             String::from_utf8_lossy(&out.stderr)
         );
+        // Confirm the entry is visible before any dispatch reads it.
+        for _ in 0..50 {
+            if Command::new("id")
+                .arg(FIXTURE)
+                .output()
+                .is_ok_and(|p| p.status.success())
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let check = Command::new("id").arg(FIXTURE).output().unwrap();
+        assert!(
+            check.status.success(),
+            "fixture not visible after adduser: {}",
+            String::from_utf8_lossy(&check.stderr)
+        );
     }
 
     // Plant a minimal DMS source in the FOREIGN home so detect/get/apply
@@ -245,8 +262,26 @@ async fn root_manages_other_users_crontab_and_theming() {
     let (daemon, token) = build();
     let target = Some(FIXTURE.to_string());
 
+    // Snapshot of the fixture's account state for failure diagnostics.
+    let fixture_state = || -> String {
+        let id = Command::new("id").arg(FIXTURE).output().ok();
+        let passwd = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
+        let line = passwd
+            .lines()
+            .find(|l| l.starts_with(&format!("{FIXTURE}:")))
+            .unwrap_or("<no passwd line>")
+            .to_string();
+        format!(
+            "id={}; passwd={line}",
+            id.map_or_else(
+                || "spawn-failed".into(),
+                |o| { format!("{} {}", o.status, String::from_utf8_lossy(&o.stdout).trim()) }
+            )
+        )
+    };
+
     // Theming resolves the FOREIGN home: detect → source found.
-    let status = ursinectl::call(
+    let status = match ursinectl::call(
         &daemon,
         &token,
         &root_peer(),
@@ -255,7 +290,10 @@ async fn root_manages_other_users_crontab_and_theming() {
         target.clone(),
     )
     .await
-    .unwrap();
+    {
+        Ok(value) => value,
+        Err(error) => panic!("ThemeDetect failed: {error:?}; {}", fixture_state()),
+    };
     assert_eq!(status["available"], true, "foreign DMS source: {status}");
     assert!(status["source"].is_string(), "{status}");
 
@@ -306,7 +344,12 @@ async fn root_manages_other_users_crontab_and_theming() {
         target,
     )
     .await
-    .expect("crontab -u must work for a fresh user");
+    .unwrap_or_else(|error| {
+        panic!(
+            "crontab -u must work for a fresh user: {error:?}; {}",
+            fixture_state()
+        )
+    });
     assert!(
         crontab["crontab"].is_null() || crontab["crontab"].is_string(),
         "{crontab}"
@@ -751,8 +794,15 @@ macro_rules! dispatch_per_module {
                     s.action,
                     "wire tag drift"
                 );
+                // Skip = NEVER executed: these samples would really mutate
+                // the system (and rewriting /etc/passwd mid-run raced the
+                // fixture's account reads).
+                if matches!(s.dispatch, common::Dispatch::Skip) {
+                    continue;
+                }
                 let result = call(&daemon, &token, $module, action).await;
                 match (&s.dispatch, result) {
+                    // Unreachable: Skip returned above (kept for exhaustiveness).
                     (common::Dispatch::Skip, _) => {}
                     (common::Dispatch::Ok, Ok(value)) => {
                         assert!(

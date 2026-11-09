@@ -50,7 +50,7 @@ fn required_caps(module: ModuleId) -> &'static [Capability] {
         ModuleId::Printers => &[Capability::Cups],
         ModuleId::Scanners => &[Capability::Sane],
         ModuleId::Firewall => &[Capability::Firewalld],
-        ModuleId::Disks => &[Capability::Udisks2],
+        ModuleId::Disks => &[Capability::Parted],
         ModuleId::Bluetooth => &[Capability::Bluez],
         ModuleId::Network => &[Capability::NetworkManager],
         ModuleId::Snapshots => &[Capability::Btrbk, Capability::Btrfs],

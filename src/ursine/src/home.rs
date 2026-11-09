@@ -85,7 +85,7 @@ const MODULES: &[ModuleEntry] = &[
     ModuleEntry {
         title: "Disks",
         module: Some(ModuleId::Disks),
-        requires: &[Capability::Udisks2],
+        requires: &[Capability::Parted],
         any: false,
         panel: Some(Panel::Disks),
     },

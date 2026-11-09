@@ -97,7 +97,7 @@ pub fn module_switch(modules: &ModulesConfig, cap: Capability) -> TriState {
         Capability::Sane => modules.scanners,
         Capability::Firewalld => modules.firewall,
         Capability::OpenRc | Capability::Dinit => modules.services,
-        Capability::Udisks2 => modules.disks,
+        Capability::Parted => modules.disks,
         Capability::Bluez => modules.bluetooth,
         Capability::NetworkManager => modules.network,
         Capability::Shadow => modules.users,

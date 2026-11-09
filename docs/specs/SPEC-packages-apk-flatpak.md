@@ -26,8 +26,8 @@ center as the Nix store. Both backends are capability-gated and audited.
 - Both remote mutations rotate the installation's `repo/config` first
   (uniform slots); `apk add`/`del` rotate `/etc/apk/world` first.
 | `list_flatpak_updates` | `flatpak remote-ls <scope> --app/--runtime --updates --columns=…` |
-| `get_flatpak_permissions` | read override keyfile + `flatpak info --show-permissions` |
-| `set_flatpak_permissions` | render override keyfile (four lists replaced, other keys/groups preserved) + atomic write |
+| `get_flatpak_permissions` | `flatpak override --show` + `flatpak info --show-permissions` |
+| `set_flatpak_permissions` | `flatpak override --show` → diff → one `flatpak override` invocation with only the changed flags (foreign keys/groups untouched); the override file rotates first |
 | `search_flatpak` | `flatpak search --columns=... --system/--user <query>` |
 | `install_flatpak` | `flatpak install -y --noninteractive <scope> <remote> <app>` (remote default `flathub`, validated) |
 | `get_flatpak_info` | `flatpak remote-info <scope> <remote> <app>` (name, version, sizes) |
@@ -52,8 +52,8 @@ center as the Nix store. Both backends are capability-gated and audited.
 - Audit uses the normal module/action path; no secrets are logged.
 - Override writes: ids pass the strict charset, paths are built from
   fixed prefixes, content is validated (tokens/filesystems/env), the
-  keyfile is written atomically with the uniform `.ursine-backup[.N]`
-  rotation (`backup_configs.copies`)
+  override file rotates through the uniform `.ursine-backup[.N]`
+  slots (`backup_configs.copies`) before the CLI rewrites it
   (max THREE copies), and every key
   outside the four edited lists is preserved (no `--reset`).
 
@@ -86,7 +86,7 @@ screen.
 ## Testing
 
 - Unit: APK package/query validation, Flatpak id validation, scope flags;
-  override keyfile parse/render round-trip (foreign groups preserved)
+  override diff: current vs wanted → exact flag list (foreign groups untouched)
   and permission-token validation in `modules/packages_flatpak/permissions.rs`.
 - `cargo test --workspace --all-features`.
 - VM smoke: get/set permissions on a real app, verify

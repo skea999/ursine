@@ -76,15 +76,13 @@ pub fn check_capability(sys: &dyn Sysinfo, cap: Capability) -> bool {
             sys.path_exists(Path::new("/run/openrc"))
                 || sys.read_trimmed(Path::new("/proc/1/comm")).as_deref() == Some("openrc-init")
         }
-        Capability::Udisks2 => {
-            // The disks module runs all three: lsblk (list), udisksctl
-            // (info/mount), parted (partition/format).
-            (sys.cmd_in_path("lsblk") || sys.path_exists(Path::new("/usr/bin/lsblk")))
-                && (sys.cmd_in_path("udisksctl")
-                    || sys.path_exists(Path::new("/usr/bin/udisksctl")))
-                && (sys.cmd_in_path("parted")
-                    || sys.path_exists(Path::new("/usr/sbin/parted"))
-                    || sys.path_exists(Path::new("/usr/bin/parted")))
+        // The disks module runs `parted` for partition/format; listing
+        // reads kernel sysfs, mount/umount are base system tools.
+        Capability::Parted => {
+            sys.cmd_in_path("parted")
+                || ["/usr/sbin", "/usr/bin", "/sbin"]
+                    .iter()
+                    .any(|dir| sys.path_exists(&Path::new(dir).join("parted")))
         }
         Capability::Bluez => {
             sys.cmd_in_path("bluetoothctl") || sys.path_exists(Path::new("/usr/bin/bluetoothctl"))
@@ -159,10 +157,7 @@ pub fn hints(cap: Capability) -> (&'static str, &'static str) {
             "apk add firewalld && rc-service firewalld start",
         ),
         Capability::OpenRc => ("OpenRC is not available", "boot an OpenRC system"),
-        Capability::Udisks2 => (
-            "lsblk/udisksctl/parted not all installed",
-            "apk add util-linux udisks2 parted",
-        ),
+        Capability::Parted => ("parted not installed", "apk add parted"),
         Capability::Bluez => (
             "BlueZ is not available",
             "apk add bluez && rc-service bluetooth start",

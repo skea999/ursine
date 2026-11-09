@@ -10,14 +10,14 @@ off until an admin opts in.
 
 | Action | Backend |
 |---|---|
-| `list_disks` | `lsblk -J -o ...` |
-| `mount_disk` | `udisksctl mount -b <device>` |
-| `unmount_disk` | `udisksctl unmount -b <device>` |
+| `list_disks` | kernel sysfs (`/sys/block`) + `/proc/mounts` + `blkid` (label/uuid) + `df -P` (use%) + `smartctl` — no lsblk |
+| `mount_disk` | `mount <device>` (fstab) or `mount <device> /media/ursine/<device>` — no udisks |
+| `unmount_disk` | `umount <device>` |
 | `format_disk` | `mkfs.<fstype>` (whitelisted types) |
 | `partition_create` | `parted -s <dev> mkpart primary <start>MiB <end>MiB` |
 | `partition_delete` | `parted -s <dev> rm <n>` |
 
-- Capability: `udisks2` (lsblk + udisksctl); the destructive trio also
+- Capability: `parted` (the partition/format CLI; listing reads sysfs, mount/umount are base tools); the destructive trio also
   requires `parted` and the matching `mkfs.*` tool at runtime
   (checked per action, reported as unavailable with a fix hint).
 - Module switch: `disks`.

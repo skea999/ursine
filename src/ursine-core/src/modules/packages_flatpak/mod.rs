@@ -255,37 +255,19 @@ fn override_path(system: bool, user: &str, app_id: &str) -> Result<String, ApiEr
     ))
 }
 
-/// Decode the user-side reader marker: `1` + content (exists), `0` (missing).
-fn decode_marker(stdout: &str) -> Result<(bool, String), ApiError> {
-    let mut chars = stdout.chars();
-    match chars.next() {
-        Some('1') => Ok((true, chars.collect())),
-        Some('0') => Ok((false, String::new())),
-        _ => Err(ApiError::internal("unexpected file read response")),
-    }
-}
-
-const fn scope_reader(system: bool, user: &str) -> &str {
-    if system {
-        "root"
-    } else {
-        user
-    }
-}
-
 /// Editable override lists plus the effective sandbox view.
 async fn permissions_get(
     app_id: &str,
     system: bool,
     user: &str,
 ) -> Result<FlatpakPermissions, ApiError> {
-    let path = override_path(system, user, app_id)?;
-    let outcome = exec::run_as_user_read_file(scope_reader(system, user), &path).await?;
-    let (exists, raw) = decode_marker(&outcome.stdout)?;
-    let parsed = permissions::parse(&raw);
+    // CLI-first: the written override state comes from the CLI itself.
     let scope = scope(system);
-    // An override file can outlive its app: keep the editable state
-    // readable (and cleanable) even when `flatpak info` fails.
+    let show = run(system, user, &["override", scope, "--show", app_id]).await?;
+    let exists = !show.trim().is_empty();
+    let parsed = permissions::parse(&show);
+    // An override can outlive its app: keep the editable state readable
+    // (and cleanable) even when `flatpak info` fails.
     let effective = match run(system, user, &["info", scope, "--show-permissions", app_id]).await {
         Ok(effective) => effective,
         Err(_) if exists => String::new(),
@@ -321,11 +303,32 @@ async fn permissions_set(
     permissions::validate_env(env)?;
     let _guard = PERMISSIONS_MUTATION.lock().await;
     let path = override_path(system, user, app_id)?;
-    let reader = scope_reader(system, user);
-    let outcome = exec::run_as_user_read_file(reader, &path).await?;
-    let (_exists, raw) = decode_marker(&outcome.stdout)?;
-    let rendered = permissions::render(&raw, sockets, devices, filesystems, env);
-    exec::run_as_user_atomic_write(reader, &path, &rendered, copies).await?;
+    // Uniform rotation of the override file before the CLI rewrites it.
+    let owner = if system || user == "root" {
+        None
+    } else {
+        let (_home, uid, gid) = crate::modules::theming::target_identity(user)?;
+        Some((uid, gid))
+    };
+    crate::backup_configs::rotate_async(std::path::PathBuf::from(&path), copies, owner).await?;
+    // Show → diff → one `flatpak override` invocation with only the
+    // flags that change the four owned keys (foreign keys untouched).
+    let scope = scope(system);
+    let show = run(system, user, &["override", scope, "--show", app_id]).await?;
+    let current = permissions::parse(&show);
+    let wanted = permissions::ParsedOverride {
+        sockets: sockets.to_vec(),
+        devices: devices.to_vec(),
+        filesystems: filesystems.to_vec(),
+        env: env.to_vec(),
+    };
+    let flags = permissions::diff(&current, &wanted);
+    if !flags.is_empty() {
+        let mut args: Vec<&str> = vec!["override", scope];
+        args.extend(flags.iter().map(String::as_str));
+        args.push(app_id);
+        run(system, user, &args).await?;
+    }
     Ok(())
 }
 
@@ -663,17 +666,6 @@ mod tests {
         assert!(validate_app_id("org/evil").is_err());
         assert!(validate_app_id(".").is_err());
         assert!(validate_app_id("..").is_err());
-    }
-
-    #[test]
-    fn decodes_reader_marker() {
-        assert_eq!(decode_marker("0").unwrap(), (false, String::new()));
-        assert_eq!(
-            decode_marker("1[Context]").unwrap(),
-            (true, "[Context]".to_string())
-        );
-        assert!(decode_marker("").is_err());
-        assert!(decode_marker("x2").is_err());
     }
 
     #[test]

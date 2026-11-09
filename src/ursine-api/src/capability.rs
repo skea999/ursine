@@ -27,8 +27,8 @@ pub enum Capability {
     Firewalld,
     /// `OpenRC` is available.
     OpenRc,
-    /// `UDisks2` is available.
-    Udisks2,
+    /// `parted` binary present (the disks module's partition/format CLI).
+    Parted,
     /// `BlueZ` is available.
     Bluez,
     /// `NetworkManager` is available.
@@ -58,7 +58,7 @@ impl Capability {
         Self::Sane,
         Self::Firewalld,
         Self::OpenRc,
-        Self::Udisks2,
+        Self::Parted,
         Self::Bluez,
         Self::NetworkManager,
         Self::Shadow,
@@ -79,7 +79,7 @@ impl Capability {
             Self::Sane => "sane",
             Self::Firewalld => "firewalld",
             Self::OpenRc => "openrc",
-            Self::Udisks2 => "udisks2",
+            Self::Parted => "parted",
             Self::Bluez => "bluez",
             Self::NetworkManager => "network_manager",
             Self::Shadow => "shadow",

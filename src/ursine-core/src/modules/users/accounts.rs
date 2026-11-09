@@ -11,6 +11,7 @@ use std::path::Path;
 use ursine_api::{ApiError, UserSummary};
 
 const USERADD: [&str; 3] = ["/usr/sbin/useradd", "/sbin/useradd", "/usr/bin/useradd"];
+const CHPASSWD: [&str; 3] = ["/usr/sbin/chpasswd", "/sbin/chpasswd", "/usr/bin/chpasswd"];
 const ADDUSER: [&str; 3] = ["/usr/sbin/adduser", "/sbin/adduser", "/usr/bin/adduser"];
 const USERDEL: [&str; 3] = ["/usr/sbin/userdel", "/sbin/userdel", "/usr/bin/userdel"];
 const DELUSER: [&str; 3] = ["/usr/sbin/deluser", "/sbin/deluser", "/usr/bin/deluser"];
@@ -112,12 +113,7 @@ pub(super) async fn create(name: &str, fullname: &str) -> Result<(), ApiError> {
     }
     // Explicit lock: never trust a tool's default shadow field (an empty
     // field would mean a passwordless account until the GUI sets one).
-    lock_password(name)
-}
-
-/// Set the account's shadow password field to `!` (locked).
-fn lock_password(name: &str) -> Result<(), ApiError> {
-    replace_shadow_field(name, "!")
+    lock_password(name).await
 }
 
 /// Delete an account; `remove_files` also drops the home directory
@@ -143,92 +139,33 @@ pub(super) async fn delete(uid: u32, remove_files: bool) -> Result<(), ApiError>
     }
 }
 
-/// Serializes every `/etc/shadow` read-modify-write inside this daemon
-/// (the socket accept loop runs requests concurrently). Races with
-/// external tools (`useradd` from another session) stay inherent to
-/// shadow-file editing — the same trade-off Webmin accepts.
-static SHADOW_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn shadow_lock() -> Result<std::sync::MutexGuard<'static, ()>, ApiError> {
-    SHADOW_LOCK
-        .lock()
-        .map_err(|_| ApiError::internal("shadow lock poisoned"))
+/// Replace an account's shadow password field through `chpasswd -e`:
+/// the CLI takes the lock files itself, works identically on shadow and
+/// `BusyBox` (no `usermod -p` plaintext trap), and the value never
+/// leaves our process as plaintext (the hash was computed in-process).
+async fn replace_password_field(name: &str, field: &str) -> Result<(), ApiError> {
+    let program = find(&CHPASSWD).ok_or_else(|| no_tool("chpasswd not found"))?;
+    // No trailing newline: the quoted-stdin runner appends one.
+    let input = format!("{name}:{field}");
+    crate::modules::packages_nix::exec::run_root_program_quoted_stdin(
+        program,
+        &[],
+        std::time::Duration::from_secs(60),
+        &input,
+    )
+    .await
+    .map(|_| ())
 }
 
-/// Write a pre-computed hash (`$6$…`) into the account's `/etc/shadow`
-/// field directly — no accountsservice, no `usermod -p` portability
-/// traps (`BusyBox` `usermod` would store the value as plaintext). The
-/// file keeps its original owner, group and mode; the write is atomic
-/// (unique tmp + rename + parent fsync in `/etc`).
-pub(super) fn set_password(uid: u32, hashed: &str) -> Result<(), ApiError> {
+/// Write a pre-computed hash (`$6$…`) into the account's password field.
+pub(super) async fn set_password(uid: u32, hashed: &str) -> Result<(), ApiError> {
     let name = user_name_for_uid(uid)?;
-    replace_shadow_field(&name, hashed)
+    replace_password_field(&name, hashed).await
 }
 
-/// One locked read-modify-write of `/etc/shadow`: replace `name`'s
-/// password field with `field` (hash or `!`), atomically.
-fn replace_shadow_field(name: &str, field: &str) -> Result<(), ApiError> {
-    let _guard = shadow_lock()?;
-    let path = Path::new("/etc/shadow");
-    let raw = std::fs::read_to_string(path)
-        .map_err(|e| ApiError::internal(format!("read /etc/shadow: {e}")))?;
-    let mut replaced = false;
-    let mut updated = String::with_capacity(raw.len());
-    for line in raw.lines() {
-        let mut fields: Vec<&str> = line.split(':').collect();
-        if fields.len() >= 7 && fields.first() == Some(&name) {
-            if let Some(slot) = fields.get_mut(2) {
-                *slot = field;
-            }
-            replaced = true;
-            updated.push_str(&fields.join(":"));
-        } else {
-            updated.push_str(line);
-        }
-        updated.push('\n');
-    }
-    if !replaced {
-        return Err(ApiError::new(
-            ursine_api::ErrorCode::NotFound,
-            "user not found in shadow",
-        ));
-    }
-    write_shadow_atomic(path, &updated)
-}
-
-/// Unique tmp + rename next to the live file, preserving its
-/// owner/group/mode; the parent directory is fsynced so a crash cannot
-/// lose the update. Every failure path removes the tmp (it holds the
-/// full shadow content).
-fn write_shadow_atomic(path: &Path, content: &str) -> Result<(), ApiError> {
-    use std::io::Write as _;
-    use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
-
-    static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let meta = std::fs::metadata(path)
-        .map_err(|e| ApiError::internal(format!("stat /etc/shadow: {e}")))?;
-    let tmp = path.with_file_name(format!(".shadow.ursine-tmp.{}-{seq}", std::process::id()));
-    let written = (|| -> std::io::Result<()> {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(meta.permissions().mode())
-            .open(&tmp)?;
-        file.write_all(content.as_bytes())?;
-        file.sync_all()?;
-        drop(file);
-        std::os::unix::fs::chown(&tmp, Some(meta.uid()), Some(meta.gid()))?;
-        std::fs::rename(&tmp, path)?;
-        // Durability: the directory entry must hit the disk too.
-        std::fs::File::open(path.parent().unwrap_or(path))?.sync_all()?;
-        Ok(())
-    })();
-    if let Err(error) = written {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(ApiError::internal(format!("replace /etc/shadow: {error}")));
-    }
-    Ok(())
+/// Set the account's shadow password field to `!` (locked).
+async fn lock_password(name: &str) -> Result<(), ApiError> {
+    replace_password_field(name, "!").await
 }
 
 /// Quoted-value argv runner: full names carry spaces (`John Doe`), which

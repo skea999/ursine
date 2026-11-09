@@ -1,14 +1,15 @@
-//! Flatpak override keyfile editing.
+//! Flatpak override through the `flatpak override` CLI (no keyfile
+//! editing — invariant 3: a CLI exists, so we use it).
 //!
 //! The editor owns four lists (`sockets`, `devices`, `filesystems`,
-//! `env`) and must preserve every other group/key the user or another
-//! tool wrote ([Session Bus Policy], `shared=…`, comments):
-//! `flatpak override --reset` would delete those, so we render the
-//! keyfile ourselves and write it atomically.
+//! `env`). [`diff`] turns (current state from `flatpak override --show`,
+//! wanted state) into the exact flag set; keys we do not own (`shared=…`,
+//! [Session Bus Policy] …) are never touched because the flags only
+//! mention our four keys.
 
 use ursine_api::{ApiError, FlatpakEnvVar};
 
-/// The four editable lists parsed from an override keyfile.
+/// The four editable lists parsed from an override (file or `--show`).
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(super) struct ParsedOverride {
     pub sockets: Vec<String>,
@@ -36,20 +37,6 @@ fn decode_value(raw: &str) -> String {
                 out.push('\\');
                 out.push(other);
             }
-        }
-    }
-    out
-}
-
-fn encode_value(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            '\r' => out.push_str("\\r"),
-            other => out.push(other),
         }
     }
     out
@@ -85,7 +72,8 @@ fn is_comment(line: &str) -> bool {
     line.starts_with('#') || line.starts_with(';')
 }
 
-/// Parse the editable lists out of an override keyfile.
+/// Parse the editable lists out of an override body (the file or the
+/// output of `flatpak override --show` — same keyfile format).
 pub(super) fn parse(text: &str) -> ParsedOverride {
     let mut parsed = ParsedOverride::default();
     let mut section = String::new();
@@ -124,139 +112,68 @@ pub(super) fn parse(text: &str) -> ParsedOverride {
     parsed
 }
 
-fn dedup(items: &[String]) -> Vec<String> {
-    let mut seen: Vec<String> = Vec::new();
-    for item in items {
-        if !seen.contains(item) {
-            seen.push(item.clone());
-        }
-    }
-    seen
-}
-
-fn list_line(key: &str, items: &[String]) -> Option<String> {
-    if items.is_empty() {
-        None
-    } else {
-        Some(format!("{key}={}", items.join(";")))
-    }
-}
-
-/// True when `line` assigns one of the three owned `[Context]` keys
-/// (key compared trimmed, so `sockets = x` is owned too).
-fn owned_context_line(line: &str) -> bool {
-    split_assignment(line)
-        .is_some_and(|(key, _)| matches!(key, "sockets" | "devices" | "filesystems"))
-}
-
-/// Render `existing` with the four lists replaced; every other line and
-/// group (including comments) is preserved.
-pub(super) fn render(
-    existing: &str,
-    sockets: &[String],
-    devices: &[String],
-    filesystems: &[String],
-    env: &[FlatpakEnvVar],
-) -> String {
-    let sockets = dedup(sockets);
-    let devices = dedup(devices);
-    let filesystems = dedup(filesystems);
-
-    let mut preamble: Vec<String> = Vec::new();
-    let mut sections: Vec<(String, Vec<String>)> = Vec::new();
-    let mut current: Option<(String, Vec<String>)> = None;
-    for line in existing.lines() {
-        let trimmed = line.trim();
-        if let Some(name) = trimmed
-            .strip_prefix('[')
-            .and_then(|rest| rest.strip_suffix(']'))
-        {
-            if let Some(section) = current.take() {
-                sections.push(section);
-            }
-            current = Some((name.to_string(), Vec::new()));
-            continue;
-        }
-        match &mut current {
-            None => {
-                if !trimmed.is_empty() {
-                    preamble.push(line.to_string());
-                }
-            }
-            Some((name, lines)) => {
-                // The three owned Context keys are rebuilt below (every
-                // duplicate dropped); [Environment] is rebuilt from `env`
-                // except comments. Foreign keys/groups stay untouched.
-                let drop = match name.as_str() {
-                    "Context" => owned_context_line(trimmed),
-                    "Environment" => !is_comment(trimmed) && split_assignment(trimmed).is_some(),
-                    _ => false,
-                };
-                if !drop {
-                    lines.push(line.to_string());
-                }
-            }
-        }
-    }
-    if let Some(section) = current.take() {
-        sections.push(section);
-    }
-
-    // Ensure a Context section exists to host the three lists.
-    if !sections.iter().any(|(name, _)| name == "Context") {
-        sections.push(("Context".to_string(), Vec::new()));
-    }
-    for (name, lines) in &mut sections {
-        if name != "Context" {
-            continue;
-        }
-        for line in [
-            list_line("sockets", &sockets),
-            list_line("devices", &devices),
-            list_line("filesystems", &filesystems),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            lines.push(line);
-        }
-    }
-
-    // Rebuild Environment only when the caller set variables; comments
-    // inside the section survive either way.
-    sections.retain(|(name, lines)| !(name == "Environment" && lines.is_empty()));
-    if let Some(section) = sections.iter_mut().find(|(name, _)| name == "Environment") {
-        for var in env {
-            section
-                .1
-                .push(format!("{}={}", var.name, encode_value(&var.value)));
-        }
-    } else if !env.is_empty() {
-        let lines = env
+/// Translate the delta between `current` and `wanted` into
+/// `flatpak override` flags: `--socket`/`--nosocket`,
+/// `--device`/`--nodevice`, `--filesystem`/`--nofilesystem`,
+/// `--env`/`--unset-env`. Deterministic order (sockets, devices,
+/// filesystems, env) so identical states produce identical argv.
+pub(super) fn diff(current: &ParsedOverride, wanted: &ParsedOverride) -> Vec<String> {
+    let mut flags = Vec::new();
+    list_diff(
+        &current.sockets,
+        &wanted.sockets,
+        "--socket",
+        "--nosocket",
+        &mut flags,
+    );
+    list_diff(
+        &current.devices,
+        &wanted.devices,
+        "--device",
+        "--nodevice",
+        &mut flags,
+    );
+    list_diff(
+        &current.filesystems,
+        &wanted.filesystems,
+        "--filesystem",
+        "--nofilesystem",
+        &mut flags,
+    );
+    for item in &wanted.env {
+        let unchanged = current
+            .env
             .iter()
-            .map(|var| format!("{}={}", var.name, encode_value(&var.value)))
-            .collect();
-        sections.push(("Environment".to_string(), lines));
+            .any(|entry| entry.name == item.name && entry.value == item.value);
+        if !unchanged {
+            flags.push(format!("--env={}={}", item.name, item.value));
+        }
     }
+    for item in &current.env {
+        if !wanted.env.iter().any(|entry| entry.name == item.name) {
+            flags.push(format!("--unset-env={}", item.name));
+        }
+    }
+    flags
+}
 
-    let mut out = String::new();
-    for line in preamble {
-        out.push_str(&line);
-        out.push('\n');
-    }
-    for (name, lines) in &sections {
-        if !out.is_empty() && !out.ends_with("\n\n") {
-            out.push('\n');
-        }
-        out.push('[');
-        out.push_str(name);
-        out.push_str("]\n");
-        for line in lines {
-            out.push_str(line);
-            out.push('\n');
+fn list_diff(
+    current: &[String],
+    wanted: &[String],
+    add: &str,
+    remove: &str,
+    out: &mut Vec<String>,
+) {
+    for item in wanted {
+        if !current.contains(item) {
+            out.push(format!("{add}={item}"));
         }
     }
-    out
+    for item in current {
+        if !wanted.contains(item) {
+            out.push(format!("{remove}={item}"));
+        }
+    }
 }
 
 fn token(value: &str, max: usize) -> bool {
@@ -283,9 +200,6 @@ pub(super) fn validate_tokens(items: &[String], max: usize) -> Result<(), ApiErr
     Ok(())
 }
 
-/// Filesystem grants: paths plus flatpak keywords (`home`, `xdg-*`,
-/// `host`, …) and an optional `:ro`/`:rw` suffix. `..` is rejected as a
-/// path segment, not as a substring (`foo..bar` is a legal name).
 pub(super) fn validate_filesystems(items: &[String]) -> Result<(), ApiError> {
     if items.len() > 128 {
         return Err(ApiError::invalid("too many filesystem entries"));
@@ -375,66 +289,44 @@ mod tests {
     }
 
     #[test]
-    fn render_preserves_foreign_keys_and_groups() {
-        let out = render(EXISTING, &[], &[], &[], &[]);
-        assert!(out.contains("shared=ipc;"), "{out}");
-        assert!(out.contains("[Session Bus Policy]"), "{out}");
-        assert!(out.contains("org.freedesktop.Notifications=talk"), "{out}");
-        // Owned keys with empty lists are dropped (no override).
-        assert!(!out.contains("sockets="), "{out}");
-        assert!(!out.contains("devices="), "{out}");
-        assert!(!out.contains("filesystems="), "{out}");
-    }
-
-    #[test]
-    fn render_replaces_whitespace_and_duplicate_owned_keys() {
-        let existing = "[Context]\nsockets = x11\nsockets=wayland\nforeign=1\n";
-        let out = render(existing, &["pulse".into()], &[], &[], &[]);
-        assert_eq!(out.matches("sockets").count(), 1, "{out}");
-        assert!(out.contains("sockets=pulse"), "{out}");
-        assert!(!out.contains("x11"), "{out}");
-        assert!(out.contains("foreign=1"), "{out}");
-    }
-
-    #[test]
-    fn render_replaces_lists_and_adds_environment() {
-        let out = render(
-            EXISTING,
-            &["wayland".to_string()],
-            &["dri".to_string(), "kvm".to_string()],
-            &["xdg-download".to_string()],
-            &[var("FOO", "bar"), var("EMPTY", "")],
+    fn diff_adds_and_removes_each_owned_key() {
+        let current = parse(EXISTING);
+        let wanted = ParsedOverride {
+            sockets: vec!["wayland".into(), "pulse".into()],
+            devices: vec!["dri".into()],
+            filesystems: vec!["home".into()],
+            env: vec![var("FOO", "bar")],
+        };
+        let flags = diff(&current, &wanted);
+        // added: pulse socket + home fs + FOO; removed: x11 socket,
+        // the old filesystems.
+        assert_eq!(
+            flags,
+            [
+                "--socket=pulse",
+                "--nosocket=x11",
+                "--filesystem=home",
+                "--nofilesystem=~/.ssh/agent:rw",
+                "--nofilesystem=xdg-download",
+                "--env=FOO=bar",
+            ]
         );
-        assert!(out.contains("sockets=wayland"), "{out}");
-        assert!(!out.contains("x11"), "{out}");
-        assert!(out.contains("devices=dri;kvm"), "{out}");
-        assert!(out.contains("filesystems=xdg-download"), "{out}");
-        assert!(out.contains("[Environment]"), "{out}");
-        assert!(out.contains("FOO=bar"), "{out}");
-        assert!(out.contains("EMPTY="), "{out}");
-        assert!(out.contains("shared=ipc;"), "{out}");
+        // Identical states → no flags at all.
+        assert!(diff(&current, &current).is_empty());
     }
 
     #[test]
-    fn environment_comments_survive_and_values_roundtrip() {
-        let existing = "[Environment]\n# keep me\nFOO=a\\nb\n";
-        let out = render(existing, &[], &[], &[], &[var("BAR", "x\ty")]);
-        assert!(out.contains("# keep me"), "{out}");
-        assert!(!out.contains("FOO="), "{out}");
-        assert!(out.contains("BAR=x\\ty"), "{out}");
-        let parsed = parse(&out);
-        assert_eq!(parsed.env, [var("BAR", "x\ty")]);
-        // Escaped pre-existing values decode for the editor.
-        let parsed = parse(existing);
-        assert_eq!(parsed.env, [var("FOO", "a\nb")]);
-    }
-
-    #[test]
-    fn render_from_empty_builds_context() {
-        let out = render("", &["wayland".into()], &[], &[], &[]);
-        assert!(out.starts_with("[Context]\n"), "{out}");
-        assert!(out.contains("sockets=wayland"), "{out}");
-        assert!(!out.contains("[Environment]"), "{out}");
+    fn diff_updates_and_unsets_environment() {
+        let current = ParsedOverride {
+            env: vec![var("OLD", "1"), var("CHG", "a")],
+            ..ParsedOverride::default()
+        };
+        let wanted = ParsedOverride {
+            env: vec![var("CHG", "b")],
+            ..ParsedOverride::default()
+        };
+        let flags = diff(&current, &wanted);
+        assert_eq!(flags, ["--env=CHG=b", "--unset-env=OLD"]);
     }
 
     #[test]

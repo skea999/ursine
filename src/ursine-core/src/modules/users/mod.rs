@@ -74,10 +74,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             .map_err(|_| ApiError::internal("password hashing task failed"))?
             .map_err(|_| ApiError::internal("password hashing failed"))?;
             backup_accounts().await?;
-            let uid = *uid;
-            tokio::task::spawn_blocking(move || accounts::set_password(uid, &hashed))
-                .await
-                .map_err(|e| ApiError::internal(format!("password task failed: {e}")))??;
+            accounts::set_password(*uid, &hashed).await?;
             Ok(json!({"password_set": uid}))
         }
         Action::ListGroups => Ok(json!({"groups": groups::list_groups()?})),

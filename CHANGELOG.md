@@ -4,6 +4,26 @@
 
 ### Changed
 
+- CLI minimization (user decision, after an inventory): never two tools
+  for one job, prefer the basic tools, prefer a CLI over editing a file
+  whenever a CLI exists (file edits remain for things with no CLI —
+  themes — and are minimized).
+  - **flatpak overrides** now go through `flatpak override`:
+    `--show` → diff → one invocation with only the changed flags;
+    foreign keys/groups survive as before; the override file rotates
+    through `backup_configs` slots first; keyfile render/parser removed.
+  - **passwords** now go through `chpasswd -e` (hash computed in-process,
+    works on shadow and BusyBox, the tool takes the lock files itself);
+    the direct `/etc/shadow` writer and its lock are deleted.
+  - **disks**: mount/unmount use plain `mount`/`umount` (udisks2 dropped
+    from the module and from the capability), listing reads kernel
+    sysfs + `/proc/mounts` + `blkid` + `df -P` (lsblk dropped); `UUID=`
+    mounts resolve through the blkid reverse map so an unresolvable spec
+    is never guessed (mkfs-on-mounted guard stays sound). Capability
+    `udisks2` renamed to **`parted`** (`apk add parted`).
+
+### Changed
+
 - **No D-Bus, ever** (invariant 3, Webmin pattern): Ursine no longer
   links `zbus` or runs `gsettings`/session-bus tools. Users module
   rewritten — list from `/etc/passwd` + `/etc/group`, create/delete

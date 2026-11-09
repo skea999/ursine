@@ -3684,7 +3684,7 @@ impl App {
             Screen::Services => {
                 self.cap_available(Capability::OpenRc) || self.cap_available(Capability::Dinit)
             }
-            Screen::Disks => self.cap_available(Capability::Udisks2),
+            Screen::Disks => self.cap_available(Capability::Parted),
             Screen::Bluetooth => self.cap_available(Capability::Bluez),
             Screen::Network => self.cap_available(Capability::NetworkManager),
             Screen::Theming => self.cap_available(Capability::Theming),
