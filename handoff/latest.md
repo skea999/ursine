@@ -6,6 +6,16 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-09 — CLI minimization + release 0.27.0 (main, tag `v0.27.0`)
+
+**Status**: Pushed `ff92296..05aeb6b` + tag `v0.27.0`; both tag CI runs green (`42687910852`, `42687910997`); auto-pin `4ad349a` pulled. Local HEAD `4ad349a`.
+
+- **Slice CLI-min** (user decision, inventory-first): flatpak overrides via `flatpak override --show` → diff → single invocation (`--unset-env` etc. verified against `override --help`); keyfile render deleted. Passwords via `chpasswd -e` (stdin WITHOUT trailing newline — the quoted-stdin runner appends one; verified in ursine-ci: single `\n` → exit 0, double `\n` → "missing new password"); direct shadow writer + SHADOW_LOCK deleted. Disks via `mount`/`umount` + sysfs/`/proc/mounts`/blkid/df listing; lsblk/udisksctl structs deleted; capability `Udisks2`→`Parted` (`apk add parted`). PartitionCreate/Delete arms + flatpak `validate_*` restored byte-identical from git.
+- **Review fixes**: HIGH chpasswd double-newline stdin; MEDIUM `fstab_names` resolves `UUID=`/`LABEL=` specs via `resolve_spec` (blkid reverse map built in `mount_device`); LOW `/media/ursine/<device>` explicit 0755; `resolve_spec` canonicalizes `/dev/…` symlinks; `is_partition_of` replaces bare prefix match (sda vs sdaa); `mount_lookup` canonical fallback for dm paths.
+- **Test flake ROOT-CAUSED + fixed**: `dispatch_per_module` macro called `call()` BEFORE matching `Dispatch::Skip` — Skip only skipped the assertion, so `create_user name=t` really ran and rewrote `/etc/passwd` in parallel with `root_manages…` account reads → intermittent `NotFound: user ursine-fix does not exist`. Fix: Skip now `continue`s before the call. ~13 runs since: 0 failures. Diagnostics (fixture_state snapshot) left at ThemeDetect/crontab sites.
+- **Release 0.27.0** (procedure = `c81137c`): CHANGELOG `## [Unreleased]`→`## [0.27.0] — 2026-11-09`, Cargo.toml 3 version spots + Cargo.lock (diff byte-size matches 0.26.0 release), `chore(release): 0.27.0` `05aeb6b`, tag, push, CI green, workflow auto-pinned `chore(nix): pin release v0.27.0 [skip ci]`.
+- Gate before tag: fmt + clippy `-D warnings` + full tests (`RUST_MIN_STACK`) ×multiple, static-check all PASS, docs-check 0 issues, typos 0. VM smoke still pending: backup slot rotation (`copies` clamp, `/var/backups/ursine`), no-D-Bus flows (spaced fullname, shadow `!`→hash, Just-Works pairing, Home `apk add parted` fix row), CLI-min (flatpak override round-trip with foreign keys, `chpasswd -e` password set, `mount`/`umount` + `/media/ursine` perms).
+
 ## Session 2026-11-09 — No D-Bus (Webmin study + full removal) (main, commit `31a9087`)
 
 **Status**: Pushed `1dde913..31a9087`, CI `42616422224` watched (pending green at handoff). User decision after a Webmin study (source: `useradmin/user-lib.pl` — direct passwd/shadow/group edits, no bus, no polkit): **D-Bus is never used**; fewest components possible; capabilities name the exact CLI + install fix; Home shows that fix; delete dead code/files.
