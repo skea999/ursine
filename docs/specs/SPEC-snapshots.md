@@ -16,15 +16,15 @@ Expose btrbk's own functionality — nothing reimplemented. Ursine integrates bt
 | `snapshots.list` | `btrbk --format raw list snapshots` → parsed |
 | `snapshots.stats` | `btrbk --format raw stats` |
 | `snapshots.create` | `btrbk snapshot [<section>]` |
-| `snapshots.restore` | `btrfs subvolume snapshot <snapshot> <target>` — CONFIRMATION REQUIRED in GUI (destructive); preview validates paths and exact argv first. Existing target is moved to `<target>.ursine-backup-<ts>` before the snapshot; failure restores it. Backups rotate: only the newest THREE restore backups per target are kept (older ones are pruned after a successful restore). |
+| `snapshots.restore` | `btrfs subvolume snapshot <snapshot> <target>` — CONFIRMATION REQUIRED in GUI (destructive); preview validates paths and exact argv first. Existing target rotates into slot `<target>.ursine-backup` (the uniform chain, `backup_configs.copies` copies; the previous version shifts to `.1`, `.2`, …) before the snapshot; failure moves it back. Legacy timestamped backups from older releases are pruned to the same cap. |
 | `snapshots.delete` | GUI single-snapshot dropdown + bulk delete for selected stats sources; daemon validates each path against the current btrbk list, then `btrfs subvolume delete`. Confirmation required. |
 | `snapshots.getConfig` | parsed view of `/etc/btrbk/btrbk.conf` (sources, targets, retention, timestamp/scheduler) |
-| `snapshots.setConfig` | Managed global options written as a top block, preserving sections/comments; `.bak` backup; validated with `btrbk --format raw list config` before atomic replace. GUI exposes dropdowns. |
+| `snapshots.setConfig` | Managed global options written as a top block, preserving sections/comments; uniform `.ursine-backup[.N]` rotation (replaces the single `.conf.bak`); validated with `btrbk --format raw list config` before atomic replace. GUI exposes dropdowns. |
 | `snapshots.initConfig` | **create** `/etc/btrbk/btrbk.conf` from scratch: conservative default for the FeralOS btrfs layout (hourly keep 24, daily keep 14), `/home` or `@` subvolume |
 | `snapshots.preUpdate` | **deferred**: package install/upgrade hook not wired yet. |
 
 - `--format raw`; parser for the documented raw keys. btrbk 0.32 has no JSON output.
-- `setConfig` rewrites only managed global keys, backs up `.conf.bak`, and rejects values that fail btrbk validation. Per-subvolume overrides are preserved.
+- `setConfig` rewrites only managed global keys, rotates the previous config through the uniform `.ursine-backup[.N]` slots, and rejects values that fail btrbk validation. Per-subvolume overrides are preserved.
 
 ## Commands
 
@@ -51,7 +51,7 @@ let snaps = btrbk::parse_snapshots(&out)?;
 
 - btrbk is the ONLY implementation of snapshot logic; if btrbk cannot do it, v1 does not do it
 - Restore always: dryrun preview → explicit confirm token from frontend → real run
-- Config write path: parse → apply managed changes → our-comment validation → `btrbk dryrun` → atomic write + `.bak`
+- Config write path: parse → apply managed changes → our-comment validation → `btrbk dryrun` → backup rotation → atomic write
 
 ## Testing Strategy
 

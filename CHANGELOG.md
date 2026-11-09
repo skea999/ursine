@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Added
+
+- `[backup_configs] copies = N` in `/etc/ursine/config.toml` (default 3,
+  clamped 1..=10): ONE uniform backup rotation now covers every
+  configuration file Ursine writes — `<file>.ursine-backup[.N]` slots,
+  rotated before the live file is replaced, rotation failure aborts the
+  write. Direct writes covered: config.toml, niri, APK repositories,
+  Flatpak overrides, every theming target (incl. COSMIC entries and the
+  dconf database before `gsettings`), airscan.conf, btrbk.conf (replaces
+  `.conf.bak`), snapshot restores (replaces timestamped names; legacy
+  ones pruned to the cap).
+- CLI-changed files are rotated before the CLI runs: crontab (previous
+  content archived under `/var/backups/ursine/`, fail-closed), nix
+  flake registry JSON, Flatpak installation `repo/config`, `/etc/apk/world`,
+  `/etc/firewalld`, `/etc/NetworkManager/system-connections`,
+  `/etc/cups/printers.conf`, and the account files (passwd, shadow,
+  group, gshadow).
+
 ### Changed
 
 - File backups now rotate with a hard cap of THREE copies per target:

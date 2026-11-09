@@ -22,6 +22,9 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `list_flatpak_remotes` | `flatpak remotes --columns=name,url [--system/--user]` |
 | `add_flatpak_remote` | `flatpak remote-add <scope> <name> <url>` |
 | `remove_flatpak_remote` | `flatpak remote-delete <scope> <name>` |
+
+- Both remote mutations rotate the installation's `repo/config` first
+  (uniform slots); `apk add`/`del` rotate `/etc/apk/world` first.
 | `list_flatpak_updates` | `flatpak remote-ls <scope> --app/--runtime --updates --columns=…` |
 | `get_flatpak_permissions` | read override keyfile + `flatpak info --show-permissions` |
 | `set_flatpak_permissions` | render override keyfile (four lists replaced, other keys/groups preserved) + atomic write |
@@ -49,7 +52,8 @@ center as the Nix store. Both backends are capability-gated and audited.
 - Audit uses the normal module/action path; no secrets are logged.
 - Override writes: ids pass the strict charset, paths are built from
   fixed prefixes, content is validated (tokens/filesystems/env), the
-  keyfile is written atomically with a rotating `.ursine-backup[.1|.2]`
+  keyfile is written atomically with the uniform `.ursine-backup[.N]`
+  rotation (`backup_configs.copies`)
   (max THREE copies), and every key
   outside the four edited lists is preserved (no `--reset`).
 

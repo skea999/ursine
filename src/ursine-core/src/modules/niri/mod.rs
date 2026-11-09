@@ -74,6 +74,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                 &write_path.to_string_lossy(),
                 niri_path()?,
                 &updated,
+                crate::backup_configs::copies_from(&ctx.config),
             )
             .await?;
             Ok(json!(read_view(ctx).await?))

@@ -30,6 +30,7 @@ pub(super) fn run_blocking(
     uid: u32,
     gid: u32,
     show_minimize: bool,
+    copies: usize,
 ) -> Result<ThemeApplyReport, ApiError> {
     let source = select_source(home, uid).ok_or_else(|| {
         ApiError::unavailable(
@@ -38,6 +39,11 @@ pub(super) fn run_blocking(
         )
     })?;
     let snapshot = snapshot_for(source, home)?;
+    // ONE dconf rotation per apply: the session targets (GTK button
+    // layout, eog) rewrite the same `~/.config/dconf/user` through
+    // gsettings — rotating per target would evict the pre-apply state
+    // within a single apply. Missing file (fresh session) → no-op.
+    crate::backup_configs::rotate(&home.join(".config/dconf/user"), copies, Some((uid, gid)))?;
     let statuses = target_statuses(home);
     let mut results = Vec::with_capacity(statuses.len());
     for status in &statuses {
@@ -50,6 +56,7 @@ pub(super) fn run_blocking(
             show_minimize,
             &snapshot,
             &statuses,
+            copies,
         ));
     }
     Ok(ThemeApplyReport { results })
@@ -73,6 +80,7 @@ fn write_target(
     show_minimize: bool,
     snap: &ThemeSnapshot,
     statuses: &[TargetStatus],
+    copies: usize,
 ) -> TargetResult {
     let target = status.target;
     if !status.available {
@@ -83,15 +91,19 @@ fn write_target(
         };
     }
     let outcome = match target {
-        ThemingTarget::Gtk3 => gtk_settings(user, home, uid, gid, show_minimize, snap, "gtk-3.0"),
-        ThemingTarget::Gtk4 => gtk_settings(user, home, uid, gid, show_minimize, snap, "gtk-4.0"),
-        ThemingTarget::Gtk2 => gtk2(home, uid, gid, snap),
-        ThemingTarget::Qt5 => qtct(home, uid, gid, snap, "qt5ct"),
-        ThemingTarget::Qt6 => qtct(home, uid, gid, snap, "qt6ct"),
-        ThemingTarget::Kde => kde(home, uid, gid, show_minimize, snap),
-        ThemingTarget::Flatpak => flatpak(home, uid, gid),
-        ThemingTarget::Cosmic => return cosmic::run(home, uid, gid, snap),
-        ThemingTarget::Environment => environment(home, uid, gid, snap, statuses),
+        ThemingTarget::Gtk3 => {
+            gtk_settings(user, home, uid, gid, show_minimize, snap, "gtk-3.0", copies)
+        }
+        ThemingTarget::Gtk4 => {
+            gtk_settings(user, home, uid, gid, show_minimize, snap, "gtk-4.0", copies)
+        }
+        ThemingTarget::Gtk2 => gtk2(home, uid, gid, snap, copies),
+        ThemingTarget::Qt5 => qtct(home, uid, gid, snap, "qt5ct", copies),
+        ThemingTarget::Qt6 => qtct(home, uid, gid, snap, "qt6ct", copies),
+        ThemingTarget::Kde => kde(home, uid, gid, show_minimize, snap, copies),
+        ThemingTarget::Flatpak => flatpak(home, uid, gid, copies),
+        ThemingTarget::Cosmic => return cosmic::run(home, uid, gid, snap, copies),
+        ThemingTarget::Environment => environment(home, uid, gid, snap, statuses, copies),
         ThemingTarget::Portal => Ok(Applied::Kept(
             "settings portal derives color/font from the GTK/Qt/KDE layers".to_string(),
         )),
@@ -104,7 +116,7 @@ fn write_target(
         | ThemingTarget::Foot
         | ThemingTarget::Wezterm
         | ThemingTarget::Cava
-        | ThemingTarget::Galculator => apps::write_target(target, home, uid, gid, snap),
+        | ThemingTarget::Galculator => apps::write_target(target, home, uid, gid, snap, copies),
         ThemingTarget::Eog => Ok(eog_view_background(user, uid, &snap.colors.background)),
     };
     match outcome {
@@ -138,6 +150,7 @@ fn gtk_settings(
     show_minimize: bool,
     snap: &ThemeSnapshot,
     dir_name: &str,
+    copies: usize,
 ) -> Result<Applied, ApiError> {
     let dir = home.join(".config").join(dir_name);
     mkdir_owned(home, &dir, uid, gid)?;
@@ -181,7 +194,7 @@ fn gtk_settings(
     let updates: Vec<(&str, &str)> = updates.iter().map(|(k, v)| (*k, v.as_str())).collect();
     let ini_path = dir.join("settings.ini");
     let merged = merge_ini(&read_or_empty(&ini_path), "Settings", &updates);
-    write_owned(home, &ini_path, merged.as_bytes(), uid, gid)?;
+    write_owned(home, &ini_path, merged.as_bytes(), uid, gid, copies)?;
 
     let css_path = dir.join("gtk.css");
     let dank = dir.join("dank-colors.css");
@@ -202,7 +215,7 @@ fn gtk_settings(
             "settings.ini + gtk.css written".to_string(),
         )
     };
-    write_owned(home, &css_path, css_body.as_bytes(), uid, gid)?;
+    write_owned(home, &css_path, css_body.as_bytes(), uid, gid, copies)?;
     give_away(&css_path, uid, gid).ok();
     // The live session value (dconf -> settings portal -> GtkSettings)
     // overrides settings.ini on GNOME sessions: mirror the trio into
@@ -400,7 +413,13 @@ fn control_rules(gtk4: bool) -> Vec<String> {
 
 /// GTK2: one color-scheme line (guarded by our marker so hand-edited
 /// `.gtkrc-2.0` files are preserved).
-fn gtk2(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied, ApiError> {
+fn gtk2(
+    home: &Path,
+    uid: u32,
+    gid: u32,
+    snap: &ThemeSnapshot,
+    copies: usize,
+) -> Result<Applied, ApiError> {
     let path = home.join(".gtkrc-2.0");
     let existing = read_or_empty(&path);
     if !existing.is_empty() && !existing.contains(MARKER) {
@@ -418,7 +437,7 @@ fn gtk2(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied
         primary = c.primary,
     );
     let content = format!("# Ursine uniform theme ({})\n{body}", snap.source.as_str());
-    write_owned(home, &path, content.as_bytes(), uid, gid)?;
+    write_owned(home, &path, content.as_bytes(), uid, gid, copies)?;
     Ok(Applied::Wrote(".gtkrc-2.0 written".to_string()))
 }
 
@@ -429,6 +448,7 @@ fn qtct(
     gid: u32,
     snap: &ThemeSnapshot,
     dir_name: &str,
+    copies: usize,
 ) -> Result<Applied, ApiError> {
     let dir = home.join(".config").join(dir_name);
     mkdir_owned(home, &dir, uid, gid)?;
@@ -438,7 +458,14 @@ fn qtct(
         .parent()
         .ok_or_else(|| ApiError::internal("qtct colors path has no parent"))?;
     mkdir_owned(home, colors_dir, uid, gid)?;
-    write_owned(home, &colors_path, qtct_colors(snap).as_bytes(), uid, gid)?;
+    write_owned(
+        home,
+        &colors_path,
+        qtct_colors(snap).as_bytes(),
+        uid,
+        gid,
+        copies,
+    )?;
 
     let conf_path = dir.join(format!("{dir_name}.conf"));
     // Never reset an icon selection the snapshot does not carry.
@@ -447,7 +474,7 @@ fn qtct(
         updates.push(("icon", icon));
     }
     let merged = merge_ini(&read_or_empty(&conf_path), "Appearance", &updates);
-    write_owned(home, &conf_path, merged.as_bytes(), uid, gid)?;
+    write_owned(home, &conf_path, merged.as_bytes(), uid, gid, copies)?;
     Ok(Applied::Wrote(format!(
         "{dir_name}: colors/{scheme}.conf selected (qtct palette best-effort)"
     )))
@@ -500,6 +527,7 @@ fn kde(
     gid: u32,
     show_minimize: bool,
     snap: &ThemeSnapshot,
+    copies: usize,
 ) -> Result<Applied, ApiError> {
     let scheme = format!("ursine-{}", snap.source.as_str());
     let colors_dir = home.join(".local/share/color-schemes");
@@ -510,6 +538,7 @@ fn kde(
         kde_colors(snap, &scheme).as_bytes(),
         uid,
         gid,
+        copies,
     )?;
 
     let globals = home.join(".config/kdeglobals");
@@ -536,7 +565,7 @@ fn kde(
         );
         merged = replace_section_value(&merged, "General", "Font", &font);
     }
-    write_owned(home, &globals, merged.as_bytes(), uid, gid)?;
+    write_owned(home, &globals, merged.as_bytes(), uid, gid, copies)?;
     Ok(Applied::Wrote(format!(
         "kdeglobals + color-schemes/{scheme}.colors"
     )))
@@ -597,7 +626,7 @@ fn replace_section_value(existing: &str, section: &str, key: &str, value: &str) 
 }
 
 /// Flatpak: read-only mounts of the host theme config into every sandbox.
-fn flatpak(home: &Path, uid: u32, gid: u32) -> Result<Applied, ApiError> {
+fn flatpak(home: &Path, uid: u32, gid: u32, copies: usize) -> Result<Applied, ApiError> {
     let path = home.join(".local/share/flatpak/overrides/global");
     let parent = path
         .parent()
@@ -613,7 +642,7 @@ fn flatpak(home: &Path, uid: u32, gid: u32) -> Result<Applied, ApiError> {
             "xdg-config/qt6ct:ro",
         ],
     );
-    write_owned(home, &path, merged.as_bytes(), uid, gid)?;
+    write_owned(home, &path, merged.as_bytes(), uid, gid, copies)?;
     Ok(Applied::Wrote(
         "flatpak overrides/global: host theme dirs mounted ro".to_string(),
     ))
@@ -667,6 +696,7 @@ fn environment(
     gid: u32,
     snap: &ThemeSnapshot,
     statuses: &[TargetStatus],
+    copies: usize,
 ) -> Result<Applied, ApiError> {
     let dir = home.join(".config/environment.d");
     mkdir_owned(home, &dir, uid, gid)?;
@@ -695,6 +725,7 @@ fn environment(
         content.as_bytes(),
         uid,
         gid,
+        copies,
     )?;
     Ok(Applied::Wrote(
         "environment.d/95-ursine-theme.conf written (relogin to apply)".to_string(),
@@ -771,6 +802,7 @@ mod tests {
                 true,
                 &snapshot(ThemeSource::Wayle),
                 "gtk-3.0",
+                3,
             )
             .unwrap(),
         );
@@ -800,6 +832,7 @@ mod tests {
                 true,
                 &snapshot(ThemeSource::Wayle),
                 "gtk-4.0",
+                3,
             )
             .unwrap(),
         );
@@ -832,6 +865,7 @@ mod tests {
                 true,
                 &snapshot(ThemeSource::Dms),
                 "gtk-3.0",
+                3,
             )
             .unwrap(),
         );
@@ -861,7 +895,7 @@ mod tests {
         let home = temp_home("gtk2");
         let path = home.join(".gtkrc-2.0");
         std::fs::write(&path, "my custom style\n").unwrap();
-        let detail = kept(gtk2(&home, 0, 0, &snapshot(ThemeSource::Dms)).unwrap());
+        let detail = kept(gtk2(&home, 0, 0, &snapshot(ThemeSource::Dms), 3).unwrap());
         assert!(detail.contains("preserved"));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "my custom style\n");
         let _ = std::fs::remove_dir_all(&home);
@@ -874,7 +908,7 @@ mod tests {
             TargetStatus::available(ThemingTarget::Qt6, "qt6ct"),
             TargetStatus::unavailable(ThemingTarget::Qt5, "missing"),
         ];
-        environment(&home, 0, 0, &snapshot(ThemeSource::Dms), &statuses).unwrap();
+        environment(&home, 0, 0, &snapshot(ThemeSource::Dms), &statuses, 3).unwrap();
         let text = std::fs::read_to_string(home.join(".config/environment.d/95-ursine-theme.conf"))
             .unwrap();
         assert!(text.contains("QT_QPA_PLATFORMTHEME=qt6ct"));
@@ -909,7 +943,7 @@ mod tests {
             "[General]\nSomeKey=keep\n\n[Icons]\nTheme=OldIcon\n",
         )
         .unwrap();
-        kde(&home, 0, 0, true, &snapshot(ThemeSource::Dms)).unwrap();
+        kde(&home, 0, 0, true, &snapshot(ThemeSource::Dms), 3).unwrap();
         let globals = std::fs::read_to_string(home.join(".config/kdeglobals")).unwrap();
         assert!(globals.contains("ColorScheme=ursine-dms"));
         // Native three-button baseline on kwin (I=minimize A=maximize X=close).
@@ -942,7 +976,7 @@ mod tests {
         assert!(off.contains(":maximize,close"));
         assert!(!off.contains("minimize"));
         let home = temp_home("min-off");
-        kde(&home, 0, 0, false, &snapshot(ThemeSource::Dms)).unwrap();
+        kde(&home, 0, 0, false, &snapshot(ThemeSource::Dms), 3).unwrap();
         let globals = std::fs::read_to_string(home.join(".config/kdeglobals")).unwrap();
         assert!(globals.contains("ButtonsOnRight=AX"), "{globals}");
         assert!(!globals.contains("IAX"), "{globals}");
@@ -954,6 +988,7 @@ mod tests {
             false,
             &snapshot(ThemeSource::Wayle),
             "gtk-3.0",
+            3,
         )
         .unwrap();
         let ini = std::fs::read_to_string(home.join(".config/gtk-3.0/settings.ini")).unwrap();
@@ -1004,6 +1039,7 @@ mod tests {
             true,
             &snapshot(ThemeSource::Dms),
             std::slice::from_ref(&status),
+            3,
         );
         assert_eq!(result.outcome, ApplyOutcome::Skipped);
         assert!(result.detail.unwrap().contains("settings portal derives"));
@@ -1021,6 +1057,7 @@ mod tests {
             true,
             &snapshot(ThemeSource::Dms),
             &[],
+            3,
         );
         assert_eq!(result.outcome, ApplyOutcome::Skipped);
         assert_eq!(result.detail.as_deref(), Some("KDE tools not installed"));
@@ -1029,7 +1066,7 @@ mod tests {
     #[test]
     fn qtct_writes_scheme_file_and_selection() {
         let home = temp_home("qtct");
-        qtct(&home, 0, 0, &snapshot(ThemeSource::Dms), "qt5ct").unwrap();
+        qtct(&home, 0, 0, &snapshot(ThemeSource::Dms), "qt5ct", 3).unwrap();
         let scheme = home.join(".config/qt5ct/colors/ursine-dms.conf");
         let text = std::fs::read_to_string(scheme).unwrap();
         let active = text

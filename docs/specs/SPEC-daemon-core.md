@@ -65,6 +65,39 @@ pub trait Authenticator: Send + Sync {
 4. Every subsequent `Call` carries `Authorization: Bearer <token>`; daemon validates + slides TTL (default 10 min idle, `token_ttl_min` in config)
 5. Auth failure → generic error (no user-exists oracle), audit line, rate-limit tick
 
+## File backups (binding)
+
+Every configuration file Ursine writes — directly or by invoking a CLI —
+keeps its previous versions through ONE uniform rotation mechanism
+(`ursine_core::backup_configs`):
+
+- Slots: `<file>.ursine-backup` (newest), then `<file>.ursine-backup.1`
+  … `<file>.ursine-backup.(copies-1)` (oldest). Rotation runs BEFORE the
+  live file is replaced; a rotation failure aborts the write (shell
+  scripts exit 42) so the live file stays untouched.
+- Count: `[backup_configs] copies = N` in `/etc/ursine/config.toml`
+  (default 3, clamped 1..=10). The config file itself is governed by
+  the value it contains; editing it requires a daemon restart (same as
+  `disks_format`).
+- Direct writes: `/etc/ursine/config.toml`, niri config, APK
+  repositories, Flatpak overrides, all theming targets (incl. COSMIC
+  entries and the dconf database before `gsettings`), `airscan.conf`,
+  `btrbk.conf`.
+- CLI-changed files (rotated before the CLI runs): crontab (previous
+  content archived under `/var/backups/ursine/crontab.<user>`, mode
+  0600), the nix flake registry JSON, Flatpak installation
+  `repo/config`, `/etc/apk/world` (on `apk add`/`del`),
+  `/etc/firewalld`, `/etc/NetworkManager/system-connections`,
+  `/etc/cups/printers.conf`, and the account files
+  (`/etc/passwd`, `/etc/shadow`, `/etc/group`, `/etc/gshadow`).
+- Snapshot restores rotate the live tree into slot 0 (moved, not
+  copied); legacy timestamped backups from older releases are pruned
+  to the same cap.
+- Excluded with rationale: nix profile generations (nix's own
+  rollback), Flatpak/apk package databases (transactional by design),
+  systemd enable symlinks (reversible by re-running enable/disable),
+  audit JSONL (append-only log).
+
 ## Testing Strategy
 
 - Unit: session TTL expiry (fake clock), rate limiter, config validation, asUser resolution rules

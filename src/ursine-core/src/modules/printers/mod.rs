@@ -24,7 +24,16 @@ const CUPSDISABLE: [&str; 3] = [
 const CANCEL: [&str; 3] = ["/usr/bin/cancel", "/usr/sbin/cancel", "/bin/cancel"];
 const TIMEOUT: Duration = Duration::from_secs(120);
 
-pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
+pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
+    // lpadmin rewrites /etc/cups/printers.conf for every printer
+    // mutation: rotate it first (uniform slots).
+    let backup = || {
+        crate::backup_configs::rotate_async(
+            std::path::PathBuf::from("/etc/cups/printers.conf"),
+            crate::backup_configs::copies_from(&ctx.config),
+            None,
+        )
+    };
     match action {
         Action::ListPrinters => Ok(json!({"printers": list().await?})),
         Action::PrinterJobs { printer } => Ok(json!({"jobs": jobs(printer.as_deref()).await?})),
@@ -38,6 +47,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             validate_uri(uri)?;
             validate_text(description, "description")?;
             validate_text(location, "location")?;
+            backup().await?;
             let mut args = vec!["-p", name, "-E", "-v", uri, "-m", "everywhere"];
             if !description.trim().is_empty() {
                 args.extend(["-D", description.trim()]);
@@ -67,6 +77,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             if !ppd.is_empty() {
                 validate_ppd(ppd)?;
             }
+            backup().await?;
             let mut args = vec!["-p", name, "-E", "-v", uri];
             if ppd.is_empty() {
                 let driver = if driver.is_empty() {
@@ -94,10 +105,12 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
         }
         Action::RemovePrinter { name } => {
             validate_name(name)?;
+            backup().await?;
             Ok(json!({"output": run(&LPADMIN, &["-x", name]).await?}))
         }
         Action::SetDefaultPrinter { name } => {
             validate_name(name)?;
+            backup().await?;
             Ok(json!({"output": run(&LPADMIN, &["-d", name]).await?}))
         }
         Action::SetPrinterOptions { name, options } => {
@@ -105,6 +118,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             if options.is_empty() {
                 return Err(ApiError::invalid("at least one printer option is required"));
             }
+            backup().await?;
             let mut args = vec!["-p", name];
             for option in options {
                 validate_option(option)?;
@@ -115,6 +129,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
         Action::PausePrinter { name, pause } => {
             validate_name(name)?;
             let program = if *pause { CUPSDISABLE } else { CUPSENABLE };
+            backup().await?;
             Ok(json!({"output": run(&program, &[name]).await?}))
         }
         Action::CancelPrinterJobs { printer } => {

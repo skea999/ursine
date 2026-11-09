@@ -16,11 +16,23 @@ const FIREWALL_CMD: [&str; 3] = [
 ];
 const TIMEOUT: Duration = Duration::from_secs(120);
 
-pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
+pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
+    let copies = crate::backup_configs::copies_from(&ctx.config);
+    // Every mutation below is `firewall-cmd --permanent`: rotate the
+    // whole /etc/firewalld tree first (uniform slot backups of the XML
+    // files the CLI rewrites).
+    let backup = || {
+        crate::backup_configs::rotate_async(
+            std::path::PathBuf::from("/etc/firewalld"),
+            copies,
+            None,
+        )
+    };
     match action {
         Action::GetFirewall => Ok(json!(read_status().await?)),
         Action::SetDefaultFirewallZone { zone } => {
             validate_zone(zone)?;
+            backup().await?;
             run(&[&format!("--set-default-zone={zone}"), "--permanent"]).await?;
             run(&["--reload"]).await?;
             Ok(json!(read_status().await?))
@@ -28,6 +40,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
         Action::AddFirewallService { zone, service } => {
             validate_zone(zone)?;
             validate_service(service)?;
+            backup().await?;
             run(&[
                 &format!("--zone={zone}"),
                 &format!("--add-service={service}"),
@@ -40,6 +53,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
         Action::RemoveFirewallService { zone, service } => {
             validate_zone(zone)?;
             validate_service(service)?;
+            backup().await?;
             run(&[
                 &format!("--zone={zone}"),
                 &format!("--remove-service={service}"),
@@ -52,6 +66,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
         Action::AddFirewallPort { zone, port } => {
             validate_zone(zone)?;
             validate_port(port)?;
+            backup().await?;
             run(&[
                 &format!("--zone={zone}"),
                 &format!("--add-port={port}"),
@@ -64,6 +79,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
         Action::RemoveFirewallPort { zone, port } => {
             validate_zone(zone)?;
             validate_port(port)?;
+            backup().await?;
             run(&[
                 &format!("--zone={zone}"),
                 &format!("--remove-port={port}"),
@@ -87,6 +103,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
                 ));
             }
             let target = if *enabled { "REJECT" } else { "ACCEPT" };
+            backup().await?;
             run(&[
                 &format!("--zone={}", status.default_zone),
                 &format!("--set-target={target}"),
@@ -101,6 +118,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             for port in ports {
                 validate_port(port)?;
             }
+            backup().await?;
             run(&[&format!("--new-service={service}"), "--permanent"]).await?;
             for port in ports {
                 run(&[
@@ -115,6 +133,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
         }
         Action::DeleteFirewallService { service } => {
             validate_service(service)?;
+            backup().await?;
             run(&[&format!("--delete-service={service}"), "--permanent"]).await?;
             run(&["--reload"]).await?;
             Ok(json!(read_status().await?))

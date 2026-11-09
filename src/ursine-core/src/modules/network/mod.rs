@@ -15,7 +15,17 @@ const NMCLI: [&str; 2] = ["/usr/bin/nmcli", "/bin/nmcli"];
 const TIMEOUT: Duration = Duration::from_secs(60);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(90);
 
-pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
+pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
+    // nmcli rewrites/deletes NetworkManager keyfiles for these actions:
+    // rotate the whole system-connections tree first (uniform slots; the
+    // tree keeps its 0700/0600 permissions through the copy).
+    let backup = || {
+        crate::backup_configs::rotate_async(
+            std::path::PathBuf::from("/etc/NetworkManager/system-connections"),
+            crate::backup_configs::copies_from(&ctx.config),
+            None,
+        )
+    };
     match action {
         Action::GetNetwork => Ok(json!(read_view().await?)),
         Action::SetWifiEnabled { enabled } => {
@@ -48,6 +58,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
         }
         Action::ForgetNetwork { connection } => {
             validate_connection(connection)?;
+            backup().await?;
             run(&["connection", "delete", connection]).await?;
             Ok(json!(read_view().await?))
         }
@@ -66,6 +77,7 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             gateway,
             dns,
         } => {
+            backup().await?;
             set_ipv4(connection, method, addresses, gateway.as_deref(), dns).await?;
             Ok(json!(read_view().await?))
         }

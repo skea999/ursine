@@ -505,6 +505,7 @@ mod tests {
             login_rate_limit_per_min: 5,
             disks_format: false,
             modules: ursine_api::ModulesConfig::default(),
+            backup_configs: ursine_api::BackupConfigs::default(),
         };
         let audit = Arc::new(AuditLog::open(cfg.audit_path.clone(), clock.clone()).unwrap());
         let jobs = JobRegistry::new(dir.join("jobs"), audit.clone(), clock.clone()).unwrap();

@@ -81,6 +81,7 @@ pub(super) fn write_owned(
     bytes: &[u8],
     uid: u32,
     gid: u32,
+    copies: usize,
 ) -> Result<(), ApiError> {
     let dir = path.parent().ok_or_else(|| {
         ApiError::internal(format!("theming path has no parent: {}", path.display()))
@@ -111,6 +112,23 @@ pub(super) fn write_owned(
         file.sync_all()?;
         drop(file);
         give_away(&tmp, uid, gid)?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(ApiError::internal(format!(
+            "write {}: {error}",
+            path.display()
+        )));
+    }
+    // Rotate the live file BEFORE the swap (owner-aware: backups live in
+    // the user home); a rotation failure aborts and removes the temp so
+    // the live file stays untouched.
+    if let Err(error) = crate::backup_configs::rotate(path, copies, Some((uid, gid))) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(error);
+    }
+    let result = (|| -> std::io::Result<()> {
         std::fs::rename(&tmp, path)?;
         Ok(())
     })();
@@ -562,8 +580,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("nested/out.ini");
         let home = dir.clone();
-        write_owned(&home, &path, b"first\n", 0, 0).unwrap();
-        write_owned(&home, &path, b"second\n", 0, 0).unwrap();
+        write_owned(&home, &path, b"first\n", 0, 0, 3).unwrap();
+        write_owned(&home, &path, b"second\n", 0, 0, 3).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "second\n");
         let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap())
             .unwrap()

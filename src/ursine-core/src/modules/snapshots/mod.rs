@@ -13,7 +13,7 @@ use ursine_api::{Action, ApiError};
 
 use super::ModuleCtx;
 
-pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
+pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
     match action {
         Action::ListSnapshots => {
             let raw = btrbk::run(
@@ -44,7 +44,12 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             if *dry_run {
                 restore::preview(snapshot, target)
             } else {
-                restore::apply(snapshot, target).await
+                restore::apply(
+                    snapshot,
+                    target,
+                    crate::backup_configs::copies_from(&ctx.config),
+                )
+                .await
             }
         }
         Action::GetBtrbkConfig => {
@@ -56,7 +61,12 @@ pub async fn handle(action: &Action, _ctx: &ModuleCtx<'_>) -> Result<serde_json:
             Ok(json!(view))
         }
         Action::SetBtrbkConfig { settings } => {
-            let view = conf::set(&btrbk::config_path(), settings.as_ref()).await?;
+            let view = conf::set(
+                &btrbk::config_path(),
+                settings.as_ref(),
+                crate::backup_configs::copies_from(&ctx.config),
+            )
+            .await?;
             Ok(json!(view))
         }
         Action::DeleteSnapshot { snapshot } => {

@@ -33,7 +33,7 @@ pub mod users;
 pub use action::Action;
 pub use bluetooth::{BluetoothAdapter, BluetoothDevice, BluetoothOp, BluetoothView};
 pub use capability::{Capability, CapabilityReport};
-pub use config::{ModulesConfig, TriState, UrsineConfig};
+pub use config::{BackupConfigs, ModulesConfig, TriState, UrsineConfig};
 pub use crontab::{max_crontab_bytes, CrontabView};
 pub use disk::{Disk, DiskView, DISK_FSTYPES};
 pub use envelope::{Request, RequestBody, Response, ResponseBody, PROTOCOL_VERSION};

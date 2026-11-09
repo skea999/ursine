@@ -155,15 +155,58 @@ fn view_from_outcome(
     }
 }
 
+/// Directory holding crontab backups: the live crontab lives in the cron
+/// spool (owned by the cron daemon), so previous versions are archived
+/// here with the uniform `.ursine-backup[.N]` slot rotation.
+fn backup_dir() -> &'static Path {
+    Path::new("/var/backups/ursine")
+}
+
+/// Archive `previous` as the newest backup of `user`'s crontab (rotation
+/// runs between the `crontab -l` read and `crontab -u` — a concurrent
+/// editor's version landing in that window is not captured; accepted,
+/// there is no shared lock across cron clients). Runs on the
+/// blocking pool; a failure aborts the replacement (fail-closed — the
+/// current crontab is never replaced without a recoverable copy).
+async fn backup_previous(user: &str, previous: &str, copies: usize) -> Result<(), ApiError> {
+    let dir = backup_dir().to_path_buf();
+    let target = dir.join(format!("crontab.{user}"));
+    let bytes = previous.as_bytes().to_vec();
+    tokio::task::spawn_blocking(move || -> Result<(), ApiError> {
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| ApiError::internal(format!("create {}: {e}", dir.display())))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+                .map_err(|e| ApiError::internal(format!("harden {}: {e}", dir.display())))?;
+        }
+        crate::backup_configs::rotate_store(&target, copies, &bytes, 0o600)
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("crontab backup task failed: {e}")))?
+}
+
 /// Replace `user`'s crontab with `content` (empty clears it). The payload
 /// is staged as root under `/run` and handed to `crontab -u <user> <file>`
 /// — the portable replace form supported by busybox, cronie and vixie.
+/// The previous crontab is archived first (fail-closed).
 async fn set_crontab(
     ctx: &crate::modules::ModuleCtx<'_>,
     content: &str,
 ) -> Result<CrontabView, ApiError> {
     let normalized = validate_content(content)?;
     let user = ctx.as_user.to_string();
+    // Archive the current crontab before anything touches it; "no
+    // crontab" has nothing to save.
+    if let Some(previous) = get_crontab(&user).await?.crontab {
+        backup_previous(
+            &user,
+            &previous,
+            crate::backup_configs::copies_from(&ctx.config),
+        )
+        .await?;
+    }
     let payload = normalized.clone();
     let stage_user = user.clone();
     // Target validation + staging write off the async executor (same

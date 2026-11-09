@@ -34,7 +34,12 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             let path = repositories_path();
             let content = read_repositories(path)?;
             let updated = upsert_repository(&content, url, tag.as_deref());
-            write_repositories(path, &updated).await?;
+            write_repositories(
+                path,
+                &updated,
+                crate::backup_configs::copies_from(&ctx.config),
+            )
+            .await?;
             // Refresh indexes so the new (or re-tagged) repository is
             // live; a failure here means the config is saved but the
             // cache is stale — surface it, the user can Refresh.
@@ -46,7 +51,12 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             let path = repositories_path();
             let content = read_repositories(path)?;
             let updated = remove_repository(&content, url)?;
-            write_repositories(path, &updated).await?;
+            write_repositories(
+                path,
+                &updated,
+                crate::backup_configs::copies_from(&ctx.config),
+            )
+            .await?;
             run(&["update"]).await?;
             Ok(json!({"repositories": repositories()?}))
         }
@@ -56,17 +66,17 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         }
         Action::InstallApk { package } => {
             validate_package(package)?;
-            start_job(ctx, "install_apk", &["add", package])
+            start_job(ctx, "install_apk", &["add", package], true)
         }
         Action::UpgradeApkPackage { package } => {
             validate_package(package)?;
-            start_job(ctx, "upgrade_apk_package", &["add", package])
+            start_job(ctx, "upgrade_apk_package", &["add", package], true)
         }
         Action::RemoveApk { package } => {
             validate_package(package)?;
-            start_job(ctx, "remove_apk", &["del", package])
+            start_job(ctx, "remove_apk", &["del", package], true)
         }
-        Action::UpgradeApk => start_job(ctx, "upgrade_apk", &["upgrade"]),
+        Action::UpgradeApk => start_job(ctx, "upgrade_apk", &["upgrade"], false),
         Action::ListApkUpdates => Ok(json!({"updates": updates().await?})),
         _ => Err(ApiError::invalid(
             "action is not valid for module packages_apk",
@@ -77,12 +87,28 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
 /// Start a background `apk` job; args are validated by the caller. The job
 /// streams the exact terminal output into the job log (no `--no-progress`:
 /// progress text is what the user asked to see).
+///
+/// `mutates_world` marks `apk add`/`del` (they rewrite `/etc/apk/world`):
+/// the world file rotates first so the previous pin set is recoverable.
 fn start_job(
     ctx: &ModuleCtx<'_>,
     action: &'static str,
     args: &[&str],
+    mutates_world: bool,
 ) -> Result<serde_json::Value, ApiError> {
     let program = apk_path()?;
+    if mutates_world {
+        // World rotation runs inline: it is two renames plus a small
+        // copy — cheaper than the scheduling overhead of a task. A job
+        // that fails after this point leaves one duplicate slot (the
+        // chain self-heals on the next mutation); fail-closed beats a
+        // lost pin set on a successful mutation.
+        crate::backup_configs::rotate(
+            Path::new("/etc/apk/world"),
+            crate::backup_configs::copies_from(&ctx.config),
+            None,
+        )?;
+    }
     let args: Vec<String> = args.iter().copied().map(str::to_string).collect();
     let started = ctx.jobs.start(
         ModuleId::PackagesApk,
@@ -200,8 +226,8 @@ fn remove_repository(content: &str, url: &str) -> Result<String, ApiError> {
     Ok(text)
 }
 
-async fn write_repositories(path: &str, content: &str) -> Result<(), ApiError> {
-    exec::run_as_user_atomic_write("root", path, content)
+async fn write_repositories(path: &str, content: &str, copies: usize) -> Result<(), ApiError> {
+    exec::run_as_user_atomic_write("root", path, content, copies)
         .await
         .map_err(|error| ApiError::new(error.code, error.message))?;
     Ok(())

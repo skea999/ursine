@@ -72,6 +72,9 @@ fn config_parses_like_the_spec_template() {
 token_ttl_min = 10
 socket_path = "/run/ursine.sock"
 
+[backup_configs]
+copies = 5
+
 [modules]
 packages_nix = "auto"
 snapshots = "auto"
@@ -80,6 +83,7 @@ niri = true
 "#;
     let cfg: UrsineConfig = toml::from_str(toml_src).unwrap();
     assert_eq!(cfg.token_ttl_min, 10);
+    assert_eq!(cfg.backup_configs.copies, 5);
     assert!(cfg.modules.packages_nix.is_auto());
     assert_eq!(cfg.modules.users, TriState::Off);
     assert_eq!(cfg.modules.niri, TriState::On);

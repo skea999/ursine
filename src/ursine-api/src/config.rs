@@ -131,6 +131,21 @@ fn default_login_rate_limit_per_min() -> u32 {
     5
 }
 
+/// File-backup rotation policy (TOML `[backup_configs]`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BackupConfigs {
+    /// Previous versions kept per file, clamped to 1..=10 by
+    /// `ursine_core::backup_configs::copies_from`. Default 3.
+    pub copies: u32,
+}
+
+impl Default for BackupConfigs {
+    fn default() -> Self {
+        Self { copies: 3 }
+    }
+}
+
 /// Full daemon configuration. All fields have sane defaults.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -152,6 +167,9 @@ pub struct UrsineConfig {
     pub disks_format: bool,
     #[serde(default)]
     pub modules: ModulesConfig,
+    /// Backup rotation policy shared by every file writer.
+    #[serde(default)]
+    pub backup_configs: BackupConfigs,
 }
 
 impl Default for UrsineConfig {
@@ -163,6 +181,7 @@ impl Default for UrsineConfig {
             login_rate_limit_per_min: default_login_rate_limit_per_min(),
             disks_format: false,
             modules: ModulesConfig::default(),
+            backup_configs: BackupConfigs::default(),
         }
     }
 }

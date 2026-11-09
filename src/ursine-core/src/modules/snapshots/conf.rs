@@ -92,6 +92,7 @@ pub(super) async fn init(path: &Path) -> Result<BtrbkConfigView, ApiError> {
 pub(super) async fn set(
     path: &Path,
     settings: &BtrbkSettings,
+    copies: usize,
 ) -> Result<BtrbkConfigView, ApiError> {
     let current = if path.exists() {
         std::fs::read_to_string(path)
@@ -157,10 +158,8 @@ pub(super) async fn set(
             error.message
         )));
     }
-    if path.exists() {
-        std::fs::copy(path, path.with_extension("conf.bak"))
-            .map_err(|e| ApiError::internal(format!("backup btrbk config: {e}")))?;
-    }
+    // Uniform slot rotation (replaces the single fixed `.conf.bak`).
+    crate::backup_configs::rotate(path, copies, None)?;
     #[cfg(unix)]
     std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o640))
         .map_err(|e| ApiError::internal(format!("set btrbk config mode: {e}")))?;

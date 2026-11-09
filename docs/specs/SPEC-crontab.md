@@ -4,6 +4,11 @@ Status: **implemented** (user decision 2026-10-29).
 
 ## Requirement
 
+- Before the replacement runs, the previous crontab content is archived
+  under `/var/backups/ursine/crontab.<user>.ursine-backup[.N]` (mode
+  0600, `backup_configs.copies` rotation); a failed archive aborts the
+  replacement (fail-closed — the live crontab is never replaced without
+  a recoverable copy).
 A section to view and replace the **session user's crontab**. Must work on
 every distro we support: **Alpine (busybox crond), cronie, and
 Debian/Ubuntu (vixie-cron)** — the three only differ behind the `crontab`

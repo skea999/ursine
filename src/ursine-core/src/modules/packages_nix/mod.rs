@@ -26,6 +26,16 @@ const HISTORY_TIMEOUT: Duration = Duration::from_secs(timeouts::HISTORY_SECS);
 const MUTATE_TIMEOUT: Duration = Duration::from_secs(timeouts::MUTATE_SECS);
 const GC_TIMEOUT: Duration = Duration::from_secs(timeouts::GC_SECS);
 
+/// Rotate the target user's flake registry JSON before `nix registry`
+/// rewrites it (CLI-changed file): root writes the backup but chowns it
+/// back to the user. Default XDG path — a custom `XDG_CONFIG_HOME` set
+/// in the login profile is not resolved.
+async fn backup_registry(user: &str, copies: usize) -> Result<(), ApiError> {
+    let (home, uid, gid) = crate::modules::theming::target_identity(user)?;
+    let target = home.join(".config/nix/registry.json");
+    crate::backup_configs::rotate_async(target, copies, Some((uid, gid))).await
+}
+
 fn repo_is_custom(flake: &str) -> bool {
     flake != "nixpkgs"
 }
@@ -314,6 +324,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         Action::AddNixRepository { name, url } => {
             validate_repo_name(name)?;
             validate_repo_url(url)?;
+            backup_registry(ctx.as_user, crate::backup_configs::copies_from(&ctx.config)).await?;
             let program = exec::nix_path()?;
             exec::run_as_user_argv(
                 ctx.as_user,
@@ -326,6 +337,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         }
         Action::RemoveNixRepository { name } => {
             validate_repo_name(name)?;
+            backup_registry(ctx.as_user, crate::backup_configs::copies_from(&ctx.config)).await?;
             let program = exec::nix_path()?;
             exec::run_as_user_argv(
                 ctx.as_user,

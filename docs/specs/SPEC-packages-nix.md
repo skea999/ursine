@@ -48,6 +48,7 @@ GUI can preview it before running. Verified against nix 2.31.5: `history` emits
 ANSI escapes and has no `(current)` marker; `--delete-generations +N` needs root.
 
 - Registry entries live in the acting user's nix flake registry (`~/.config/nix/registry.json` via `nix registry …`): `global` entries are listed read-only, only `user` entries are editable — no ursine-side state file.
+  Both mutations rotate the registry JSON first (uniform `.ursine-backup[.N]` slots, `backup_configs.copies`; chowned back to the user).
 - `asUser` defaults to the authenticated principal; daemon verifies target user exists and is a normal user (uid >= 1000) before exec
 - Long ops (install/upgrade) run as daemon jobs: exact output streams to `/run/ursine/jobs/<id>.log` and frontends poll `job_output` (supersedes the earlier same-connection JSON progress-event design; see Package progress)
 

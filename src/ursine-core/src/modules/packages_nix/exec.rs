@@ -584,46 +584,80 @@ cat > "$tmp"
     ))
 }
 
+/// Rotation core shared by every write script: `ursine_rotate <file>
+/// <copies>` shifts `slot(i-1) → slot(i)` for `i = copies-1 … 1`
+/// (slot 0 = `<file>.ursine-backup`), drops stale slots a higher count
+/// left behind plus the pre-uniform dot-prefixed slots
+/// (`.<basename>.ursine-backup*`), then copies the live file into slot 0.
+/// `copies` arrives clamped to 1..=10 from Rust; 0/garbage → 42.
+const ROTATE_FN: &str = r#"ursine_rotate() {
+  f=$1
+  n=$2
+  case $n in ''|*[!0-9]*|0) return 42;; esac
+  dir=${f%/*}
+  base=$f.ursine-backup
+  i=$((n - 1))
+  while [ "$i" -ge 1 ]; do
+    if [ "$i" -eq 1 ]; then src=$base; else src=$base.$((i - 1)); fi
+    dst=$base.$i
+    if [ -e "$src" ]; then
+      if [ -e "$dst" ]; then rm -rf -- "$dst" || return 42; fi
+      mv -- "$src" "$dst" || return 42
+    fi
+    i=$((i - 1))
+  done
+  k=$n
+  while [ -e "$base.$k" ]; do rm -rf -- "$base.$k" || return 42; k=$((k + 1)); done
+  old=$dir/.${f##*/}.ursine-backup
+  if [ -e "$old" ]; then rm -rf -- "$old" "$old".[0-9]* || return 42; fi
+  if [ -e "$f" ]; then
+    cp -p -- "$f" "$base" || return 42
+    sync
+  fi
+}
+"#;
+
 /// Validate and atomically replace a niri config as the target user.
 ///
-/// The previous file rotates through `<config>.ursine-backup[.1|.2]` —
-/// at most THREE backup copies are kept; invalid content never replaces
-/// the live file.
-/// Rotation order (oldest slot last): `.1` → `.2`, live backup → `.1`,
-/// previous live file → backup. Backups rotate AFTER a successful
-/// `niri validate` so failed saves never evict good history.
-const NIRI_WRITE_SCRIPT: &str = r#"set -eu
-PATH=/usr/bin:/bin
-umask 077
-dir=${1%/*}
+/// Args: `$1` config path, `$2` niri binary, `$3` backup copies. The
+/// previous file rotates through `<config>.ursine-backup[.N]` — at most
+/// `backup_configs.copies` copies; invalid content never replaces the
+/// live file. Rotation runs AFTER a successful `niri validate` so a
+/// rejected save never evicts good history; rotation failure is exit 42
+/// (distinct from validation failure).
+fn niri_write_script() -> String {
+    let mut script = String::from("set -eu\nPATH=/usr/bin:/bin\numask 077\n");
+    script.push_str(ROTATE_FN);
+    script.push_str(
+        r#"dir=${1%/*}
 mkdir -p -- "$dir"
 tmp=$(mktemp "$dir/.niri-write.XXXXXX")
 trap 'rm -f -- "$tmp"' EXIT
 cat > "$tmp"
 sync
 "$2" validate -c "$tmp"
-if [ -e "$1" ]; then
-  if [ -e "$1.ursine-backup.1" ]; then mv -f -- "$1.ursine-backup.1" "$1.ursine-backup.2" || exit 42; fi
-  if [ -e "$1.ursine-backup" ]; then mv -f -- "$1.ursine-backup" "$1.ursine-backup.1" || exit 42; fi
-  cp -p -- "$1" "$1.ursine-backup" || exit 42
-  sync
-fi
+ursine_rotate "$1" "$3" || exit 42
 mv -- "$tmp" "$1"
 trap - EXIT
-"#;
+"#,
+    );
+    script
+}
 
 pub async fn run_as_user_write(
     user: &str,
     path: &str,
     niri: &str,
     content: &str,
+    copies: usize,
 ) -> Result<CommandOutcome, ApiError> {
     validate_target_user(user)?;
     if !is_safe_quoted_value(path) || !is_safe_atom(niri) {
         return Err(ApiError::invalid("invalid niri command"));
     }
-    let script = NIRI_WRITE_SCRIPT;
-    let output = run_user_script_capture(user, script, &[path, niri], content).await?;
+    let script = niri_write_script();
+    let copies = copies.to_string();
+    let output = run_user_script_capture(user, &script, &[path, niri, &copies], content).await?;
     if !output.status.success() {
         if output.status.code() == Some(42) {
             return Err(ApiError::internal(format!(
@@ -643,37 +677,33 @@ pub async fn run_as_user_write(
 
 /// Atomically replace `path` with `content` as `user`.
 ///
-/// Root runs the same script directly, no su. The previous file is copied
-/// to `<dir>/.<basename>.ursine-backup[.1|.2]` — at most THREE backup
-/// copies, dot-prefixed so they can never be mistaken for a sibling
-/// config, e.g. a Flatpak override keyed by file name. No validation
-/// step: callers own the content.
-/// Rotation order (oldest slot last): `.1` → `.2`, live backup → `.1`,
-/// previous live file → backup.
-const ATOMIC_WRITE_SCRIPT: &str = r#"set -eu
-PATH=/usr/bin:/bin
-umask 077
-dir=${1%/*}
+/// Args: `$1` target path, `$2` backup copies. Root runs the same script
+/// directly, no su. The previous file rotates through
+/// `<path>.ursine-backup[.N]` — the same uniform slots as every other
+/// writer; no validation step (callers own the content).
+fn atomic_write_script() -> String {
+    let mut script = String::from("set -eu\nPATH=/usr/bin:/bin\numask 077\n");
+    script.push_str(ROTATE_FN);
+    script.push_str(
+        r#"dir=${1%/*}
 mkdir -p -- "$dir"
 tmp=$(mktemp "$dir/.ursine-write.XXXXXX")
 trap 'rm -f -- "$tmp"' EXIT
 cat > "$tmp"
 sync
-if [ -e "$1" ]; then
-  base=".${1##*/}.ursine-backup"
-  if [ -e "$dir/$base.1" ]; then mv -f -- "$dir/$base.1" "$dir/$base.2" || exit 42; fi
-  if [ -e "$dir/$base" ]; then mv -f -- "$dir/$base" "$dir/$base.1" || exit 42; fi
-  cp -p -- "$1" "$dir/$base" || exit 42
-  sync
-fi
+ursine_rotate "$1" "$2" || exit 42
 mv -- "$tmp" "$1"
 trap - EXIT
-"#;
+"#,
+    );
+    script
+}
 
 pub async fn run_as_user_atomic_write(
     user: &str,
     path: &str,
     content: &str,
+    copies: usize,
 ) -> Result<CommandOutcome, ApiError> {
     if user != "root" {
         validate_target_user(user)?;
@@ -681,8 +711,9 @@ pub async fn run_as_user_atomic_write(
     if !is_safe_quoted_value(path) {
         return Err(ApiError::invalid("invalid file path"));
     }
-    let script = ATOMIC_WRITE_SCRIPT;
-    let output = run_user_script_capture(user, script, &[path], content).await?;
+    let script = atomic_write_script();
+    let copies = copies.to_string();
+    let output = run_user_script_capture(user, &script, &[path, &copies], content).await?;
     if !output.status.success() {
         if output.status.code() == Some(42) {
             return Err(ApiError::internal(format!(
@@ -1060,45 +1091,94 @@ pub async fn run_root_program_log(
 mod tests {
     use super::*;
 
+    /// Run the atomic write script for real: `copies = 3` must keep
+    /// exactly three generations (live + 3 slots = 4 versions total),
+    /// `copies = 1` must keep one slot, and a rejected copies value must
+    /// exit 42 without touching anything.
     #[test]
-    fn write_scripts_rotate_backups_to_three_slots() {
-        // Both write scripts keep exactly three slots (live backup,
-        // `.1`, `.2`) and shift oldest-out-first so history never
-        // grows past the cap.
-        for script in [NIRI_WRITE_SCRIPT, ATOMIC_WRITE_SCRIPT] {
-            let lines: Vec<&str> = script.lines().collect();
-            let to_old = lines
-                .iter()
-                .position(|line| line.contains("mv -f") && line.contains(".2"))
-                .unwrap_or_else(|| panic!("no .1 -> .2 shift:\n{script}"));
-            let to_mid = lines
-                .iter()
-                .position(|line| {
-                    line.contains("mv -f") && line.contains(".1") && !line.contains(".2")
-                })
-                .unwrap_or_else(|| panic!("no live -> .1 shift:\n{script}"));
-            let copy = lines
-                .iter()
-                .position(|line| line.contains("cp -p"))
-                .unwrap_or_else(|| panic!("no backup copy:\n{script}"));
-            assert!(
-                to_old < to_mid && to_mid < copy,
-                "rotation must run .1 -> .2, then live -> .1, then copy:\n{script}"
-            );
-            assert!(
-                script.contains("exit 42"),
-                "rotation failures must report a distinct code:\n{script}"
+    fn atomic_write_script_rotates_to_the_configured_count() {
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+
+        let dir = std::env::temp_dir().join(format!("ursine-rotate-sh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("conf.ini");
+        let script = atomic_write_script();
+
+        let run = |content: &str, copies: &str| -> i32 {
+            let mut child = Command::new("/bin/sh")
+                .arg("-c")
+                .arg(&script)
+                .arg("sh")
+                .arg(&target)
+                .arg(copies)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .as_mut()
+                .unwrap()
+                .write_all(content.as_bytes())
+                .unwrap();
+            child.wait().unwrap().code().unwrap()
+        };
+
+        // Five saves, cap 3 → live holds v5, slots hold v4..v2, v1 gone.
+        assert_eq!(run("v1\n", "3"), 0, "first save");
+        for v in 2..=5 {
+            assert_eq!(run(&format!("v{v}\n"), "3"), 0, "save {v}");
+        }
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "v5\n");
+        for (slot, expect) in [(0, "v4\n"), (1, "v3\n"), (2, "v2\n")] {
+            let path = crate::backup_configs::slot_path(&target, slot);
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                expect,
+                "slot {slot}"
             );
         }
-        // The niri script validates BEFORE rotating so a rejected save
-        // never evicts good history.
-        let validate = NIRI_WRITE_SCRIPT
-            .find("validate")
-            .expect("niri script must validate");
-        let rotate = NIRI_WRITE_SCRIPT
-            .find("mv -f")
-            .expect("niri script must rotate");
+        assert!(
+            !crate::backup_configs::slot_path(&target, 3).exists(),
+            "v1 must have rotated out"
+        );
+
+        // copies = 1: only the newest previous version survives.
+        assert_eq!(run("only\n", "1"), 0);
+        assert_eq!(
+            std::fs::read_to_string(crate::backup_configs::slot_path(&target, 0)).unwrap(),
+            "v5\n"
+        );
+        assert!(
+            !crate::backup_configs::slot_path(&target, 1).exists(),
+            "cap 1 must drop stale .1/.2 left by cap 3"
+        );
+
+        // Garbage/zero copies: exit 42, live file untouched.
+        assert_eq!(run("nope\n", "0"), 42, "copies=0 must be rejected");
+        assert_eq!(run("nope\n", "x9"), 42, "garbage must be rejected");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "only\n");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The niri script must validate before rotating: a rejected config
+    /// must not evict backup history, and a rotation failure must be 42.
+    #[test]
+    fn niri_write_script_validates_before_rotating() {
+        let script = niri_write_script();
+        let validate = script.find("validate").expect("must validate");
+        let rotate = script
+            .find("ursine_rotate \"$1\"")
+            .expect("must rotate after");
         assert!(validate < rotate, "validate must precede rotation");
+        assert!(script.contains("|| exit 42"), "rotation failure = 42");
+        // Both scripts share one rotation implementation.
+        assert_eq!(script.matches(ROTATE_FN).count(), 1);
+        assert_eq!(atomic_write_script().matches(ROTATE_FN).count(), 1);
     }
 
     #[tokio::test]

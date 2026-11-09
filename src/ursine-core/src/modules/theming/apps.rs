@@ -23,20 +23,22 @@ pub(super) fn write_target(
     uid: u32,
     gid: u32,
     snap: &ThemeSnapshot,
+
+    copies: usize,
 ) -> Result<Applied, ApiError> {
     match target {
-        ThemingTarget::Firefox => firefox(home, uid, gid, snap),
-        ThemingTarget::Vscodium => vscodium(home, uid, gid, snap),
-        ThemingTarget::Alacritty => alacritty(home, uid, gid, snap),
-        ThemingTarget::Kitty => kitty(home, uid, gid, snap),
-        ThemingTarget::Ghostty => ghostty(home, uid, gid, snap),
-        ThemingTarget::Foot => foot(home, uid, gid, snap),
+        ThemingTarget::Firefox => firefox(home, uid, gid, snap, copies),
+        ThemingTarget::Vscodium => vscodium(home, uid, gid, snap, copies),
+        ThemingTarget::Alacritty => alacritty(home, uid, gid, snap, copies),
+        ThemingTarget::Kitty => kitty(home, uid, gid, snap, copies),
+        ThemingTarget::Ghostty => ghostty(home, uid, gid, snap, copies),
+        ThemingTarget::Foot => foot(home, uid, gid, snap, copies),
         ThemingTarget::Wezterm => Ok(Applied::Kept(
             "wezterm.lua has no safe merge point; colors left to the user (see SPEC)".to_string(),
         )),
-        ThemingTarget::Cava => cava(home, uid, gid, snap),
-        ThemingTarget::Galculator => galculator(home, uid, gid, snap),
-        ThemingTarget::Electron => electron(home, uid, gid),
+        ThemingTarget::Cava => cava(home, uid, gid, snap, copies),
+        ThemingTarget::Galculator => galculator(home, uid, gid, snap, copies),
+        ThemingTarget::Electron => electron(home, uid, gid, copies),
         _ => Err(ApiError::internal("not an application target")),
     }
 }
@@ -111,7 +113,13 @@ fn firefox_profiles(home: &Path) -> Vec<PathBuf> {
     profiles
 }
 
-fn firefox(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied, ApiError> {
+fn firefox(
+    home: &Path,
+    uid: u32,
+    gid: u32,
+    snap: &ThemeSnapshot,
+    copies: usize,
+) -> Result<Applied, ApiError> {
     let profiles = firefox_profiles(home);
     if profiles.is_empty() {
         return Ok(Applied::Kept("no Firefox profile yet; skipped".to_string()));
@@ -154,7 +162,7 @@ fn firefox(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Appl
         let user_chrome = chrome.join("userChrome.css");
         let existing = read_or_empty(&user_chrome);
         if existing.is_empty() || existing.contains(CSS_MARKER) {
-            write_owned(home, &user_chrome, css.as_bytes(), uid, gid)?;
+            write_owned(home, &user_chrome, css.as_bytes(), uid, gid, copies)?;
             touched += 1;
         } else {
             // Shell or hand-written userChrome: never clobber.
@@ -162,7 +170,7 @@ fn firefox(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Appl
         }
         let user_js = profile.join("user.js");
         let merged = merge_user_prefs(&read_or_empty(&user_js), &prefs);
-        write_owned(home, &user_js, merged.as_bytes(), uid, gid)?;
+        write_owned(home, &user_js, merged.as_bytes(), uid, gid, copies)?;
     }
     let note = if preserved > 0 {
         format!(", {preserved} custom userChrome.css preserved")
@@ -209,7 +217,13 @@ fn merge_user_prefs(existing: &str, updates: &[(&str, &str)]) -> String {
 
 // -- VSCodium / VSCode -----------------------------------------------------
 
-fn vscodium(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied, ApiError> {
+fn vscodium(
+    home: &Path,
+    uid: u32,
+    gid: u32,
+    snap: &ThemeSnapshot,
+    copies: usize,
+) -> Result<Applied, ApiError> {
     let (rel, label) = if home.join(".config/VSCodium").is_dir() {
         (".config/VSCodium/User/settings.json", "VSCodium")
     } else {
@@ -323,7 +337,7 @@ fn vscodium(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<App
         &existing,
         &[("workbench.colorCustomizations", color_overrides)],
     )?;
-    write_owned(home, &path, merged.as_bytes(), uid, gid)?;
+    write_owned(home, &path, merged.as_bytes(), uid, gid, copies)?;
     Ok(Applied::Wrote(format!(
         "{label}: workbench.colorCustomizations + terminal palette merged"
     )))
@@ -333,7 +347,13 @@ fn vscodium(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<App
 
 /// Alacritty: DMS's `dank-theme.toml` is only imported when DMS actually
 /// won; any other source gets our own generated color file.
-fn alacritty(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied, ApiError> {
+fn alacritty(
+    home: &Path,
+    uid: u32,
+    gid: u32,
+    snap: &ThemeSnapshot,
+    copies: usize,
+) -> Result<Applied, ApiError> {
     let dir = home.join(".config/alacritty");
     mkdir_owned(home, &dir, uid, gid)?;
     let config = dir.join("alacritty.toml");
@@ -350,6 +370,7 @@ fn alacritty(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Ap
             alacritty_colors(snap).as_bytes(),
             uid,
             gid,
+            copies,
         )?;
         name
     };
@@ -378,7 +399,7 @@ fn alacritty(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Ap
         array.push(import_name.clone());
     }
     let rendered = document.to_string();
-    write_owned(home, &config, rendered.as_bytes(), uid, gid)?;
+    write_owned(home, &config, rendered.as_bytes(), uid, gid, copies)?;
     Ok(Applied::Wrote(format!(
         "alacritty.toml imports {import_name}"
     )))
@@ -428,7 +449,13 @@ fn alacritty_colors(snap: &ThemeSnapshot) -> String {
 }
 
 /// Kitty: colors in our own file + an uncommented exact `include` line.
-fn kitty(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied, ApiError> {
+fn kitty(
+    home: &Path,
+    uid: u32,
+    gid: u32,
+    snap: &ThemeSnapshot,
+    copies: usize,
+) -> Result<Applied, ApiError> {
     let dir = home.join(".config/kitty");
     mkdir_owned(home, &dir, uid, gid)?;
     let c = &snap.colors;
@@ -469,6 +496,7 @@ fn kitty(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applie
         colors.as_bytes(),
         uid,
         gid,
+        copies,
     )?;
     let conf = dir.join("kitty.conf");
     let existing = read_or_empty(&conf);
@@ -483,14 +511,20 @@ fn kitty(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applie
         ));
     }
     let appended = format!("{existing}\ninclude ursine-theme.conf\n");
-    write_owned(home, &conf, appended.as_bytes(), uid, gid)?;
+    write_owned(home, &conf, appended.as_bytes(), uid, gid, copies)?;
     Ok(Applied::Wrote(
         "kitty: ursine-theme.conf written + included".to_string(),
     ))
 }
 
 /// Ghostty: marked block in `~/.config/ghostty/config`.
-fn ghostty(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied, ApiError> {
+fn ghostty(
+    home: &Path,
+    uid: u32,
+    gid: u32,
+    snap: &ThemeSnapshot,
+    copies: usize,
+) -> Result<Applied, ApiError> {
     let dir = home.join(".config/ghostty");
     mkdir_owned(home, &dir, uid, gid)?;
     let path = dir.join("config");
@@ -510,14 +544,20 @@ fn ghostty(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Appl
     ];
     let body = format!("{}\n", lines.join("\n"));
     let merged = replace_block(&read_or_empty(&path), BEGIN, END, &body);
-    write_owned(home, &path, merged.as_bytes(), uid, gid)?;
+    write_owned(home, &path, merged.as_bytes(), uid, gid, copies)?;
     Ok(Applied::Wrote(
         "ghostty config: ursine-theme block written".to_string(),
     ))
 }
 
 /// foot: replace the `[colors]` section only when absent or marker-owned.
-fn foot(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied, ApiError> {
+fn foot(
+    home: &Path,
+    uid: u32,
+    gid: u32,
+    snap: &ThemeSnapshot,
+    copies: usize,
+) -> Result<Applied, ApiError> {
     let dir = home.join(".config/foot");
     mkdir_owned(home, &dir, uid, gid)?;
     let path = dir.join("foot.ini");
@@ -550,14 +590,20 @@ fn foot(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied
     ];
     let body = format!("{}\n", lines.join("\n"));
     let merged = replace_ini_section(&existing, "colors", &body);
-    write_owned(home, &path, merged.as_bytes(), uid, gid)?;
+    write_owned(home, &path, merged.as_bytes(), uid, gid, copies)?;
     Ok(Applied::Wrote(
         "foot.ini: [colors] section written".to_string(),
     ))
 }
 
 /// cava: replace the `[color]` section only when absent or marker-owned.
-fn cava(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied, ApiError> {
+fn cava(
+    home: &Path,
+    uid: u32,
+    gid: u32,
+    snap: &ThemeSnapshot,
+    copies: usize,
+) -> Result<Applied, ApiError> {
     let dir = home.join(".config/cava");
     mkdir_owned(home, &dir, uid, gid)?;
     let path = dir.join("config");
@@ -579,7 +625,7 @@ fn cava(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied
     ];
     let body = format!("{}\n", lines.join("\n"));
     let merged = replace_ini_section(&existing, "color", &body);
-    write_owned(home, &path, merged.as_bytes(), uid, gid)?;
+    write_owned(home, &path, merged.as_bytes(), uid, gid, copies)?;
     Ok(Applied::Wrote("cava: [color] section written".to_string()))
 }
 
@@ -608,7 +654,13 @@ fn section_bodies(existing: &str) -> std::collections::HashMap<String, String> {
 /// galculator paints its display from its OWN config (`display_bkg_color`
 /// etc.) — the shell theme never reaches it. Merge the five display colors
 /// from the palette; everything else in the file is preserved.
-fn galculator(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<Applied, ApiError> {
+fn galculator(
+    home: &Path,
+    uid: u32,
+    gid: u32,
+    snap: &ThemeSnapshot,
+    copies: usize,
+) -> Result<Applied, ApiError> {
     let dir = home.join(".config/galculator");
     mkdir_owned(home, &dir, uid, gid)?;
     let path = dir.join("galculator.conf");
@@ -627,14 +679,14 @@ fn galculator(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<A
     ];
     let refs: Vec<(&str, &str)> = updates.iter().map(|(k, v)| (*k, v.as_str())).collect();
     let merged = merge_ini(&existing, "general", &refs);
-    write_owned(home, &path, merged.as_bytes(), uid, gid)?;
+    write_owned(home, &path, merged.as_bytes(), uid, gid, copies)?;
     Ok(Applied::Wrote(
         "galculator display colors from shell palette".to_string(),
     ))
 }
 
 /// Electron: keep Chromium on GTK4 so the GTK layers drive its colors.
-fn electron(home: &Path, uid: u32, gid: u32) -> Result<Applied, ApiError> {
+fn electron(home: &Path, uid: u32, gid: u32, copies: usize) -> Result<Applied, ApiError> {
     let path = home.join(".config/electron-flags.conf");
     let existing = read_or_empty(&path);
     if existing.lines().any(|l| l.trim() == "--gtk-version=4") {
@@ -647,7 +699,7 @@ fn electron(home: &Path, uid: u32, gid: u32) -> Result<Applied, ApiError> {
         text.push('\n');
     }
     text.push_str(&format!("{MARKER}\n--gtk-version=4\n"));
-    write_owned(home, &path, text.as_bytes(), uid, gid)?;
+    write_owned(home, &path, text.as_bytes(), uid, gid, copies)?;
     Ok(Applied::Wrote(
         "electron-flags.conf: --gtk-version=4 appended".to_string(),
     ))
@@ -725,7 +777,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(profile.join("user.js"), "user_pref(\"keep.me\", 1);\n").unwrap();
-        let detail = wrote(firefox(&home, 0, 0, &snapshot()).unwrap());
+        let detail = wrote(firefox(&home, 0, 0, &snapshot(), 3).unwrap());
         assert!(detail.contains("1 Firefox profile"));
         let css = std::fs::read_to_string(profile.join("chrome/userChrome.css")).unwrap();
         assert!(css.contains("--in-content-page-background: #10140f"));
@@ -734,7 +786,7 @@ mod tests {
         assert!(prefs.contains("toolkit.legacyUserProfileCustomizations"));
         assert!(prefs.contains("ui.systemUsesDarkTheme"));
         // Second run: no duplicate prefs.
-        firefox(&home, 0, 0, &snapshot()).unwrap();
+        firefox(&home, 0, 0, &snapshot(), 3).unwrap();
         let prefs = std::fs::read_to_string(profile.join("user.js")).unwrap();
         assert_eq!(
             prefs
@@ -801,7 +853,7 @@ mod tests {
         .unwrap();
         let custom = profile.join("chrome/userChrome.css");
         std::fs::write(&custom, "/* my own chrome */\n").unwrap();
-        let detail = wrote(firefox(&home, 0, 0, &snapshot()).unwrap());
+        let detail = wrote(firefox(&home, 0, 0, &snapshot(), 3).unwrap());
         assert!(detail.contains("preserved"));
         assert_eq!(
             std::fs::read_to_string(&custom).unwrap(),
@@ -821,7 +873,7 @@ mod tests {
             "{\n  // keep autosave\n  \"files.autoSave\": \"afterDelay\",\n}\n",
         )
         .unwrap();
-        wrote(vscodium(&home, 0, 0, &snapshot()).unwrap());
+        wrote(vscodium(&home, 0, 0, &snapshot(), 3).unwrap());
         let text = std::fs::read_to_string(dir.join("settings.json")).unwrap();
         assert!(text.contains("workbench.colorCustomizations"));
         assert!(text.contains("files.autoSave"));
@@ -844,12 +896,12 @@ mod tests {
         .unwrap();
         let mut wayle = snapshot();
         wayle.source = ThemeSource::Wayle;
-        wrote(alacritty(&home, 0, 0, &wayle).unwrap());
+        wrote(alacritty(&home, 0, 0, &wayle, 3).unwrap());
         let config = std::fs::read_to_string(dir.join("alacritty.toml")).unwrap();
         assert!(config.contains("ursine-wayle.toml"), "{config}");
         assert!(!config.contains("dank-theme.toml"));
         // DMS winner imports the dank file (the original bug fix).
-        wrote(alacritty(&home, 0, 0, &snapshot()).unwrap());
+        wrote(alacritty(&home, 0, 0, &snapshot(), 3).unwrap());
         let config = std::fs::read_to_string(dir.join("alacritty.toml")).unwrap();
         assert!(config.contains("dank-theme.toml"));
         let _ = std::fs::remove_dir_all(&home);
@@ -865,8 +917,8 @@ mod tests {
             "font_size 12\n# include ursine-theme.conf\n",
         )
         .unwrap();
-        wrote(kitty(&home, 0, 0, &snapshot()).unwrap());
-        let detail = kept(kitty(&home, 0, 0, &snapshot()).unwrap());
+        wrote(kitty(&home, 0, 0, &snapshot(), 3).unwrap());
+        let detail = kept(kitty(&home, 0, 0, &snapshot(), 3).unwrap());
         assert!(detail.contains("already"));
         let conf = std::fs::read_to_string(dir.join("kitty.conf")).unwrap();
         let active = conf
@@ -888,19 +940,19 @@ mod tests {
             "[main]\nfont=x\n\n[colors]\nbackground=old\n",
         )
         .unwrap();
-        let detail = kept(foot(&home, 0, 0, &snapshot()).unwrap());
+        let detail = kept(foot(&home, 0, 0, &snapshot(), 3).unwrap());
         assert!(detail.contains("preserved"));
         let text = std::fs::read_to_string(foot_dir.join("foot.ini")).unwrap();
         assert!(text.contains("background=old"), "custom colors stomped");
 
         let cava_dir = home.join(".config/cava");
         std::fs::create_dir_all(&cava_dir).unwrap();
-        wrote(cava(&home, 0, 0, &snapshot()).unwrap());
+        wrote(cava(&home, 0, 0, &snapshot(), 3).unwrap());
         let text = std::fs::read_to_string(cava_dir.join("config")).unwrap();
         assert!(text.contains("[color]"));
         assert!(text.contains("foreground='e0e4db'"));
         // Marker-owned cava config re-applies cleanly.
-        wrote(cava(&home, 0, 0, &snapshot()).unwrap());
+        wrote(cava(&home, 0, 0, &snapshot(), 3).unwrap());
         let text = std::fs::read_to_string(cava_dir.join("config")).unwrap();
         assert_eq!(text.matches("[color]").count(), 1);
         let _ = std::fs::remove_dir_all(&home);
@@ -916,7 +968,7 @@ mod tests {
             "[general]\ndisplay_bkg_color=\"rgb(255,255,255)\"\nbutton_width=40\nmode=0\n",
         )
         .unwrap();
-        let detail = wrote(galculator(&home, 0, 0, &snapshot()).unwrap());
+        let detail = wrote(galculator(&home, 0, 0, &snapshot(), 3).unwrap());
         assert!(detail.contains("display colors"));
         let text = std::fs::read_to_string(dir.join("galculator.conf")).unwrap();
         // Quoted like galculator's own writer.
@@ -933,8 +985,8 @@ mod tests {
     #[test]
     fn electron_flags_are_added_once() {
         let home = temp_home("electron");
-        wrote(electron(&home, 0, 0).unwrap());
-        let detail = kept(electron(&home, 0, 0).unwrap());
+        wrote(electron(&home, 0, 0, 3).unwrap());
+        let detail = kept(electron(&home, 0, 0, 3).unwrap());
         assert!(detail.contains("already"));
         let text = std::fs::read_to_string(home.join(".config/electron-flags.conf")).unwrap();
         assert_eq!(text.matches("--gtk-version=4").count(), 1);
@@ -949,6 +1001,7 @@ mod tests {
             0,
             0,
             &snapshot(),
+            3,
         )
         .unwrap();
         match applied {

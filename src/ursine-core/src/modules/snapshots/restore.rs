@@ -53,34 +53,41 @@ fn plan(
         if !meta.is_dir() {
             return Err(ApiError::invalid("restore target is not a directory"));
         }
-        let name = target_path
-            .file_name()
-            .map_or_else(|| "restore".into(), |n| n.to_string_lossy().into_owned());
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
-        let backup = target_path.with_file_name(format!("{name}.ursine-backup-{stamp}"));
-        if backup.exists() {
-            return Err(ApiError::new(
-                ursine_api::ErrorCode::Conflict,
-                "restore backup path already exists",
-            ));
-        }
-        Some(backup)
+        // Uniform slot naming: the live tree rotates into slot 0 (an
+        // existing slot 0 is shifted older by rotate_move, so no
+        // conflict check here).
+        Some(crate::backup_configs::slot_path(&target_path, 0))
     } else {
         None
     };
     Ok((snapshot_path, target_path, backup))
 }
 
-pub(super) async fn apply(snapshot: &str, target: &str) -> Result<serde_json::Value, ApiError> {
+pub(super) async fn apply(
+    snapshot: &str,
+    target: &str,
+    copies: usize,
+) -> Result<serde_json::Value, ApiError> {
     // Re-run the preview checks: the path can change between confirm and apply.
-    let (_, target_path, backup) = plan(snapshot, target)?;
-    if let Some(backup) = &backup {
-        std::fs::rename(target, backup)
-            .map_err(|e| ApiError::internal(format!("move existing target aside: {e}")))?;
-    }
+    let (_, target_path, _planned_backup) = plan(snapshot, target)?;
+    // Uniform rotation: shift the chain older, move the live tree into
+    // slot 0. On a failed snapshot the tree moves back — the chain stays
+    // shifted (the oldest backup rotated out; the live target is intact).
+    // Resolve btrfs BEFORE rotating: a lookup failure must not strand
+    // the live tree in slot 0. The move itself displaces a whole
+    // subvolume tree, so it runs on the blocking pool.
     let program = btrbk::btrfs_path()?;
+    let backup = if target_path.exists() {
+        let move_target = target_path.clone();
+        let slot0 = tokio::task::spawn_blocking(move || {
+            crate::backup_configs::rotate_move(&move_target, copies)
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("backup task failed: {e}")))??;
+        Some(slot0)
+    } else {
+        None
+    };
     let result = crate::modules::packages_nix::exec::run_root_program(
         program,
         &["subvolume", "snapshot", snapshot, target],
@@ -91,13 +98,20 @@ pub(super) async fn apply(snapshot: &str, target: &str) -> Result<serde_json::Va
         Ok(out) => out,
         Err(error) => {
             if let Some(backup) = &backup {
-                let _ = std::fs::rename(backup, target);
+                // Best-effort rollback, but never silent: a failed rename
+                // (e.g. btrfs left a partial `target` behind) must surface
+                // the slot holding the user's tree.
+                if let Err(rollback) = std::fs::rename(backup, target) {
+                    return Err(ApiError::internal(format!(
+                        "restore failed ({error}); rollback of {} also failed ({rollback}) - the live tree is in {}",
+                        target,
+                        backup.display()
+                    )));
+                }
             }
             return Err(error);
         }
     };
-    // Rotation runs after success: the new backup counts toward the cap.
-    prune_restore_backups(&target_path).await;
     Ok(json!({
         "dry_run": false,
         "snapshot": snapshot,
@@ -106,78 +120,6 @@ pub(super) async fn apply(snapshot: &str, target: &str) -> Result<serde_json::Va
         "stdout": out.stdout,
         "stderr": out.stderr,
     }))
-}
-
-/// Restore backups kept per target: the newest snapshot wins, older
-/// ones rotate out — at most THREE copies exist at any time.
-const MAX_RESTORE_BACKUPS: usize = 3;
-
-/// Best-effort rotation: delete restore backups beyond the newest
-/// [`MAX_RESTORE_BACKUPS`]. Runs AFTER a successful restore (the new
-/// backup already exists); failures never fail the restore itself —
-/// leftover files stay visible next to the target.
-///
-/// The scan and unlink run on the blocking pool; a backup that plain
-/// removal cannot delete (read-only subvolume, EROFS) falls back to
-/// `btrfs subvolume delete`.
-async fn prune_restore_backups(target: &Path) {
-    let (Some(dir), Some(name)) = (target.parent(), target.file_name()) else {
-        return;
-    };
-    let dir = dir.to_path_buf();
-    let prefix = format!("{}.ursine-backup-", name.to_string_lossy());
-    let stale = tokio::task::spawn_blocking(move || -> Vec<std::path::PathBuf> {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            return Vec::new();
-        };
-        let mut backups: Vec<(u64, std::path::PathBuf)> = Vec::new();
-        for entry in entries.flatten() {
-            let file_name = entry.file_name().to_string_lossy().into_owned();
-            if let Some(stamp) = file_name.strip_prefix(&prefix) {
-                if let Ok(stamp) = stamp.parse::<u64>() {
-                    backups.push((stamp, entry.path()));
-                }
-            }
-        }
-        // Newest stamp first; drop everything past the cap.
-        backups.sort_by_key(|(stamp, _)| std::cmp::Reverse(*stamp));
-        backups
-            .into_iter()
-            .skip(MAX_RESTORE_BACKUPS)
-            .map(|(_, path)| path)
-            .collect()
-    })
-    .await
-    .unwrap_or_default();
-    for path in stale {
-        // Backups are moved btrfs subvolumes (directories); fall back to
-        // plain file removal for non-directory leftovers.
-        let removed = tokio::task::spawn_blocking({
-            let path = path.clone();
-            move || {
-                std::fs::remove_dir_all(&path)
-                    .or_else(|_| std::fs::remove_file(&path))
-                    .is_ok()
-            }
-        })
-        .await
-        .unwrap_or(false);
-        if removed {
-            continue;
-        }
-        // Read-only subvolume: unlink fails with EROFS, the btrfs ioctl
-        // still deletes it.
-        let Ok(program) = btrbk::btrfs_path() else {
-            continue;
-        };
-        let path_arg = path.to_string_lossy().into_owned();
-        let _ = crate::modules::packages_nix::exec::run_root_program(
-            program,
-            &["subvolume", "delete", &path_arg],
-            btrbk::MUTATE_TIMEOUT,
-        )
-        .await;
-    }
 }
 
 fn validated_path<'a>(value: &'a str, label: &str) -> Result<&'a Path, ApiError> {
@@ -206,32 +148,58 @@ mod tests {
     #![allow(clippy::disallowed_methods)] // tests use the host temp dir
     use super::*;
 
-    #[tokio::test]
-    async fn restore_backups_rotate_to_three() {
-        let dir = std::env::temp_dir().join(format!("ursine-restore-test-{}", std::process::id()));
+    #[test]
+    fn plan_targets_the_uniform_slot_and_never_conflicts_with_it() {
+        let dir = std::env::temp_dir().join(format!("ursine-restore-plan-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let target = dir.join("config.kdl");
-        for stamp in [100u64, 200, 300, 400, 500] {
-            std::fs::create_dir_all(dir.join(format!("config.kdl.ursine-backup-{stamp}"))).unwrap();
-        }
-        prune_restore_backups(&target).await;
-        let mut stamps: Vec<String> = std::fs::read_dir(&dir)
-            .unwrap()
-            .flatten()
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|name| name.starts_with("config.kdl.ursine-backup-"))
-            .collect();
-        stamps.sort();
+        let snap = dir.join("snap");
+        let target = dir.join("home");
+        std::fs::create_dir_all(&snap).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        // A slot 0 from the previous restore must NOT conflict: rotation
+        // shifts it older instead of refusing to run.
+        std::fs::create_dir_all(crate::backup_configs::slot_path(&target, 0)).unwrap();
+        let (_s, _t, backup) =
+            plan(&snap.display().to_string(), &target.display().to_string()).unwrap();
         assert_eq!(
-            stamps,
-            vec![
-                "config.kdl.ursine-backup-300".to_string(),
-                "config.kdl.ursine-backup-400".to_string(),
-                "config.kdl.ursine-backup-500".to_string(),
-            ],
-            "newest three must survive"
+            backup,
+            Some(crate::backup_configs::slot_path(&target, 0)),
+            "backup path is the uniform slot 0"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The whole restore chain: three rotates keep two prior trees plus
+    /// the live one moved aside; legacy timestamped backups are pruned
+    /// to the same cap (shared `backup_configs` behaviour).
+    #[test]
+    fn restore_rotation_keeps_the_configured_copies() {
+        let dir = std::env::temp_dir().join(format!("ursine-restore-rot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("home");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("v"), "1\n").unwrap();
+        crate::backup_configs::rotate_move(&target, 2).unwrap();
+        for gen in ["2\n", "3\n", "4\n"] {
+            std::fs::create_dir_all(&target).unwrap();
+            std::fs::write(target.join("v"), gen).unwrap();
+            crate::backup_configs::rotate_move(&target, 2).unwrap();
+        }
+        // Live tree sits in slot 0 (moved by the last rotate), slot 1 is
+        // the second-newest, older generations rotated out.
+        assert_eq!(
+            std::fs::read_to_string(crate::backup_configs::slot_path(&target, 0).join("v"))
+                .unwrap(),
+            "4\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(crate::backup_configs::slot_path(&target, 1).join("v"))
+                .unwrap(),
+            "3\n"
+        );
+        assert!(!crate::backup_configs::slot_path(&target, 2).exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

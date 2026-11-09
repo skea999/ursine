@@ -21,8 +21,14 @@ const MODE_ID: &str = "com.system76.CosmicTheme.Mode";
 const TRANSPARENT_ALPHA: &str = "d9";
 
 /// Write the COSMIC theme + mode entries for the snapshot's light/dark side.
-pub(super) fn run(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> TargetResult {
-    match run_inner(home, uid, gid, snap) {
+pub(super) fn run(
+    home: &Path,
+    uid: u32,
+    gid: u32,
+    snap: &ThemeSnapshot,
+    copies: usize,
+) -> TargetResult {
+    match run_inner(home, uid, gid, snap, copies) {
         Ok(()) => TargetResult {
             target: ThemingTarget::Cosmic,
             outcome: ApplyOutcome::Written,
@@ -40,7 +46,13 @@ pub(super) fn run(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Targ
     }
 }
 
-fn run_inner(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<(), ApiError> {
+fn run_inner(
+    home: &Path,
+    uid: u32,
+    gid: u32,
+    snap: &ThemeSnapshot,
+    copies: usize,
+) -> Result<(), ApiError> {
     let base = home.join(".config");
     mkdir_owned(home, &base, uid, gid)?;
 
@@ -61,6 +73,13 @@ fn run_inner(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<()
         Theme::light_default()
     };
     let patched = patched(&template, snap)?;
+    // Rotate the live entry dir before cosmic-config rewrites it
+    // (owner-aware; missing on the first apply → no-op).
+    crate::backup_configs::rotate(
+        &base.join("cosmic").join(theme_id),
+        copies,
+        Some((uid, gid)),
+    )?;
     patched.write_entry(&config).map_err(|e| map_cosmic(&e))?;
 
     let mode_config = cosmic_config::Config::with_custom_path(
@@ -75,6 +94,7 @@ fn run_inner(home: &Path, uid: u32, gid: u32, snap: &ThemeSnapshot) -> Result<()
         is_dark: snap.dark,
         auto_switch: previous.auto_switch,
     };
+    crate::backup_configs::rotate(&base.join("cosmic").join(MODE_ID), copies, Some((uid, gid)))?;
     mode.write_entry(&mode_config).map_err(|e| map_cosmic(&e))?;
     // Whole cosmic tree (incl. the `.config/cosmic` root cosmic-config just
     // created as root) goes back to the user.
@@ -385,7 +405,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ursine-cosmic-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".config/cosmic")).unwrap();
-        let result = run_inner(&dir, std::process::id(), std::process::id(), &snapshot());
+        let result = run_inner(&dir, std::process::id(), std::process::id(), &snapshot(), 3);
         assert!(result.is_ok(), "{result:?}");
         let dark = dir.join(".config/cosmic/com.system76.CosmicTheme.Dark");
         assert!(dark.is_dir(), "dark entry missing at {}", dark.display());

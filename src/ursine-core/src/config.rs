@@ -138,7 +138,10 @@ pub fn set_module_switch(
     let updated: UrsineConfig = toml::from_str(&document.to_string())
         .map_err(|e| CoreError::config(format!("validate {}: {e}", path.display())))?;
 
-    write_atomic(path, document.to_string().as_bytes())?;
+    // The file's own backup policy (the value just validated) governs
+    // how many of its previous versions are kept.
+    let copies = crate::backup_configs::copies_from(&updated);
+    write_atomic(path, document.to_string().as_bytes(), copies)?;
     Ok(updated.modules)
 }
 
@@ -221,8 +224,9 @@ fn atomic_tmp_path(path: &Path) -> PathBuf {
 }
 
 /// Write bytes atomically and durably. Existing permissions are preserved;
-/// new files are explicit `0640`, never umask-dependent.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
+/// new files are explicit `0640`, never umask-dependent. The previous
+/// file rotates through `<path>.ursine-backup[.N]` (`backup_configs`).
+fn write_atomic(path: &Path, bytes: &[u8], copies: usize) -> Result<(), CoreError> {
     validate_config_parent(path)?;
     validate_config_target(path)?;
     let tmp = atomic_tmp_path(path);
@@ -249,6 +253,11 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
         };
         file.write_all(bytes)?;
         file.sync_all()?;
+        // Rotate the live config BEFORE the swap: a rotation failure
+        // aborts the write (tmp is cleaned below) and the live file
+        // stays untouched.
+        crate::backup_configs::rotate(path, copies, None)
+            .map_err(|e| CoreError::config(e.message))?;
         if path.exists() {
             let metadata = std::fs::metadata(path)?;
             std::fs::set_permissions(&tmp, metadata.permissions())?;
@@ -280,6 +289,10 @@ pub fn render_template(caps: &[CapabilityReport]) -> String {
     out.push_str("# socket_path = \"/run/ursine.sock\"\n");
     out.push_str("# audit_path = \"/var/log/ursine/audit.jsonl\"\n");
     out.push_str("# disks_format = false  # true enables format/partition (restart ursined)\n\n");
+    out.push_str("[backup_configs]\n");
+    out.push_str("# previous file versions kept per backup target (1-10)\n");
+    out.push_str("copies = 3\n\n");
+
     out.push_str("[modules]\n");
     out.push_str("# \"auto\" = detection decides (see hints below)\n");
     out.push_str("packages_nix = \"auto\"\n");
@@ -310,7 +323,13 @@ pub fn render_template(caps: &[CapabilityReport]) -> String {
 
 /// Write the template atomically through the same hardened path as updates.
 pub fn write_template(path: &Path, caps: &[CapabilityReport]) -> Result<(), CoreError> {
-    write_atomic(path, render_template(caps).as_bytes())
+    // config.init refuses an existing file, so there is nothing to rotate;
+    // the default count is irrelevant (rotate is a no-op on a missing target).
+    write_atomic(
+        path,
+        render_template(caps).as_bytes(),
+        crate::backup_configs::copies_from(&UrsineConfig::default()),
+    )
 }
 
 #[cfg(test)]

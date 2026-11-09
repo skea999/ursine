@@ -47,9 +47,11 @@ pub async fn handle(
             let (home, uid, gid) = target_identity(ctx.as_user)?;
             let user = ctx.as_user.to_string();
             let show_minimize = *show_minimize;
-            let report =
-                blocking(move || apply::run_blocking(&user, &home, uid, gid, show_minimize))
-                    .await?;
+            let copies = crate::backup_configs::copies_from(&ctx.config);
+            let report = blocking(move || {
+                apply::run_blocking(&user, &home, uid, gid, show_minimize, copies)
+            })
+            .await?;
             serde_json::to_value(report)
                 .map_err(|e| ApiError::internal(format!("encode apply report: {e}")))
         }
@@ -553,6 +555,7 @@ mod tests {
             std::process::id(),
             std::process::id(),
             true,
+            3,
         )
         .expect("apply into throwaway home");
         let written = report

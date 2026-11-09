@@ -48,6 +48,12 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         Action::AddFlatpakRemote { name, url, system } => {
             validate_remote_name(name)?;
             validate_remote_url(url)?;
+            backup_repo_config(
+                *system,
+                ctx.as_user,
+                crate::backup_configs::copies_from(&ctx.config),
+            )
+            .await?;
             run(
                 *system,
                 ctx.as_user,
@@ -58,6 +64,12 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         }
         Action::RemoveFlatpakRemote { name, system } => {
             validate_remote_name(name)?;
+            backup_repo_config(
+                *system,
+                ctx.as_user,
+                crate::backup_configs::copies_from(&ctx.config),
+            )
+            .await?;
             run(
                 *system,
                 ctx.as_user,
@@ -118,6 +130,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                 filesystems,
                 env,
                 ctx.as_user,
+                crate::backup_configs::copies_from(&ctx.config),
             )
             .await?;
             Ok(json!(permissions_get(app_id, *system, ctx.as_user).await?))
@@ -291,6 +304,7 @@ async fn permissions_get(
 
 /// Replace the four editable lists, preserving every other key/group of
 /// the override file (no `--reset`: it would drop Session Bus policies).
+#[allow(clippy::too_many_arguments)] // mirrors the SetFlatpakPermissions action fields
 async fn permissions_set(
     app_id: &str,
     system: bool,
@@ -299,6 +313,7 @@ async fn permissions_set(
     filesystems: &[String],
     env: &[FlatpakEnvVar],
     user: &str,
+    copies: usize,
 ) -> Result<(), ApiError> {
     permissions::validate_tokens(sockets, 64)?;
     permissions::validate_tokens(devices, 64)?;
@@ -310,7 +325,7 @@ async fn permissions_set(
     let outcome = exec::run_as_user_read_file(reader, &path).await?;
     let (_exists, raw) = decode_marker(&outcome.stdout)?;
     let rendered = permissions::render(&raw, sockets, devices, filesystems, env);
-    exec::run_as_user_atomic_write(reader, &path, &rendered).await?;
+    exec::run_as_user_atomic_write(reader, &path, &rendered, copies).await?;
     Ok(())
 }
 
@@ -577,6 +592,20 @@ fn flatpak_path() -> Result<&'static str, ApiError> {
         .find(|path| Path::new(path).is_file())
         .copied()
         .ok_or_else(|| ApiError::unavailable("flatpak is not installed", "apk add flatpak"))
+}
+
+/// Rotate the installation's `repo/config` (the file `flatpak
+/// remote-add/delete` rewrites) before those CLIs run. System installs
+/// are root-owned; user installs get chowned back to the user.
+async fn backup_repo_config(system: bool, user: &str, copies: usize) -> Result<(), ApiError> {
+    let target = if system {
+        std::path::PathBuf::from("/var/lib/flatpak/repo/config")
+    } else {
+        let (home, uid, gid) = crate::modules::theming::target_identity(user)?;
+        let path = home.join(".local/share/flatpak/repo/config");
+        return crate::backup_configs::rotate_async(path, copies, Some((uid, gid))).await;
+    };
+    crate::backup_configs::rotate_async(target, copies, None).await
 }
 
 async fn run(system: bool, user: &str, args: &[&str]) -> Result<String, ApiError> {

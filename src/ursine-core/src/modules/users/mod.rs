@@ -9,6 +9,22 @@ use ursine_api::{Action, ApiError};
 use super::ModuleCtx;
 
 pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
+    // The account files are rewritten by accountsservice/usermod CLIs, not
+    // by us: rotate them first so every membership/password change keeps
+    // three previous versions (uniform slot backups). A failure part-way
+    // through the four rotations leaves earlier files rotated and later
+    // ones untouched — the mutation never runs either way (fail-closed).
+    let backup_accounts = || async {
+        for path in ["/etc/passwd", "/etc/shadow", "/etc/group", "/etc/gshadow"] {
+            crate::backup_configs::rotate_async(
+                std::path::PathBuf::from(path),
+                crate::backup_configs::copies_from(&ctx.config),
+                None,
+            )
+            .await?;
+        }
+        Ok::<(), ApiError>(())
+    };
     match action {
         Action::ListUsers => Ok(json!({ "users": accounts::list().await? })),
         Action::CreateUser {
@@ -22,6 +38,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                 groups::ensure_known_group("wheel")?;
             }
             // Locked password; the GUI sets it explicitly after creation.
+            backup_accounts().await?;
             accounts::create(name, fullname, *admin, "!").await?;
             if *admin {
                 groups::add_group(name, "wheel").await?;
@@ -30,6 +47,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         }
         Action::DeleteUser { uid, remove_files } => {
             reject_system_uid(*uid)?;
+            backup_accounts().await?;
             accounts::delete(*uid, *remove_files).await?;
             Ok(json!({"deleted": uid}))
         }
@@ -49,6 +67,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             .await
             .map_err(|_| ApiError::internal("password hashing task failed"))?
             .map_err(|_| ApiError::internal("password hashing failed"))?;
+            backup_accounts().await?;
             accounts::set_password(*uid, &hashed).await?;
             Ok(json!({"password_set": uid}))
         }
@@ -74,6 +93,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                     "cannot remove your own wheel membership",
                 ));
             }
+            backup_accounts().await?;
             groups::set_groups(&user.name, new_groups).await?;
             Ok(json!({"groups_set": uid}))
         }

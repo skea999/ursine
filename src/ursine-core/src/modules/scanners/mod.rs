@@ -35,20 +35,20 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                 address: address.clone(),
                 protocol: protocol.clone(),
             });
-            write_config(&config)?;
+            write_config(&config, crate::backup_configs::copies_from(&ctx.config))?;
             Ok(json!(read_view(ctx).await?))
         }
         Action::RemoveScannerDevice { name } => {
             validate_name(name)?;
             let mut config = read_config()?;
             config.devices.retain(|device| device.name != *name);
-            write_config(&config)?;
+            write_config(&config, crate::backup_configs::copies_from(&ctx.config))?;
             Ok(json!(read_view(ctx).await?))
         }
         Action::SetScannerDiscovery { enabled } => {
             let mut config = read_config()?;
             config.discovery_disabled = !enabled;
-            write_config(&config)?;
+            write_config(&config, crate::backup_configs::copies_from(&ctx.config))?;
             Ok(json!(read_view(ctx).await?))
         }
         _ => Err(ApiError::invalid("action is not valid for module scanners")),
@@ -154,7 +154,7 @@ fn parse_config(text: &str) -> AirscanConfig {
     config
 }
 
-fn write_config(config: &AirscanConfig) -> Result<(), ApiError> {
+fn write_config(config: &AirscanConfig, copies: usize) -> Result<(), ApiError> {
     let path = config_path();
     let parent = path
         .parent()
@@ -167,9 +167,9 @@ fn write_config(config: &AirscanConfig) -> Result<(), ApiError> {
         if meta.file_type().is_symlink() || !meta.is_file() {
             return Err(ApiError::invalid("airscan config is not a regular file"));
         }
-        let backup = path.with_file_name(format!(".airscan.conf.ursine-backup-{}", nanos()));
-        std::fs::copy(&path, &backup)
-            .map_err(|e| ApiError::internal(format!("backup airscan config: {e}")))?;
+        // Uniform rotation (replaces the old unbounded timestamped copies;
+        // legacy ones are pruned inside rotate).
+        crate::backup_configs::rotate(&path, copies, None)?;
     }
     let temp = path.with_file_name(format!(
         ".airscan.conf.ursine-{}-{}",
