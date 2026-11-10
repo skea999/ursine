@@ -8,6 +8,7 @@ use ursine_api::{Action, ApiError, Capability, ModuleId, Principal, Response, Ur
 use std::path::PathBuf;
 
 pub mod bluetooth;
+pub mod booster;
 pub mod crontab;
 pub mod disks;
 pub mod firewall;
@@ -58,6 +59,7 @@ fn required_caps(module: ModuleId) -> &'static [Capability] {
         ModuleId::Niri => &[Capability::Niri],
         ModuleId::Theming => &[Capability::Theming],
         ModuleId::Crontab => &[Capability::Crontab],
+        ModuleId::Booster => &[Capability::Booster],
         ModuleId::Services
         | ModuleId::System
         | ModuleId::Config
@@ -138,6 +140,8 @@ pub async fn handle(
         (ModuleId::Logs, action) => logs::handle(action, ctx).await,
 
         (ModuleId::Crontab, action) => crontab::handle(action, ctx).await,
+
+        (ModuleId::Booster, action) => booster::handle(action, ctx).await,
 
         _ => Err(ApiError::invalid(format!(
             "action {} is not valid for module {}",
@@ -240,6 +244,9 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::LogSearch { .. } => "log_search",
         Action::CrontabGet => "crontab_get",
         Action::CrontabSet { .. } => "crontab_set",
+        Action::BoosterConfigGet => "booster_config_get",
+        Action::BoosterConfigSet { .. } => "booster_config_set",
+        Action::BoosterRegenerate => "booster_regenerate",
         Action::GetFirewall => "get_firewall",
         Action::SetDefaultFirewallZone { .. } => "set_default_firewall_zone",
         Action::AddFirewallService { .. } => "add_firewall_service",

@@ -6,6 +6,7 @@
 
 pub mod action;
 pub mod bluetooth;
+pub mod booster;
 pub mod capability;
 pub mod config;
 pub mod crontab;
@@ -32,6 +33,7 @@ pub mod users;
 
 pub use action::Action;
 pub use bluetooth::{BluetoothAdapter, BluetoothDevice, BluetoothOp, BluetoothView};
+pub use booster::{BoosterConfig, BoosterConfigPatch, BoosterRegenerateReport};
 pub use capability::{Capability, CapabilityReport};
 pub use config::{BackupConfigs, ModulesConfig, TriState, UrsineConfig};
 pub use crontab::{max_crontab_bytes, CrontabView};

@@ -300,6 +300,23 @@ Paths are relative to `/var/log`; escapes and binary files are rejected.
 Operations run as root through the portable `crontab -u <user>` form —
 no `su`, no suid requirement on the tool.
 
+### booster
+
+`booster_config_get`, `booster_config_set keys={…}` and
+`booster_regenerate [--yes]` (SPEC-booster).
+
+- Config: surgical edit of the known `/etc/booster.yaml` keys — comments,
+  unknown keys and the installer marker stay byte-identical; the file
+  rotates through the `backup_configs` slots before the atomic write.
+  `keys` is a JSON object of the known keys (`clear: [...]` removes
+  them): `keys={"compression":"zstd","network.dhcp":"off"}`.
+- Regenerate runs the distribution's own kernel-update process:
+  `apk fix kernel-hooks` when `/etc/kernel-hooks.d` has hooks (FeralOS
+  rebuilds the booster image + signed UKI there), otherwise
+  `regenerate_images` / `booster build` per installed kernel. The output
+  is the merged hook/process log; requires `booster`
+  (`apk add booster`).
+
 ## Target users
 
 The `--as-user` option:
@@ -341,7 +358,8 @@ CLI prints the refused action and exits 2. The current set includes:
 `remove_scanner_device`, `remove_firewall_service`, `remove_firewall_port`,
 `set_firewall_enabled` (off), `delete_firewall_service`, `forget_network`,
 `set_network_ipv4`, `set_flatpak_permissions`, `unmount_disk`,
-`format_disk`, `partition_create`, `partition_delete`.
+`format_disk`, `partition_create`, `partition_delete`,
+`booster_regenerate`.
 
 ## Background jobs (package progress)
 

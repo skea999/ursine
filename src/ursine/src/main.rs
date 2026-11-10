@@ -7,6 +7,7 @@
 #![allow(unreachable_pub)] // binary crate: no library surface
 mod app;
 mod bluetooth;
+mod booster;
 mod client;
 mod crontab;
 mod disks;

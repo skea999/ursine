@@ -528,6 +528,51 @@ pub async fn crontab_set(
     serde_json::from_value(value).map_err(|e| ApiError::internal(format!("decode crontab: {e}")))
 }
 
+/// Read `/etc/booster.yaml` (raw + known keys + chain step preview).
+pub async fn booster_config_get(
+    token: SessionToken,
+) -> Result<ursine_api::BoosterConfig, ApiError> {
+    let value = call(token, ModuleId::Booster, Action::BoosterConfigGet, None).await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode booster config: {e}")))
+}
+
+/// Surgically update the known keys of `/etc/booster.yaml`.
+pub async fn booster_config_set(
+    token: SessionToken,
+    keys: ursine_api::BoosterConfigPatch,
+) -> Result<ursine_api::BoosterConfig, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Booster,
+        Action::BoosterConfigSet {
+            keys: Box::new(keys),
+        },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode booster config: {e}")))
+}
+
+/// Rebuild the initramfs (kernel hooks first, `booster build` fallback).
+pub async fn booster_regenerate(
+    token: SessionToken,
+) -> Result<ursine_api::BoosterRegenerateReport, ApiError> {
+    // The daemon may run the hook chain for up to 120 s (kernel hooks +
+    // booster build per kernel): the 5 s default would abort a good run.
+    let value = call_with_timeout(
+        token,
+        ModuleId::Booster,
+        Action::BoosterRegenerate,
+        None,
+        daemon_budget(120),
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode booster report: {e}")))
+}
+
 /// Detect the winning shell source and per-target availability.
 pub async fn theming_status(token: SessionToken) -> Result<ursine_api::ThemingStatus, ApiError> {
     let value = call(token, ModuleId::Theming, Action::ThemeDetect, None).await?;

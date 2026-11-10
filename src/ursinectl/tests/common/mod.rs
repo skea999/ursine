@@ -955,6 +955,30 @@ pub const SAMPLES: &[Sample] = &[
         destructive: true,
         dispatch: Dispatch::Skip,
     },
+    // -- booster (SPEC-booster): capability-gated — CI has no `booster`
+    // binary, so config actions hit the Unavailable gate; regenerate is
+    // Skip because it would really rebuild boot images. --
+    Sample {
+        module: ursine_api::ModuleId::Booster,
+        action: "booster_config_get",
+        pairs: &[],
+        destructive: false,
+        dispatch: Dispatch::Gate,
+    },
+    Sample {
+        module: ursine_api::ModuleId::Booster,
+        action: "booster_config_set",
+        pairs: &[("keys", "{\"compression\":\"zstd\"}")],
+        destructive: false,
+        dispatch: Dispatch::Gate,
+    },
+    Sample {
+        module: ursine_api::ModuleId::Booster,
+        action: "booster_regenerate",
+        pairs: &[],
+        destructive: true,
+        dispatch: Dispatch::Skip,
+    },
 ];
 
 /// Fixture log created by the dispatch tests before `log_read`/`log_search`.
@@ -974,6 +998,9 @@ pub const ALL_ACTIONS: &[&str] = &[
     "add_printer",
     "add_printer_manual",
     "bluetooth_action",
+    "booster_config_get",
+    "booster_config_set",
+    "booster_regenerate",
     "cancel_printer_jobs",
     "connect_network",
     "connect_wifi",

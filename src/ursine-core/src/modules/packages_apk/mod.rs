@@ -14,7 +14,7 @@ use super::ModuleCtx;
 use crate::jobs::JobSink;
 use crate::modules::packages_nix::exec;
 
-const APK_CANDIDATES: [&str; 3] = ["/sbin/apk", "/usr/sbin/apk", "/usr/bin/apk"];
+pub(crate) const APK_CANDIDATES: [&str; 3] = ["/sbin/apk", "/usr/sbin/apk", "/usr/bin/apk"];
 const TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_ROWS: usize = 300;
 

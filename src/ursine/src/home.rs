@@ -31,6 +31,7 @@ struct ModuleEntry {
 #[derive(Clone, Copy)]
 enum Panel {
     Packages,
+    Booster,
     Theming,
     Logs,
     Crontab,
@@ -147,6 +148,13 @@ const MODULES: &[ModuleEntry] = &[
         any: false,
         panel: Some(Panel::Crontab),
     },
+    ModuleEntry {
+        title: "Booster (initramfs)",
+        module: Some(ModuleId::Booster),
+        requires: &[Capability::Booster],
+        any: false,
+        panel: Some(Panel::Booster),
+    },
 ];
 
 impl HomeState {
@@ -236,7 +244,8 @@ impl HomeState {
                 | Panel::Network
                 | Panel::Theming
                 | Panel::Logs
-                | Panel::Crontab,
+                | Panel::Crontab
+                | Panel::Booster,
             ) => {
                 let available = !Self::is_manually_off(entry, modules)
                     && if entry.any {
@@ -265,6 +274,7 @@ impl HomeState {
                     Some(Panel::Theming) => Message::OpenTheming,
                     Some(Panel::Logs) => Message::OpenLogs,
                     Some(Panel::Crontab) => Message::OpenCrontab,
+                    Some(Panel::Booster) => Message::OpenBooster,
                     None => unreachable!(),
                 };
                 let open = button::text("Open").on_press_maybe(available.then_some(open_message));
@@ -305,6 +315,7 @@ fn module_mode(modules: &ModulesConfig, module: ModuleId) -> TriState {
         ModuleId::Niri => modules.niri,
         ModuleId::Theming => modules.theming,
         ModuleId::Crontab => modules.crontab,
+        ModuleId::Booster => modules.booster,
         // Log viewer: read-only, always auto (no switch).
         ModuleId::Logs | ModuleId::System | ModuleId::Config | ModuleId::Capabilities => {
             TriState::Auto

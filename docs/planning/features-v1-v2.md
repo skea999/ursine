@@ -294,6 +294,25 @@ User decision 2026-10-27; spec: `docs/specs/SPEC-theming.md`.
   COSMIC/KDE/GNOME) — Ursine only configures it (native-button removal +
   its TOML from the shell snapshot). Full analysis in SPEC-theming §top bar.
 
+### booster (initramfs) — decision 2026-11-10
+
+User decision: booster-only (no mkinitfs/update-initramfs/dracut/mkinitcpio);
+spec: `docs/specs/SPEC-booster.md`.
+
+- [ ] `booster` module: manage `/etc/booster.yaml` (surgical edit,
+  comments/markers preserved, `backup_configs` rotation before write) and
+  regenerate the initramfs: **run `/etc/kernel-hooks.d` hooks first**
+  (`apk fix kernel-hooks` — FeralOS' `50-booster.hook` rebuilds the booster
+  image + signed UKI + fallbacks, i.e. the distro's own kernel-update
+  process), fallback `booster build` (`regenerate_images` if present, else
+  per-kernel build with `/boot/booster-<flavor>` naming).
+- Capability `Booster` (`booster` binary, fix `apk add booster`) gates the
+  module; Home shows the fix when missing.
+- Parity in the same task: GUI section + `ursinectl booster
+  get|set|regenerate` + docs/man.
+- Regenerate shows captured hook output (terminal-style); Save and
+  Regenerate are separate actions.
+
 ### Optional v2 candidates
 
 Not required by the intent table but compatible:

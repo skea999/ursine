@@ -3,13 +3,15 @@
 use cosmic::iced::Length;
 use cosmic::{Element, Task};
 use ursine_api::{
-    validate_installable, Action, ApiError, ApkPackage, ApkUpdate, Capability, CapabilityReport,
-    CrontabView, ErrorCode, FlatpakInfo, FlatpakPackage, FlatpakPermissions, JobOutput, JobStatus,
-    LogChunk, LogCursor, LogFile, LogSearchResult, ModuleId, SessionToken, ThemeApplyReport,
-    ThemeSnapshot, ThemingStatus, TriState,
+    validate_installable, Action, ApiError, ApkPackage, ApkUpdate, BoosterConfig,
+    BoosterRegenerateReport, Capability, CapabilityReport, CrontabView, ErrorCode, FlatpakInfo,
+    FlatpakPackage, FlatpakPermissions, JobOutput, JobStatus, LogChunk, LogCursor, LogFile,
+    LogSearchResult, ModuleId, SessionToken, ThemeApplyReport, ThemeSnapshot, ThemingStatus,
+    TriState,
 };
 
 use crate::bluetooth::BluetoothState;
+use crate::booster::BoosterState;
 use crate::client::{self, AuthSession, ConfigSnapshot, SearchPage};
 use crate::crontab::CrontabState;
 use crate::disks::DisksState;
@@ -121,6 +123,7 @@ enum Screen {
     Theming,
     Logs,
     Crontab,
+    Booster,
 }
 
 pub struct App {
@@ -144,6 +147,7 @@ pub struct App {
     theming: ThemingState,
     logs: LogsState,
     crontab: CrontabState,
+    booster: BoosterState,
     screen: Screen,
     session: Option<Session>,
     /// Bumped on sign-in/sign-out so late async results cannot repopulate a
@@ -558,6 +562,24 @@ pub enum Message {
     CrontabSaveCancelled,
     /// `crontab_set` finished.
     CrontabSaved(u64, Result<CrontabView, ApiError>),
+    /// Open the booster config screen.
+    OpenBooster,
+    /// `booster_config_get` finished.
+    BoosterLoaded(u64, Result<BoosterConfig, ApiError>),
+    /// One config field edit (wire key, new raw scalar text).
+    BoosterField(&'static str, String),
+    BoosterSaveRequested,
+    /// User confirmed: write `/etc/booster.yaml`.
+    BoosterSaveConfirmed,
+    BoosterSaveCancelled,
+    /// `booster_config_set` finished.
+    BoosterSaved(u64, Result<BoosterConfig, ApiError>),
+    BoosterRegenRequested,
+    /// User confirmed: rebuild the initramfs.
+    BoosterRegenConfirmed,
+    BoosterRegenCancelled,
+    /// `booster_regenerate` finished.
+    BoosterRegenFinished(u64, Result<BoosterRegenerateReport, ApiError>),
     SignOut,
 }
 
@@ -601,6 +623,7 @@ impl cosmic::Application for App {
             theming: ThemingState::default(),
             logs: LogsState::default(),
             crontab: CrontabState::default(),
+            booster: BoosterState::default(),
             screen: Screen::Home,
             session: None,
             epoch: 0,
@@ -726,6 +749,26 @@ impl cosmic::Application for App {
             Message::CrontabSaveCancelled => self.crontab.confirm = false,
             Message::CrontabSaved(epoch, result) => {
                 return self.finish_crontab_saved(epoch, result)
+            }
+            Message::OpenBooster => {
+                self.screen = Screen::Booster;
+                return self.load_booster();
+            }
+            Message::BoosterLoaded(epoch, result) => {
+                return self.finish_booster_loaded(epoch, result)
+            }
+            Message::BoosterField(key, value) => self.booster.set_value(key, value),
+            Message::BoosterSaveRequested => self.booster.save_confirm = true,
+            Message::BoosterSaveConfirmed => return self.save_booster(),
+            Message::BoosterSaveCancelled => self.booster.save_confirm = false,
+            Message::BoosterSaved(epoch, result) => {
+                return self.finish_booster_saved(epoch, result)
+            }
+            Message::BoosterRegenRequested => self.booster.regen_confirm = true,
+            Message::BoosterRegenConfirmed => return self.regenerate_booster(),
+            Message::BoosterRegenCancelled => self.booster.regen_confirm = false,
+            Message::BoosterRegenFinished(epoch, result) => {
+                return self.finish_booster_regen(epoch, result)
             }
             Message::RefreshNetwork => return self.load_network(),
             Message::NetworkLoaded(epoch, result) => return self.finish_network(epoch, result),
@@ -1914,6 +1957,7 @@ impl cosmic::Application for App {
                     Screen::Theming => self.theming.view(),
                     Screen::Logs => self.logs.view(),
                     Screen::Crontab => self.crontab.view(),
+                    Screen::Booster => self.booster.view(),
                 };
                 cosmic::iced::widget::row(vec![self.sidebar(), content])
                     .width(Length::Fill)
@@ -3586,7 +3630,7 @@ impl App {
     fn sidebar(&self) -> Element<'_, Message> {
         use cosmic::widget::{button, column, container, scrollable, text};
 
-        let entries: [(Screen, &str); 16] = [
+        let entries: [(Screen, &str); 17] = [
             (Screen::Home, "Overview"),
             (Screen::Packages, "Package manager"),
             (Screen::Printers, "Printers"),
@@ -3602,6 +3646,7 @@ impl App {
             (Screen::Theming, "Theming"),
             (Screen::Logs, "Logs"),
             (Screen::Crontab, "Crontab"),
+            (Screen::Booster, "Booster"),
             (Screen::Settings, "Settings"),
         ];
         let mut items: Vec<Element<'_, Message>> = vec![
@@ -3653,6 +3698,7 @@ impl App {
             Screen::Theming => Message::OpenTheming,
             Screen::Logs => Message::OpenLogs,
             Screen::Crontab => Message::OpenCrontab,
+            Screen::Booster => Message::OpenBooster,
         }
     }
 
@@ -3668,6 +3714,7 @@ impl App {
         match screen {
             Screen::Home | Screen::Settings | Screen::Logs => true,
             Screen::Crontab => self.cap_available(Capability::Crontab),
+            Screen::Booster => self.cap_available(Capability::Booster),
             Screen::Packages => {
                 self.cap_available(Capability::Nix)
                     || self.cap_available(Capability::Apk)
@@ -5038,6 +5085,140 @@ impl App {
         Task::none()
     }
 
+    /// Load `/etc/booster.yaml` (plus the chain step preview).
+    fn load_booster(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.booster.busy || self.booster.action_busy {
+            return Task::none();
+        }
+        self.booster.busy = true;
+        self.booster.error = None;
+        self.booster.message = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            Message::BoosterLoaded(epoch, client::booster_config_get(token).await)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_booster_loaded(
+        &mut self,
+        epoch: u64,
+        result: Result<BoosterConfig, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        // A save/regenerate is in flight: a late get must not clobber it.
+        if self.booster.action_busy {
+            return Task::none();
+        }
+        self.booster.busy = false;
+        match result {
+            Ok(config) => {
+                self.booster.apply_config(config);
+                self.booster.regen_confirm = false;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.booster.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn save_booster(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.booster.action_busy || self.booster.busy {
+            return Task::none();
+        }
+        let patch = self.booster.build_patch();
+        self.booster.action_busy = true;
+        self.booster.save_confirm = false;
+        self.booster.error = None;
+        self.booster.message = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            Message::BoosterSaved(epoch, client::booster_config_set(token, patch).await)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_booster_saved(
+        &mut self,
+        epoch: u64,
+        result: Result<BoosterConfig, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.booster.action_busy = false;
+        match result {
+            Ok(config) => {
+                self.booster.apply_config(config);
+                self.booster.message = Some("Config saved.".into());
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.booster.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn regenerate_booster(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.booster.action_busy || self.booster.busy {
+            return Task::none();
+        }
+        self.booster.action_busy = true;
+        self.booster.regen_confirm = false;
+        self.booster.error = None;
+        self.booster.message = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            Message::BoosterRegenFinished(epoch, client::booster_regenerate(token).await)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_booster_regen(
+        &mut self,
+        epoch: u64,
+        result: Result<BoosterRegenerateReport, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.booster.action_busy = false;
+        match result {
+            Ok(report) => {
+                self.booster.output = Some((report.step, report.output));
+                self.booster.message = Some("Initramfs regenerated.".into());
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.booster.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
     fn network_action(
         &mut self,
         label: &str,
@@ -5845,6 +6026,7 @@ impl App {
         self.theming = ThemingState::default();
         self.logs = LogsState::default();
         self.crontab = CrontabState::default();
+        self.booster = BoosterState::default();
         self.screen = Screen::Home;
         self.login.password.clear();
         self.login.error = None;

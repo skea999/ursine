@@ -91,6 +91,9 @@ pub struct ModulesConfig {
     /// Crontab management (SPEC-crontab).
     #[serde(default)]
     pub crontab: TriState,
+    /// Booster initramfs management (SPEC-booster).
+    #[serde(default)]
+    pub booster: TriState,
 }
 
 impl Default for ModulesConfig {
@@ -111,6 +114,7 @@ impl Default for ModulesConfig {
             niri: TriState::Auto,
             theming: TriState::Auto,
             crontab: TriState::Auto,
+            booster: TriState::Auto,
         }
     }
 }

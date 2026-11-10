@@ -227,9 +227,19 @@ crontab_get, crontab_set. Operations run as root through the portable
 form: no
 .B su
 impersonation and no suid bit on the tool.
+.TP
+.B booster
+booster_config_get, booster_config_set, booster_regenerate. Edits
+.I /etc/booster.yaml
+surgically (comments and unknown keys preserved, backups rotated) and
+rebuilds the initramfs through the distribution's kernel hooks
+( apk fix kernel-hooks ) with a
+.B booster build
+fallback. Requires
+.BR booster .
 .SH DESTRUCTIVE ACTIONS
 Removing, deleting, rolling back, garbage collecting and applying
-restores/crontab/theme changes require
+restores/crontab/booster/theme changes require
 .B \-\-yes
 (the CLI equivalent of the GUI confirmation). Dry-run and preview
 variants never do. Without the flag the CLI prints the refused action and

@@ -82,6 +82,7 @@ pub const fn configurable_module(module: ModuleId) -> Option<&'static str> {
         ModuleId::Niri => Some("niri"),
         ModuleId::Theming => Some("theming"),
         ModuleId::Crontab => Some("crontab"),
+        ModuleId::Booster => Some("booster"),
         // Log viewer: read-only, always on (no module switch).
         ModuleId::System | ModuleId::Config | ModuleId::Capabilities | ModuleId::Logs => None,
     }
@@ -300,7 +301,8 @@ pub fn render_template(caps: &[CapabilityReport]) -> String {
     out.push_str("users = \"auto\"\n");
     out.push_str("niri = \"auto\"\n");
     out.push_str("theming = \"auto\"\n");
-    out.push_str("crontab = \"auto\"\n\n");
+    out.push_str("crontab = \"auto\"\n");
+    out.push_str("booster = \"auto\"\n\n");
 
     out.push_str("# --- Detection hints (informational; not read by the daemon) ---\n");
     for report in caps {

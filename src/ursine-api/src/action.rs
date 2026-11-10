@@ -582,6 +582,19 @@ pub enum Action {
     CrontabSet {
         content: String,
     },
+
+    // -- booster / initramfs (SPEC-booster) --
+    /// Read `/etc/booster.yaml` (raw bytes + known keys).
+    BoosterConfigGet,
+    /// Surgically update the known keys of `/etc/booster.yaml`.
+    BoosterConfigSet {
+        // Boxed: the patch is 18 optional keys — keeping it inline would
+        // dwarf every other Action variant (clippy large_enum_variant).
+        keys: Box<crate::BoosterConfigPatch>,
+    },
+    /// Rebuild the initramfs through the distro's own kernel-update
+    /// process (`apk fix kernel-hooks` first, `booster build` fallback).
+    BoosterRegenerate,
 }
 
 /// Wire default for `ThemeApply.show_minimize` (trio on).

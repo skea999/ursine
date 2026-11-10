@@ -81,6 +81,10 @@ const MODULE_SWITCHES: &[ModuleSwitch] = &[
         module: ModuleId::Crontab,
         title: "Crontab",
     },
+    ModuleSwitch {
+        module: ModuleId::Booster,
+        title: "Booster (initramfs)",
+    },
 ];
 
 impl SettingsState {
@@ -221,6 +225,7 @@ fn module_switch(config: &ConfigSnapshot, module: ModuleId) -> TriState {
         ModuleId::Niri => config.modules.niri,
         ModuleId::Theming => config.modules.theming,
         ModuleId::Crontab => config.modules.crontab,
+        ModuleId::Booster => config.modules.booster,
         // Log viewer: read-only, always auto (no switch).
         ModuleId::Logs | ModuleId::System | ModuleId::Config | ModuleId::Capabilities => {
             TriState::Auto

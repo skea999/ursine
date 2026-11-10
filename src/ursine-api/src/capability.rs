@@ -44,11 +44,13 @@ pub enum Capability {
     Theming,
     /// The `crontab` tool exists (busybox/cronie/vixie — all provide it).
     Crontab,
+    /// `booster` binary present (the initramfs generator, SPEC-booster).
+    Booster,
 }
 
 impl Capability {
     /// Every capability the daemon probes, in display order.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Btrbk,
         Self::Btrfs,
         Self::Nix,
@@ -66,6 +68,7 @@ impl Capability {
         Self::Dinit,
         Self::Theming,
         Self::Crontab,
+        Self::Booster,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -87,6 +90,7 @@ impl Capability {
             Self::Dinit => "dinit",
             Self::Theming => "theming",
             Self::Crontab => "crontab",
+            Self::Booster => "booster",
         }
     }
 }
@@ -134,7 +138,7 @@ mod tests {
 
     #[test]
     fn all_capabilities_are_listed_once() {
-        assert_eq!(Capability::ALL.len(), 17); // count unchanged: renamed in place
+        assert_eq!(Capability::ALL.len(), 18);
         assert!(Capability::ALL.contains(&Capability::Apk));
         assert!(Capability::ALL.contains(&Capability::Flatpak));
         assert!(Capability::ALL.contains(&Capability::Theming));

@@ -44,6 +44,8 @@ pub enum ModuleId {
     Logs,
     /// User crontab management (SPEC-crontab).
     Crontab,
+    /// Booster initramfs config + regeneration (SPEC-booster).
+    Booster,
 }
 
 impl ModuleId {
@@ -69,6 +71,7 @@ impl ModuleId {
             Self::Theming => "theming",
             Self::Logs => "logs",
             Self::Crontab => "crontab",
+            Self::Booster => "booster",
         }
     }
 }
@@ -106,6 +109,8 @@ mod tests {
             ModuleId::Users,
             ModuleId::Niri,
             ModuleId::Theming,
+            ModuleId::Crontab,
+            ModuleId::Booster,
         ] {
             let s = serde_json::to_string(&m).unwrap();
             let back: ModuleId = serde_json::from_str(&s).unwrap();

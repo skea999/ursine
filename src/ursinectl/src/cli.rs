@@ -94,6 +94,8 @@ MODULES (wire name; short alias in parentheses):
   theming             theme_detect, theme_get, theme_apply
   logs                log_list, log_read, log_search
   crontab             crontab_get, crontab_set
+  booster             booster_config_get, booster_config_set,
+                      booster_regenerate
 
 EXAMPLES:
   ursinectl system status
@@ -325,9 +327,9 @@ fn expand_value(raw: &str) -> Result<serde_json::Value, String> {
 /// action lands in the API it must be added here (review checklist).
 pub fn is_destructive(action: &Action) -> bool {
     use Action::{
-        CancelPrinterJobs, CrontabSet, DeleteFirewallService, DeleteSnapshot, DeleteSnapshots,
-        DeleteUser, ForgetNetwork, FormatDisk, PartitionCreate, PartitionDelete, PruneGenerations,
-        Remove, RemoveAll, RemoveApk, RemoveApkRepository, RemoveFirewallPort,
+        BoosterRegenerate, CancelPrinterJobs, CrontabSet, DeleteFirewallService, DeleteSnapshot,
+        DeleteSnapshots, DeleteUser, ForgetNetwork, FormatDisk, PartitionCreate, PartitionDelete,
+        PruneGenerations, Remove, RemoveAll, RemoveApk, RemoveApkRepository, RemoveFirewallPort,
         RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans, RemoveFlatpakRemote,
         RemoveNixRepository, RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot,
         Rollback, SetFirewallEnabled, SetFlatpakPermissions, SetNetworkIpv4, SetPassword, StoreGc,
@@ -368,6 +370,7 @@ pub fn is_destructive(action: &Action) -> bool {
             | DeleteUser { .. }
             | SetPassword { .. }
             | CrontabSet { .. }
+            | BoosterRegenerate
             | ThemeApply { .. }
             | RemovePrinter { .. }
             | CancelPrinterJobs { .. }

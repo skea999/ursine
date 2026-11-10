@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `booster` module (SPEC-booster, user decision 2026-11-10): manage
+  `/etc/booster.yaml` (surgical edit of the known keys — comments,
+  unknown keys and the installer marker stay byte-identical; uniform
+  `backup_configs` rotation before the atomic write; whole-result YAML
+  validation) and regenerate the initramfs with one button. The
+  regenerate chain runs the distribution's own kernel-update process
+  first — `apk fix kernel-hooks` executes every hook in
+  `/etc/kernel-hooks.d` (FeralOS' `50-booster.hook` rebuilds the booster
+  image + signed UKI + fallbacks) — then `regenerate_images` if present,
+  else a direct `booster build` per installed kernel with derived
+  `/boot/booster-<flavor>` naming (never a guessed path). Capability
+  `Booster` (`apk add booster`) gates the module; parity shipped in the
+  same task: GUI section with typed key rows, Save/Regenerate
+  confirmations and the hook output box, plus `ursinectl booster
+  config_get|config_set|regenerate` with guide + man updates.
+
 ## [0.27.0] — 2026-11-09
 
 ### Changed

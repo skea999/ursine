@@ -106,6 +106,12 @@ pub fn check_capability(sys: &dyn Sysinfo, cap: Capability) -> bool {
             sys.read_trimmed(Path::new("/proc/1/comm")).as_deref() == Some("dinit")
         }
         Capability::Crontab => sys.cmd_in_path("crontab"),
+        Capability::Booster => {
+            sys.cmd_in_path("booster")
+                || ["/usr/bin", "/usr/sbin", "/bin", "/sbin"]
+                    .iter()
+                    .any(|dir| sys.path_exists(&Path::new(dir).join("booster")))
+        }
         // Uniform theming: ANY normal login user (uid 1000..60000, aligned
         // with the module's identity check) has a supported shell config.
         // `theming.detect` refines per target user at call time.
@@ -177,5 +183,6 @@ pub fn hints(cap: Capability) -> (&'static str, &'static str) {
             "crontab is not installed",
             "apk add dcron  # or: apt install cron",
         ),
+        Capability::Booster => ("booster is not installed", "apk add booster"),
     }
 }
