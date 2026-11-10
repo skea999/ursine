@@ -555,6 +555,216 @@ pub async fn booster_config_set(
         .map_err(|e| ApiError::internal(format!("decode booster config: {e}")))
 }
 
+/// `AppArmor` state: aa-status parse + profile files + notifications.
+pub async fn apparmor_status(token: SessionToken) -> Result<ursine_api::ApparmorView, ApiError> {
+    let value = call(token, ModuleId::Apparmor, Action::ApparmorStatus, None).await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor view: {e}")))
+}
+
+/// Switch a profile file's mode (enforce|complain|disable|enable).
+pub async fn apparmor_set_mode(
+    token: SessionToken,
+    path: String,
+    mode: String,
+) -> Result<ursine_api::ApparmorView, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Apparmor,
+        Action::ApparmorSetMode { path, mode },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor view: {e}")))
+}
+
+/// Load/replace a profile file.
+pub async fn apparmor_load(
+    token: SessionToken,
+    path: String,
+) -> Result<ursine_api::ApparmorView, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Apparmor,
+        Action::ApparmorLoad { path },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor view: {e}")))
+}
+
+/// Syntax-check a profile file without loading it.
+pub async fn apparmor_check(
+    token: SessionToken,
+    path: String,
+) -> Result<ursine_api::ApparmorCheck, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Apparmor,
+        Action::ApparmorCheck { path },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor check: {e}")))
+}
+
+/// Unload the profiles defined in a file.
+pub async fn apparmor_remove(
+    token: SessionToken,
+    path: String,
+) -> Result<ursine_api::ApparmorView, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Apparmor,
+        Action::ApparmorRemove { path },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor view: {e}")))
+}
+
+/// Reload every profile under /etc/apparmor.d.
+pub async fn apparmor_reload_all(
+    token: SessionToken,
+) -> Result<ursine_api::ApparmorView, ApiError> {
+    let value = call(token, ModuleId::Apparmor, Action::ApparmorReloadAll, None).await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor view: {e}")))
+}
+
+/// Processes without a profile (aa-unconfined).
+pub async fn apparmor_unconfined(
+    token: SessionToken,
+) -> Result<ursine_api::ApparmorOutput, ApiError> {
+    let value = call(token, ModuleId::Apparmor, Action::ApparmorUnconfined, None).await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor output: {e}")))
+}
+
+/// Drop loaded profiles without a backing file (destructive).
+pub async fn apparmor_remove_unknown(
+    token: SessionToken,
+) -> Result<ursine_api::ApparmorView, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Apparmor,
+        Action::ApparmorRemoveUnknown,
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor view: {e}")))
+}
+
+/// Raw content of one profile file.
+pub async fn apparmor_profile_get(
+    token: SessionToken,
+    path: String,
+) -> Result<ursine_api::ApparmorProfileFile, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Apparmor,
+        Action::ApparmorProfileGet { path },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor profile: {e}")))
+}
+
+/// Write edited profile content (syntax-checked before the write).
+pub async fn apparmor_profile_set(
+    token: SessionToken,
+    path: String,
+    content: String,
+) -> Result<ursine_api::ApparmorView, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Apparmor,
+        Action::ApparmorProfileSet { path, content },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor view: {e}")))
+}
+
+/// Enable aa-notify (notify.conf + autostart; next login).
+pub async fn apparmor_notifications_enable(
+    token: SessionToken,
+) -> Result<ursine_api::ApparmorView, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Apparmor,
+        Action::ApparmorNotificationsEnable,
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor view: {e}")))
+}
+
+/// Clean a profile file in place (destructive).
+pub async fn apparmor_cleanprof(
+    token: SessionToken,
+    name: String,
+) -> Result<ursine_api::ApparmorView, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Apparmor,
+        Action::ApparmorCleanprof { name },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor view: {e}")))
+}
+
+/// Add hardlink dependencies to a profile (aa-autodep).
+pub async fn apparmor_autodep(
+    token: SessionToken,
+    path: String,
+) -> Result<ursine_api::ApparmorView, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Apparmor,
+        Action::ApparmorAutodep { path },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor view: {e}")))
+}
+
+/// Extract the kernel ABI features (aa-features-abi --extract).
+pub async fn apparmor_features_abi(
+    token: SessionToken,
+) -> Result<ursine_api::ApparmorOutput, ApiError> {
+    let value = call(token, ModuleId::Apparmor, Action::ApparmorFeaturesAbi, None).await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor output: {e}")))
+}
+
+/// Decode one hex log token (aa-decode).
+pub async fn apparmor_decode(
+    token: SessionToken,
+    hex: String,
+) -> Result<ursine_api::ApparmorOutput, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Apparmor,
+        Action::ApparmorDecode { hex },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor output: {e}")))
+}
+
 /// Rebuild the initramfs (kernel hooks first, `booster build` fallback).
 pub async fn booster_regenerate(
     token: SessionToken,

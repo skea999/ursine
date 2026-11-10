@@ -94,6 +94,9 @@ pub struct ModulesConfig {
     /// Booster initramfs management (SPEC-booster).
     #[serde(default)]
     pub booster: TriState,
+    /// `AppArmor` management (SPEC-apparmor).
+    #[serde(default)]
+    pub apparmor: TriState,
 }
 
 impl Default for ModulesConfig {
@@ -115,6 +118,7 @@ impl Default for ModulesConfig {
             theming: TriState::Auto,
             crontab: TriState::Auto,
             booster: TriState::Auto,
+            apparmor: TriState::Auto,
         }
     }
 }

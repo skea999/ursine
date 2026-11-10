@@ -313,6 +313,28 @@ spec: `docs/specs/SPEC-booster.md`.
 - Regenerate shows captured hook output (terminal-style); Save and
   Regenerate are separate actions.
 
+### apparmor — decision 2026-11-10
+
+User decision: AppArmor support through the full CLI surface (no D-Bus);
+spec: `docs/specs/SPEC-apparmor.md`.
+
+- [ ] `apparmor` module: `aa-status` view (tolerant runner — exit 1-3 are
+  data), profile mode changes (`aa-enforce`/`aa-complain`/`aa-disable` +
+  enable = drop `disable/` symlink + `apparmor_parser -r`), load/check
+  (`apparmor_parser -r -W` / `-d`), remove, reload all, unconfined,
+  remove-unknown, profile SOURCE editor (save behind confirmation,
+  syntax-checked on stdin BEFORE any write, `backup_configs` rotation,
+  apply stays a separate Load), notifications button (`show_notifications`
+  in `/etc/apparmor/notify.conf` + `~/.config/autostart/aa-notify.desktop`
+  for the session user — active from next login), cleanprof/autodep with
+  backup, read-only reports (features-abi, decode).
+- Interactive-only tools excluded (aa-genprof/aa-logprof/aa-mergeprof),
+  aa-exec (runs programs); aa-easyprof deferred pending verification
+  (it is a policy generator, not a read-only report).
+- Capability `AppArmor` (`aa-status` + `apparmor_parser`, fix
+  `apk add apparmor apparmor-utils`); parity same task: GUI + `ursinectl
+  apparmor …` + docs/man.
+
 ### Optional v2 candidates
 
 Not required by the intent table but compatible:

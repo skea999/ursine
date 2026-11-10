@@ -46,6 +46,8 @@ pub enum ModuleId {
     Crontab,
     /// Booster initramfs config + regeneration (SPEC-booster).
     Booster,
+    /// `AppArmor` policy management via its CLIs (SPEC-apparmor).
+    Apparmor,
 }
 
 impl ModuleId {
@@ -72,6 +74,7 @@ impl ModuleId {
             Self::Logs => "logs",
             Self::Crontab => "crontab",
             Self::Booster => "booster",
+            Self::Apparmor => "apparmor",
         }
     }
 }
@@ -111,6 +114,7 @@ mod tests {
             ModuleId::Theming,
             ModuleId::Crontab,
             ModuleId::Booster,
+            ModuleId::Apparmor,
         ] {
             let s = serde_json::to_string(&m).unwrap();
             let back: ModuleId = serde_json::from_str(&s).unwrap();

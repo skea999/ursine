@@ -595,6 +595,60 @@ pub enum Action {
     /// Rebuild the initramfs through the distro's own kernel-update
     /// process (`apk fix kernel-hooks` first, `booster build` fallback).
     BoosterRegenerate,
+
+    // -- apparmor (SPEC-apparmor) --
+    /// Current `AppArmor` state: aa-status parse + profile files + the
+    /// notifications activation state.
+    ApparmorStatus,
+    /// Switch a profile file's mode (enforce|complain|disable|enable).
+    ApparmorSetMode {
+        path: String,
+        mode: String,
+    },
+    /// Load/replace a profile file (`apparmor_parser -r -W`).
+    ApparmorLoad {
+        path: String,
+    },
+    /// Syntax-check a profile file without loading it.
+    ApparmorCheck {
+        path: String,
+    },
+    /// Unload the profiles defined in a file (`apparmor_parser -R`).
+    ApparmorRemove {
+        path: String,
+    },
+    /// Reload every profile under /etc/apparmor.d.
+    ApparmorReloadAll,
+    /// Processes without a profile (`aa-unconfined`).
+    ApparmorUnconfined,
+    /// Drop loaded profiles that have no backing file (destructive).
+    ApparmorRemoveUnknown,
+    /// Raw content of one profile file (the editor's source).
+    ApparmorProfileGet {
+        path: String,
+    },
+    /// Write edited profile content (syntax-checked before any write).
+    ApparmorProfileSet {
+        path: String,
+        content: String,
+    },
+    /// Enable DENIED notifications: notify.conf switch + aa-notify
+    /// autostart entry for the session user (active from next login).
+    ApparmorNotificationsEnable,
+    /// Clean a profile file in place (destructive: drops comments).
+    ApparmorCleanprof {
+        name: String,
+    },
+    /// Add hardlink dependencies to a profile file (`aa-autodep`).
+    ApparmorAutodep {
+        path: String,
+    },
+    /// Extract the kernel's ABI features (`aa-features-abi --extract`).
+    ApparmorFeaturesAbi,
+    /// Decode one hex-encoded `AppArmor` log token (`aa-decode <hex>`).
+    ApparmorDecode {
+        hex: String,
+    },
 }
 
 /// Wire default for `ThemeApply.show_minimize` (trio on).

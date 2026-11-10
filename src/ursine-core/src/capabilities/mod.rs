@@ -105,6 +105,7 @@ pub fn module_switch(modules: &ModulesConfig, cap: Capability) -> TriState {
         Capability::Theming => modules.theming,
         Capability::Crontab => modules.crontab,
         Capability::Booster => modules.booster,
+        Capability::Apparmor => modules.apparmor,
     }
 }
 

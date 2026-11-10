@@ -112,6 +112,17 @@ pub fn check_capability(sys: &dyn Sysinfo, cap: Capability) -> bool {
                     .iter()
                     .any(|dir| sys.path_exists(&Path::new(dir).join("booster")))
         }
+        // Same fixed candidate dirs the module probes: a PATH-only hit
+        // would green the capability while every action returns
+        // Unavailable.
+        Capability::Apparmor => {
+            let bin = |name: &str| {
+                ["/usr/sbin", "/usr/bin", "/sbin", "/bin"]
+                    .iter()
+                    .any(|dir| sys.path_exists(&Path::new(dir).join(name)))
+            };
+            bin("aa-status") && bin("apparmor_parser")
+        }
         // Uniform theming: ANY normal login user (uid 1000..60000, aligned
         // with the module's identity check) has a supported shell config.
         // `theming.detect` refines per target user at call time.
@@ -184,5 +195,9 @@ pub fn hints(cap: Capability) -> (&'static str, &'static str) {
             "apk add dcron  # or: apt install cron",
         ),
         Capability::Booster => ("booster is not installed", "apk add booster"),
+        Capability::Apparmor => (
+            "apparmor tools are not installed",
+            "apk add apparmor apparmor-utils",
+        ),
     }
 }

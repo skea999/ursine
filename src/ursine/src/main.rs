@@ -6,6 +6,7 @@
 
 #![allow(unreachable_pub)] // binary crate: no library surface
 mod app;
+mod apparmor;
 mod bluetooth;
 mod booster;
 mod client;

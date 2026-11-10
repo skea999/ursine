@@ -228,6 +228,18 @@ form: no
 .B su
 impersonation and no suid bit on the tool.
 .TP
+.B apparmor
+apparmor_status, apparmor_set_mode, apparmor_load, apparmor_check,
+apparmor_remove, apparmor_reload_all, apparmor_unconfined,
+apparmor_remove_unknown, apparmor_profile_get, apparmor_profile_set,
+apparmor_notifications_enable, apparmor_cleanprof, apparmor_autodep,
+apparmor_features_abi, apparmor_decode. Manages AppArmor through its
+CLIs; profile paths must live under
+.IR /etc/apparmor.d ;
+profile saves are syntax-checked before writing and rotate the
+.I backup_configs
+slots; the notifications button activates aa-notify from the next login.
+.TP
 .B booster
 booster_config_get, booster_config_set, booster_regenerate. Edits
 .I /etc/booster.yaml
@@ -239,7 +251,7 @@ fallback. Requires
 .BR booster .
 .SH DESTRUCTIVE ACTIONS
 Removing, deleting, rolling back, garbage collecting and applying
-restores/crontab/booster/theme changes require
+restores/crontab/booster/apparmor/theme changes require
 .B \-\-yes
 (the CLI equivalent of the GUI confirmation). Dry-run and preview
 variants never do. Without the flag the CLI prints the refused action and

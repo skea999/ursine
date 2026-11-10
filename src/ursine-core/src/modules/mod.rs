@@ -7,6 +7,7 @@ use ursine_api::{Action, ApiError, Capability, ModuleId, Principal, Response, Ur
 
 use std::path::PathBuf;
 
+pub mod apparmor;
 pub mod bluetooth;
 pub mod booster;
 pub mod crontab;
@@ -60,6 +61,7 @@ fn required_caps(module: ModuleId) -> &'static [Capability] {
         ModuleId::Theming => &[Capability::Theming],
         ModuleId::Crontab => &[Capability::Crontab],
         ModuleId::Booster => &[Capability::Booster],
+        ModuleId::Apparmor => &[Capability::Apparmor],
         ModuleId::Services
         | ModuleId::System
         | ModuleId::Config
@@ -142,6 +144,8 @@ pub async fn handle(
         (ModuleId::Crontab, action) => crontab::handle(action, ctx).await,
 
         (ModuleId::Booster, action) => booster::handle(action, ctx).await,
+
+        (ModuleId::Apparmor, action) => apparmor::handle(action, ctx).await,
 
         _ => Err(ApiError::invalid(format!(
             "action {} is not valid for module {}",
@@ -247,6 +251,21 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::BoosterConfigGet => "booster_config_get",
         Action::BoosterConfigSet { .. } => "booster_config_set",
         Action::BoosterRegenerate => "booster_regenerate",
+        Action::ApparmorStatus => "apparmor_status",
+        Action::ApparmorSetMode { .. } => "apparmor_set_mode",
+        Action::ApparmorLoad { .. } => "apparmor_load",
+        Action::ApparmorCheck { .. } => "apparmor_check",
+        Action::ApparmorRemove { .. } => "apparmor_remove",
+        Action::ApparmorReloadAll => "apparmor_reload_all",
+        Action::ApparmorUnconfined => "apparmor_unconfined",
+        Action::ApparmorRemoveUnknown => "apparmor_remove_unknown",
+        Action::ApparmorProfileGet { .. } => "apparmor_profile_get",
+        Action::ApparmorProfileSet { .. } => "apparmor_profile_set",
+        Action::ApparmorNotificationsEnable => "apparmor_notifications_enable",
+        Action::ApparmorCleanprof { .. } => "apparmor_cleanprof",
+        Action::ApparmorAutodep { .. } => "apparmor_autodep",
+        Action::ApparmorFeaturesAbi => "apparmor_features_abi",
+        Action::ApparmorDecode { .. } => "apparmor_decode",
         Action::GetFirewall => "get_firewall",
         Action::SetDefaultFirewallZone { .. } => "set_default_firewall_zone",
         Action::AddFirewallService { .. } => "add_firewall_service",

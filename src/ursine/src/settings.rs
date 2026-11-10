@@ -85,6 +85,10 @@ const MODULE_SWITCHES: &[ModuleSwitch] = &[
         module: ModuleId::Booster,
         title: "Booster (initramfs)",
     },
+    ModuleSwitch {
+        module: ModuleId::Apparmor,
+        title: "AppArmor",
+    },
 ];
 
 impl SettingsState {
@@ -226,6 +230,7 @@ fn module_switch(config: &ConfigSnapshot, module: ModuleId) -> TriState {
         ModuleId::Theming => config.modules.theming,
         ModuleId::Crontab => config.modules.crontab,
         ModuleId::Booster => config.modules.booster,
+        ModuleId::Apparmor => config.modules.apparmor,
         // Log viewer: read-only, always auto (no switch).
         ModuleId::Logs | ModuleId::System | ModuleId::Config | ModuleId::Capabilities => {
             TriState::Auto

@@ -864,6 +864,7 @@ dispatch_per_module!(dispatch_theming => ModuleId::Theming);
 dispatch_per_module!(dispatch_logs => ModuleId::Logs, setup write_log_fixture);
 dispatch_per_module!(dispatch_crontab => ModuleId::Crontab);
 dispatch_per_module!(dispatch_booster => ModuleId::Booster);
+dispatch_per_module!(dispatch_apparmor => ModuleId::Apparmor);
 
 // ---- depth: cross-module legality, audit sweep, shapes, boundaries ----
 
@@ -889,6 +890,7 @@ const ALL_MODULES: &[ModuleId] = &[
     ModuleId::Logs,
     ModuleId::Crontab,
     ModuleId::Booster,
+    ModuleId::Apparmor,
 ];
 
 /// Every sample action, called in a DIFFERENT module, must fail: either

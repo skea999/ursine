@@ -1074,6 +1074,41 @@ pub async fn run_root_program_value(
     .await
 }
 
+/// Exit code + streams of a root program even when it exits non-zero:
+/// `aa-status` uses exit 1-3 as data and syntax checks need the failure
+/// text. Same guards, no shell; `input` is written to stdin verbatim.
+#[derive(Debug)]
+pub struct ProcessOutcome {
+    pub code: i32,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+pub async fn run_root_program_tolerant(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+    input: Option<&str>,
+) -> Result<ProcessOutcome, ApiError> {
+    if !is_safe_atom(program) {
+        return Err(ApiError::invalid("invalid program"));
+    }
+    let mut cmd = Command::new(program);
+    for arg in args {
+        if !(arg.is_empty() || arg.split(',').all(is_safe_atom)) {
+            return Err(ApiError::invalid("invalid command argument"));
+        }
+        cmd.arg(arg);
+    }
+    let input = input.map(|text| text.as_bytes().to_vec());
+    let output = run_command(cmd, timeout, OutputPolicy::Truncate, input).await?;
+    Ok(ProcessOutcome {
+        code: output.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
 /// Run a validated argv as ROOT, streaming terminal output into a job log.
 /// Returns the exit code (`-1` on signal kill); non-zero is not an error.
 pub async fn run_root_program_log(

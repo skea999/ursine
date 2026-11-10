@@ -96,6 +96,13 @@ MODULES (wire name; short alias in parentheses):
   crontab             crontab_get, crontab_set
   booster             booster_config_get, booster_config_set,
                       booster_regenerate
+  apparmor            apparmor_status, apparmor_set_mode, apparmor_load,
+                      apparmor_check, apparmor_remove, apparmor_reload_all,
+                      apparmor_unconfined, apparmor_remove_unknown,
+                      apparmor_profile_get, apparmor_profile_set,
+                      apparmor_notifications_enable, apparmor_cleanprof,
+                      apparmor_autodep, apparmor_features_abi,
+                      apparmor_decode
 
 EXAMPLES:
   ursinectl system status
@@ -327,15 +334,21 @@ fn expand_value(raw: &str) -> Result<serde_json::Value, String> {
 /// action lands in the API it must be added here (review checklist).
 pub fn is_destructive(action: &Action) -> bool {
     use Action::{
-        BoosterRegenerate, CancelPrinterJobs, CrontabSet, DeleteFirewallService, DeleteSnapshot,
-        DeleteSnapshots, DeleteUser, ForgetNetwork, FormatDisk, PartitionCreate, PartitionDelete,
-        PruneGenerations, Remove, RemoveAll, RemoveApk, RemoveApkRepository, RemoveFirewallPort,
-        RemoveFirewallService, RemoveFlatpak, RemoveFlatpakOrphans, RemoveFlatpakRemote,
-        RemoveNixRepository, RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot,
-        Rollback, SetFirewallEnabled, SetFlatpakPermissions, SetNetworkIpv4, SetPassword, StoreGc,
-        ThemeApply, UnmountDisk, UpdateFlatpak, UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage,
-        UpgradeRegex, WipeHistory,
+        ApparmorCleanprof, ApparmorRemoveUnknown, BoosterRegenerate, CancelPrinterJobs, CrontabSet,
+        DeleteFirewallService, DeleteSnapshot, DeleteSnapshots, DeleteUser, ForgetNetwork,
+        FormatDisk, PartitionCreate, PartitionDelete, PruneGenerations, Remove, RemoveAll,
+        RemoveApk, RemoveApkRepository, RemoveFirewallPort, RemoveFirewallService, RemoveFlatpak,
+        RemoveFlatpakOrphans, RemoveFlatpakRemote, RemoveNixRepository, RemovePrinter, RemoveRegex,
+        RemoveScannerDevice, RestoreSnapshot, Rollback, SetFirewallEnabled, SetFlatpakPermissions,
+        SetNetworkIpv4, SetPassword, StoreGc, ThemeApply, UnmountDisk, UpdateFlatpak,
+        UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage, UpgradeRegex, WipeHistory,
     };
+    // Mode-dependent: only unloading security policy counts as destructive.
+    if let Action::ApparmorSetMode { mode, .. } = action {
+        if mode == "disable" {
+            return true;
+        }
+    }
     matches!(
         action,
         Remove { .. }
@@ -371,6 +384,8 @@ pub fn is_destructive(action: &Action) -> bool {
             | SetPassword { .. }
             | CrontabSet { .. }
             | BoosterRegenerate
+            | ApparmorRemoveUnknown
+            | ApparmorCleanprof { .. }
             | ThemeApply { .. }
             | RemovePrinter { .. }
             | CancelPrinterJobs { .. }

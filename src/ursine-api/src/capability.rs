@@ -46,11 +46,13 @@ pub enum Capability {
     Crontab,
     /// `booster` binary present (the initramfs generator, SPEC-booster).
     Booster,
+    /// `aa-status` + `apparmor_parser` present (SPEC-apparmor).
+    Apparmor,
 }
 
 impl Capability {
     /// Every capability the daemon probes, in display order.
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::Btrbk,
         Self::Btrfs,
         Self::Nix,
@@ -69,6 +71,7 @@ impl Capability {
         Self::Theming,
         Self::Crontab,
         Self::Booster,
+        Self::Apparmor,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -91,6 +94,7 @@ impl Capability {
             Self::Theming => "theming",
             Self::Crontab => "crontab",
             Self::Booster => "booster",
+            Self::Apparmor => "apparmor",
         }
     }
 }
@@ -138,7 +142,7 @@ mod tests {
 
     #[test]
     fn all_capabilities_are_listed_once() {
-        assert_eq!(Capability::ALL.len(), 18);
+        assert_eq!(Capability::ALL.len(), 19);
         assert!(Capability::ALL.contains(&Capability::Apk));
         assert!(Capability::ALL.contains(&Capability::Flatpak));
         assert!(Capability::ALL.contains(&Capability::Theming));

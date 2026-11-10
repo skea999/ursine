@@ -5,6 +5,7 @@
 //! compile error (see `docs/specs/SPEC-protocol.md`).
 
 pub mod action;
+pub mod apparmor;
 pub mod bluetooth;
 pub mod booster;
 pub mod capability;
@@ -32,6 +33,9 @@ pub mod token;
 pub mod users;
 
 pub use action::Action;
+pub use apparmor::{
+    ApparmorCheck, ApparmorFile, ApparmorOutput, ApparmorProfile, ApparmorProfileFile, ApparmorView,
+};
 pub use bluetooth::{BluetoothAdapter, BluetoothDevice, BluetoothOp, BluetoothView};
 pub use booster::{BoosterConfig, BoosterConfigPatch, BoosterRegenerateReport};
 pub use capability::{Capability, CapabilityReport};

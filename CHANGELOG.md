@@ -4,6 +4,25 @@
 
 ### Added
 
+- `apparmor` module (SPEC-apparmor, user decision 2026-11-10): AppArmor
+  through its full CLI surface — `aa-status` view via a tolerant runner
+  (exit 1-3 are data), profile modes (`aa-enforce`/`aa-complain`/
+  `aa-disable` + enable = drop the `disable/` symlink and reload),
+  load/check/remove/reload through `apparmor_parser`, `aa-unconfined`,
+  `aa-remove-unknown`, `aa-cleanprof`/`aa-autodep` with a whole-dir
+  `backup_configs` rotation first, read-only `aa-features-abi`/`aa-decode`
+  reports. Profile SOURCE editor: save behind confirmation, the new
+  content is syntax-checked on stdin BEFORE any write, the file rotates
+  first, applying stays a separate Load. Notifications button:
+  `show_notifications="yes"` in `/etc/apparmor/notify.conf` + `aa-notify`
+  autostart entry for the session user (active from the next login).
+  Interactive tools excluded (aa-genprof/aa-logprof/aa-mergeprof,
+  aa-exec); aa-easyprof deferred (it is a policy generator — pending
+  verification). Capability `AppArmor`
+  (`apk add apparmor apparmor-utils`); parity shipped in the same task:
+  GUI section (status card, file table, mode action bar, editor,
+  confirms, output box) + `ursinectl apparmor …` (15 actions, `--yes`
+  for disable/remove_unknown/cleanprof) + guide + man.
 - `booster` module (SPEC-booster, user decision 2026-11-10): manage
   `/etc/booster.yaml` (surgical edit of the known keys — comments,
   unknown keys and the installer marker stay byte-identical; uniform

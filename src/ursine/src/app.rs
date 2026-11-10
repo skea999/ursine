@@ -3,13 +3,14 @@
 use cosmic::iced::Length;
 use cosmic::{Element, Task};
 use ursine_api::{
-    validate_installable, Action, ApiError, ApkPackage, ApkUpdate, BoosterConfig,
-    BoosterRegenerateReport, Capability, CapabilityReport, CrontabView, ErrorCode, FlatpakInfo,
-    FlatpakPackage, FlatpakPermissions, JobOutput, JobStatus, LogChunk, LogCursor, LogFile,
-    LogSearchResult, ModuleId, SessionToken, ThemeApplyReport, ThemeSnapshot, ThemingStatus,
-    TriState,
+    validate_installable, Action, ApiError, ApkPackage, ApkUpdate, ApparmorCheck, ApparmorOutput,
+    ApparmorProfileFile, ApparmorView, BoosterConfig, BoosterRegenerateReport, Capability,
+    CapabilityReport, CrontabView, ErrorCode, FlatpakInfo, FlatpakPackage, FlatpakPermissions,
+    JobOutput, JobStatus, LogChunk, LogCursor, LogFile, LogSearchResult, ModuleId, SessionToken,
+    ThemeApplyReport, ThemeSnapshot, ThemingStatus, TriState,
 };
 
+use crate::apparmor::{ApparmorOp, ApparmorQuery, ApparmorState};
 use crate::bluetooth::BluetoothState;
 use crate::booster::BoosterState;
 use crate::client::{self, AuthSession, ConfigSnapshot, SearchPage};
@@ -124,6 +125,7 @@ enum Screen {
     Logs,
     Crontab,
     Booster,
+    Apparmor,
 }
 
 pub struct App {
@@ -148,6 +150,7 @@ pub struct App {
     logs: LogsState,
     crontab: CrontabState,
     booster: BoosterState,
+    apparmor: ApparmorState,
     screen: Screen,
     session: Option<Session>,
     /// Bumped on sign-in/sign-out so late async results cannot repopulate a
@@ -580,6 +583,30 @@ pub enum Message {
     BoosterRegenCancelled,
     /// `booster_regenerate` finished.
     BoosterRegenFinished(u64, Result<BoosterRegenerateReport, ApiError>),
+    /// Open the `AppArmor` screen.
+    OpenApparmor,
+    /// `apparmor_status` (or a finished mutation) view.
+    ApparmorLoaded(u64, Result<ApparmorView, ApiError>),
+    /// Select a profile file: loads it into the editor.
+    ApparmorFileSelected(String),
+    /// `apparmor_profile_get` finished.
+    ApparmorProfileLoaded(u64, Result<ApparmorProfileFile, ApiError>),
+    /// The editor buffer changed.
+    ApparmorEdited,
+    /// A mutation was requested (shows its confirmation).
+    ApparmorOpRequested(ApparmorOp),
+    ApparmorOpConfirmed,
+    ApparmorOpCancelled,
+    /// A mutation finished with a fresh view.
+    ApparmorOpFinished(u64, Result<ApparmorView, ApiError>),
+    /// Syntax check of the selected file.
+    ApparmorQueryCheck(String),
+    ApparmorCheckFinished(u64, Result<ApparmorCheck, ApiError>),
+    /// Read-only report (unconfined / features-abi / decode).
+    ApparmorQueryRequested(ApparmorQuery),
+    ApparmorQueryFinished(u64, Result<ApparmorOutput, ApiError>),
+    /// Decode input changed.
+    ApparmorDecodeChanged(String),
     SignOut,
 }
 
@@ -624,6 +651,7 @@ impl cosmic::Application for App {
             logs: LogsState::default(),
             crontab: CrontabState::default(),
             booster: BoosterState::default(),
+            apparmor: ApparmorState::default(),
             screen: Screen::Home,
             session: None,
             epoch: 0,
@@ -770,6 +798,35 @@ impl cosmic::Application for App {
             Message::BoosterRegenFinished(epoch, result) => {
                 return self.finish_booster_regen(epoch, result)
             }
+            Message::OpenApparmor => {
+                self.screen = Screen::Apparmor;
+                return self.load_apparmor();
+            }
+            Message::ApparmorLoaded(epoch, result) => {
+                return self.finish_apparmor_loaded(epoch, result)
+            }
+            Message::ApparmorFileSelected(path) => return self.select_apparmor_file(path),
+            Message::ApparmorProfileLoaded(epoch, result) => {
+                return self.finish_apparmor_profile(epoch, result)
+            }
+            Message::ApparmorEdited => self.apparmor.editor_body = self.apparmor.editor.text(),
+            Message::ApparmorOpRequested(op) => {
+                self.apparmor.pending = Some(op);
+            }
+            Message::ApparmorOpConfirmed => return self.run_apparmor_op(),
+            Message::ApparmorOpCancelled => self.apparmor.pending = None,
+            Message::ApparmorOpFinished(epoch, result) => {
+                return self.finish_apparmor_op(epoch, result)
+            }
+            Message::ApparmorQueryCheck(path) => return self.run_apparmor_check(path),
+            Message::ApparmorCheckFinished(epoch, result) => {
+                return self.finish_apparmor_check(epoch, result)
+            }
+            Message::ApparmorQueryRequested(query) => return self.run_apparmor_query(query),
+            Message::ApparmorQueryFinished(epoch, result) => {
+                return self.finish_apparmor_query(epoch, result)
+            }
+            Message::ApparmorDecodeChanged(value) => self.apparmor.decode_input = value,
             Message::RefreshNetwork => return self.load_network(),
             Message::NetworkLoaded(epoch, result) => return self.finish_network(epoch, result),
             Message::WifiEnabled(enabled) => {
@@ -1958,6 +2015,7 @@ impl cosmic::Application for App {
                     Screen::Logs => self.logs.view(),
                     Screen::Crontab => self.crontab.view(),
                     Screen::Booster => self.booster.view(),
+                    Screen::Apparmor => self.apparmor.view(),
                 };
                 cosmic::iced::widget::row(vec![self.sidebar(), content])
                     .width(Length::Fill)
@@ -3630,7 +3688,7 @@ impl App {
     fn sidebar(&self) -> Element<'_, Message> {
         use cosmic::widget::{button, column, container, scrollable, text};
 
-        let entries: [(Screen, &str); 17] = [
+        let entries: [(Screen, &str); 18] = [
             (Screen::Home, "Overview"),
             (Screen::Packages, "Package manager"),
             (Screen::Printers, "Printers"),
@@ -3647,6 +3705,7 @@ impl App {
             (Screen::Logs, "Logs"),
             (Screen::Crontab, "Crontab"),
             (Screen::Booster, "Booster"),
+            (Screen::Apparmor, "AppArmor"),
             (Screen::Settings, "Settings"),
         ];
         let mut items: Vec<Element<'_, Message>> = vec![
@@ -3699,6 +3758,7 @@ impl App {
             Screen::Logs => Message::OpenLogs,
             Screen::Crontab => Message::OpenCrontab,
             Screen::Booster => Message::OpenBooster,
+            Screen::Apparmor => Message::OpenApparmor,
         }
     }
 
@@ -3715,6 +3775,7 @@ impl App {
             Screen::Home | Screen::Settings | Screen::Logs => true,
             Screen::Crontab => self.cap_available(Capability::Crontab),
             Screen::Booster => self.cap_available(Capability::Booster),
+            Screen::Apparmor => self.cap_available(Capability::Apparmor),
             Screen::Packages => {
                 self.cap_available(Capability::Nix)
                     || self.cap_available(Capability::Apk)
@@ -5219,6 +5280,239 @@ impl App {
         Task::none()
     }
 
+    /// Load the `AppArmor` view (status + files + notifications state).
+    fn load_apparmor(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.apparmor.busy || self.apparmor.action_busy {
+            return Task::none();
+        }
+        self.apparmor.busy = true;
+        self.apparmor.error = None;
+        self.apparmor.message = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(
+            async move { Message::ApparmorLoaded(epoch, client::apparmor_status(token).await) },
+        )
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_apparmor_loaded(
+        &mut self,
+        epoch: u64,
+        result: Result<ApparmorView, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        if self.apparmor.action_busy {
+            return Task::none();
+        }
+        self.apparmor.busy = false;
+        match result {
+            Ok(view) => self.apparmor.apply_view(view),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.apparmor.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn select_apparmor_file(&mut self, path: String) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.apparmor.busy || self.apparmor.action_busy {
+            return Task::none();
+        }
+        self.apparmor.selected = Some(path.clone());
+        self.apparmor.action_busy = true;
+        self.apparmor.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            Message::ApparmorProfileLoaded(epoch, client::apparmor_profile_get(token, path).await)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_apparmor_profile(
+        &mut self,
+        epoch: u64,
+        result: Result<ApparmorProfileFile, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.apparmor.action_busy = false;
+        match result {
+            Ok(file) => self.apparmor.apply_profile(file),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.apparmor.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn run_apparmor_op(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some(op) = self.apparmor.pending.clone() else {
+            return Task::none();
+        };
+        if self.apparmor.action_busy || self.apparmor.busy {
+            return Task::none();
+        }
+        self.apparmor.action_busy = true;
+        self.apparmor.pending = None;
+        self.apparmor.error = None;
+        self.apparmor.message = None;
+        // Fresh buffer: edits made while the confirmation was open are
+        // what gets written, not a stale snapshot.
+        let fresh_content = self.apparmor.editor.text();
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            let result = match op {
+                ApparmorOp::SetMode { path, mode } => {
+                    client::apparmor_set_mode(token, path, mode).await
+                }
+                ApparmorOp::Load { path } => client::apparmor_load(token, path).await,
+                ApparmorOp::Remove { path } => client::apparmor_remove(token, path).await,
+                ApparmorOp::ReloadAll => client::apparmor_reload_all(token).await,
+                ApparmorOp::RemoveUnknown => client::apparmor_remove_unknown(token).await,
+                ApparmorOp::Save { path } => {
+                    client::apparmor_profile_set(token, path, fresh_content).await
+                }
+                ApparmorOp::NotificationsEnable => {
+                    client::apparmor_notifications_enable(token).await
+                }
+                ApparmorOp::Cleanprof { name } => client::apparmor_cleanprof(token, name).await,
+                ApparmorOp::Autodep { path } => client::apparmor_autodep(token, path).await,
+            };
+            Message::ApparmorOpFinished(epoch, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_apparmor_op(
+        &mut self,
+        epoch: u64,
+        result: Result<ApparmorView, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.apparmor.action_busy = false;
+        match result {
+            Ok(view) => {
+                self.apparmor.apply_view(view);
+                self.apparmor.message = Some("Done.".into());
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.apparmor.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn run_apparmor_check(&mut self, path: String) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.apparmor.action_busy || self.apparmor.busy {
+            return Task::none();
+        }
+        self.apparmor.action_busy = true;
+        self.apparmor.error = None;
+        self.apparmor.output = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            Message::ApparmorCheckFinished(epoch, client::apparmor_check(token, path).await)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_apparmor_check(
+        &mut self,
+        epoch: u64,
+        result: Result<ApparmorCheck, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.apparmor.action_busy = false;
+        match result {
+            Ok(check) => self.apparmor.apply_check(check),
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.apparmor.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    fn run_apparmor_query(&mut self, query: ApparmorQuery) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.apparmor.action_busy || self.apparmor.busy {
+            return Task::none();
+        }
+        self.apparmor.action_busy = true;
+        self.apparmor.error = None;
+        self.apparmor.output = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            let result = match query {
+                ApparmorQuery::Unconfined => client::apparmor_unconfined(token).await,
+                ApparmorQuery::FeaturesAbi => client::apparmor_features_abi(token).await,
+                ApparmorQuery::Decode(hex) => client::apparmor_decode(token, hex).await,
+            };
+            Message::ApparmorQueryFinished(epoch, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_apparmor_query(
+        &mut self,
+        epoch: u64,
+        result: Result<ApparmorOutput, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.apparmor.action_busy = false;
+        match result {
+            Ok(output) => {
+                self.apparmor.output = Some(("Output".to_string(), output.output));
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.apparmor.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
     fn network_action(
         &mut self,
         label: &str,
@@ -6027,6 +6321,7 @@ impl App {
         self.logs = LogsState::default();
         self.crontab = CrontabState::default();
         self.booster = BoosterState::default();
+        self.apparmor = ApparmorState::default();
         self.screen = Screen::Home;
         self.login.password.clear();
         self.login.error = None;

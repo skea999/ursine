@@ -317,6 +317,27 @@ no `su`, no suid requirement on the tool.
   is the merged hook/process log; requires `booster`
   (`apk add booster`).
 
+### apparmor
+
+`apparmor_status`, `apparmor_set_mode path=… mode=enforce|complain|disable|enable`,
+`apparmor_load path=…`, `apparmor_check path=…`, `apparmor_remove path=…`,
+`apparmor_reload_all`, `apparmor_unconfined`, `apparmor_remove_unknown`,
+`apparmor_profile_get path=…`, `apparmor_profile_set path=… content=…`
+(`content=@file` reads the profile from a file), `apparmor_notifications_enable`,
+`apparmor_cleanprof name=…`, `apparmor_autodep path=…`,
+`apparmor_features_abi`, `apparmor_decode hex=…` (SPEC-apparmor).
+
+- All profile paths must live under `/etc/apparmor.d` (canonicalized —
+  symlinks cannot escape).
+- `apparmor_profile_set` refuses content that fails
+  `apparmor_parser -d` BEFORE writing; the file rotates through the
+  `backup_configs` slots first. Applying is a separate `apparmor_load`.
+- `apparmor_notifications_enable` writes `show_notifications="yes"` into
+  `/etc/apparmor/notify.conf` and installs the `aa-notify` autostart
+  entry for the session user — notifications start at the next login.
+- `enable` mode = remove the `disable/` symlink + reload (there is no
+  aa-enable command).
+
 ## Target users
 
 The `--as-user` option:
@@ -359,7 +380,8 @@ CLI prints the refused action and exits 2. The current set includes:
 `set_firewall_enabled` (off), `delete_firewall_service`, `forget_network`,
 `set_network_ipv4`, `set_flatpak_permissions`, `unmount_disk`,
 `format_disk`, `partition_create`, `partition_delete`,
-`booster_regenerate`.
+`booster_regenerate`, `apparmor_remove_unknown`, `apparmor_cleanprof`,
+`apparmor_set_mode` with `mode=disable`.
 
 ## Background jobs (package progress)
 
