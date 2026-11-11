@@ -6,6 +6,15 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-11 — easyprof + GUI fixes, release 0.29.0 (main, tag `v0.29.0`)
+
+**Status**: Pushed `03a3e4a..749db23` (credential hiccup mid-session — global libsecret helper hung the push until the user fixed auth); CI green for `7db9d85` (`43045873637`) and both release runs (`43048578226`/`43048578318` success); auto-pin `e385eb0` pulled, local HEAD `e385eb0`.
+
+- **aa-easyprof included** (`7d1e17b`, supersedes the deferral): man + upstream `easyprof.py` verified — default output is stdout (`--output-directory` opt-in, file-write branch gated on it); `apparmor_easyprof {binary, template?, policy_groups?}` uses TWO argv elements per short option (optparse: `-t=VALUE` keeps the `=`) + `apparmor_easyprof_list {what}`; binary rides the quoted-value guard (`*` legal); stdout-only → no profile file written (transient /tmp for apparmor_parser only).
+- **GUI**: scrollable Home + Settings + Login (last screen), Settings module mode = segmented buttons `Auto|On|Off` instead of the dropdown; nix **Pattern actions** input invisible (single row: buttons squeezed the text input to zero width) → three stacked rows (title / full-width input / buttons); Generations history rows now labelled BY THE GENERATION NUMBER (header `Version N…` loses its prefix, change lines append to their generation, no more per-row "Profile history").
+- Gates per commit: fmt/clippy/tests, static-check all, docs, typos — green.
+- Release `749db23` + tag `v0.29.0`; VM smoke still pending (booster, apparmor incl. notifications + easyprof, plus the GUI fixes eyeball pass).
+
 ## Session 2026-11-10 — booster + apparmor modules, release 0.28.0 (main, tag `v0.28.0`)
 
 **Status**: Pushed `4ad349a..1b8a2aa` (+ user commit `1882d5c` already remote); CI green for `65df199` (via later runs), `49ed08b` (`42864154585`), release `1b8a2aa` (both runs `42867007902`/`42867008016` success); auto-pin `03a3e4a` pulled, local HEAD `03a3e4a`.
