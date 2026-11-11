@@ -749,6 +749,44 @@ pub async fn apparmor_features_abi(
         .map_err(|e| ApiError::internal(format!("decode apparmor output: {e}")))
 }
 
+/// Generate a profile from templates/policy groups (stdout only).
+pub async fn apparmor_easyprof(
+    token: SessionToken,
+    binary: String,
+    template: Option<String>,
+    policy_groups: Option<String>,
+) -> Result<ursine_api::ApparmorOutput, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Apparmor,
+        Action::ApparmorEasyprof {
+            binary,
+            template,
+            policy_groups,
+        },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor output: {e}")))
+}
+
+/// List aa-easyprof templates or policy groups.
+pub async fn apparmor_easyprof_list(
+    token: SessionToken,
+    what: String,
+) -> Result<ursine_api::ApparmorOutput, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Apparmor,
+        Action::ApparmorEasyprofList { what },
+        None,
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode apparmor output: {e}")))
+}
+
 /// Decode one hex log token (aa-decode).
 pub async fn apparmor_decode(
     token: SessionToken,

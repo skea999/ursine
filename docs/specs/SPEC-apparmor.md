@@ -28,6 +28,8 @@ module — no duplicate logic).
 | `apparmor_autodep {path}` | `aa-autodep <path>` (adds hardlink deps to the file → rotated first) |
 | `apparmor_features_abi` | `aa-features-abi --extract` (read-only) |
 | `apparmor_decode {hex}` | `aa-decode <hex>` (argv form; stdin multi-line decoding is out of scope — the shared runners reject newlines) |
+| `apparmor_easyprof {binary, template?, policy_groups?}` | `aa-easyprof [-t T] [-p G] <binary>` (two-argv short options — optparse-portable) — generation ONLY: `--output-directory` is never passed, so the profile goes to stdout (man: "If unspecified, policy is sent to stdout") and NO profile file is written (the tool may drop a transient /tmp file while consulting apparmor_parser); `binary`/options go through the quoted-value guard (`*` is legal in profile paths) |
+| `apparmor_easyprof_list {what}` | `aa-easyprof --list-templates` or `--list-policy-groups` (`what` ∈ templates\|policy_groups) |
 
 All profile paths: canonicalized, must live under `/etc/apparmor.d`, must
 be regular files; `..` and symlink escapes rejected.
@@ -35,8 +37,15 @@ be regular files; `..` and symlink escapes rejected.
 Excluded with rationale: `aa-genprof`/`aa-logprof`/`aa-mergeprof`
 (interactive learning loops), `aa-exec` (executes programs), `aa-notify`
 as a reader (exposed instead as the activation button), `aa-audit` (not
-shipped by Alpine), `aa-easyprof` (policy GENERATOR — deferred with the
-profile-creation scope; pending verification of its default write target).
+shipped by Alpine apparmor-utils).
+
+`aa-easyprof` (added 2026-11-11 after verification): the man AND the upstream
+`easyprof.py` confirm the default sends the generated policy to
+**stdout** (`--output-directory` is opt-in; the file-write branch is
+only taken when that flag is passed), so the action is
+generation-to-output only — persisting the result stays inside the
+deferred profile-creation scope (the editor writes existing files
+only).
 
 ## Capability
 
@@ -99,7 +108,6 @@ profile-creation scope; pending verification of its default write target).
 
 ## Deferred (explicit)
 
-- `aa-easyprof` (policy generator, not a report — needs verification of
-  its default write target; belongs to profile creation).
-- Profile CREATION from scratch (editor edits existing files only).
+- Profile CREATION from scratch (editor edits existing files only;
+  easyprof output is shown, not persisted).
 - Same-session notification poller spawn (next login only, per user).

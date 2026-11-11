@@ -325,7 +325,13 @@ no `su`, no suid requirement on the tool.
 `apparmor_profile_get path=…`, `apparmor_profile_set path=… content=…`
 (`content=@file` reads the profile from a file), `apparmor_notifications_enable`,
 `apparmor_cleanprof name=…`, `apparmor_autodep path=…`,
-`apparmor_features_abi`, `apparmor_decode hex=…` (SPEC-apparmor).
+`apparmor_features_abi`, `apparmor_decode hex=…`,
+`apparmor_easyprof binary=… [template=…] [policy_groups=…]`,
+`apparmor_easyprof_list what=templates|policy_groups` (SPEC-apparmor).
+
+- `apparmor_easyprof` only PRINTS the generated profile (aa-easyprof's
+  `--output-directory` is never passed — no profile file is written);
+  copy the output into a profile file yourself to persist it.
 
 - All profile paths must live under `/etc/apparmor.d` (canonicalized —
   symlinks cannot escape).

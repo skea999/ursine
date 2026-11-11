@@ -1090,6 +1090,23 @@ pub const SAMPLES: &[Sample] = &[
         destructive: false,
         dispatch: Dispatch::Gate,
     },
+    Sample {
+        module: ursine_api::ModuleId::Apparmor,
+        action: "apparmor_easyprof",
+        pairs: &[
+            ("binary", "/usr/bin/true"),
+            ("template", "user-application"),
+        ],
+        destructive: false,
+        dispatch: Dispatch::Gate,
+    },
+    Sample {
+        module: ursine_api::ModuleId::Apparmor,
+        action: "apparmor_easyprof_list",
+        pairs: &[("what", "templates")],
+        destructive: false,
+        dispatch: Dispatch::Gate,
+    },
 ];
 
 /// Fixture log created by the dispatch tests before `log_read`/`log_search`.
@@ -1112,6 +1129,8 @@ pub const ALL_ACTIONS: &[&str] = &[
     "apparmor_check",
     "apparmor_cleanprof",
     "apparmor_decode",
+    "apparmor_easyprof",
+    "apparmor_easyprof_list",
     "apparmor_features_abi",
     "apparmor_load",
     "apparmor_notifications_enable",

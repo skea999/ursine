@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `apparmor_easyprof` + `apparmor_easyprof_list` (SPEC-apparmor): generate
+  an AppArmor profile from templates/policy groups through `aa-easyprof`
+  and show it (man + upstream source verified: default output is stdout —
+  `--output-directory` is never passed, no profile file is written); list
+  templates/policy groups on demand. Persisting the generated profile stays in the deferred
+  profile-creation scope.
+
 ## [0.28.0] — 2026-11-10
 
 ### Added

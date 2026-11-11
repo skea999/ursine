@@ -6,6 +6,16 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-10 — booster + apparmor modules, release 0.28.0 (main, tag `v0.28.0`)
+
+**Status**: Pushed `4ad349a..1b8a2aa` (+ user commit `1882d5c` already remote); CI green for `65df199` (via later runs), `49ed08b` (`42864154585`), release `1b8a2aa` (both runs `42867007902`/`42867008016` success); auto-pin `03a3e4a` pulled, local HEAD `03a3e4a`.
+
+- **booster module** (`65df199`, SPEC-booster): surgical `/etc/booster.yaml` editor (comments + installer marker byte-identical, backup → YAML validation → atomic + SET_LOCK), regenerate chain `apk fix kernel-hooks` → `regenerate_images` → per-kernel `booster build` (`/boot/booster-<flavor>`, never guessed), `select_step()` single source of truth for confirm preview; capability `Booster`; GUI + `ursinectl booster …` + guide/man. Review:16 findings + HIGH client timeout (5s → daemon_budget(120)).
+- **apparmor module** (`49ed08b`, SPEC-apparmor): full headless CLI surface — tolerant aa-status runner (exit1-3=data), modes (enforce/complain/disable + enable = remove every disable/ marker + reload), profile SOURCE editor (syntax check on stdin BEFORE write, backup, SET_LOCK), notifications button (notify.conf + aa-notify autostart, next login), cleanprof/autodep with whole-dir backup, unconfined/remove_unknown/features_abi/decode; capability `Apparmor` (same fixed dirs as module); GUI + `ursinectl apparmor …` (15 actions) + guide/man. Review:10 findings (2 HIGH name/basename normalization) + ec indent. Deferred with user visibility: aa-easyprof (it is a policy GENERATOR, not a report — pending user verification).
+- Naming decisions: module `booster` not `initramfs`; notifications activate from NEXT LOGIN (no same-session spawn).
+- Gates: fmt/clippy/tests ×N, static-check all PASS (final trees), docs 0, typos 0 — for both features.
+- VM smoke still pending for BOTH: booster (edit key → Save → Regenerate hook output, UKI rebuilt), apparmor (status round-trip, check-before-load, disable/enable cycle, Save refuses bad syntax, notifications after login).
+
 ## Session 2026-11-09 — CLI minimization + release 0.27.0 (main, tag `v0.27.0`)
 
 **Status**: Pushed `ff92296..05aeb6b` + tag `v0.27.0`; both tag CI runs green (`42687910852`, `42687910997`); auto-pin `4ad349a` pulled. Local HEAD `4ad349a`.

@@ -102,7 +102,8 @@ MODULES (wire name; short alias in parentheses):
                       apparmor_profile_get, apparmor_profile_set,
                       apparmor_notifications_enable, apparmor_cleanprof,
                       apparmor_autodep, apparmor_features_abi,
-                      apparmor_decode
+                      apparmor_decode, apparmor_easyprof,
+                      apparmor_easyprof_list
 
 EXAMPLES:
   ursinectl system status

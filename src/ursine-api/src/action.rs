@@ -649,6 +649,19 @@ pub enum Action {
     ApparmorDecode {
         hex: String,
     },
+    /// Generate a profile from templates/policy groups — stdout only,
+    /// nothing is written (`--output-directory` is never passed).
+    ApparmorEasyprof {
+        binary: String,
+        #[serde(default)]
+        template: Option<String>,
+        #[serde(default)]
+        policy_groups: Option<String>,
+    },
+    /// List aa-easyprof templates or policy groups.
+    ApparmorEasyprofList {
+        what: String,
+    },
 }
 
 /// Wire default for `ThemeApply.show_minimize` (trio on).

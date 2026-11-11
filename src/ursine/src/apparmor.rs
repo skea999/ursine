@@ -61,6 +61,13 @@ pub enum ApparmorQuery {
     Unconfined,
     FeaturesAbi,
     Decode(String),
+    /// Generate a profile to stdout (aa-easyprof, never writes).
+    Easyprof {
+        binary: String,
+        template: Option<String>,
+        policy_groups: Option<String>,
+    },
+    EasyprofList(String),
 }
 
 #[derive(Debug)]
@@ -79,6 +86,9 @@ pub struct ApparmorState {
     /// (label, text) of the last check/report output.
     pub output: Option<(String, String)>,
     pub decode_input: String,
+    pub easyprof_binary: String,
+    pub easyprof_template: String,
+    pub easyprof_groups: String,
     pub error: Option<String>,
     pub message: Option<String>,
 }
@@ -97,6 +107,9 @@ impl Default for ApparmorState {
             pending: None,
             output: None,
             decode_input: String::new(),
+            easyprof_binary: String::new(),
+            easyprof_template: String::new(),
+            easyprof_groups: String::new(),
             error: None,
             message: None,
         }
@@ -385,6 +398,65 @@ impl ApparmorState {
             .into(),
         );
 
+        // ---- easyprof generation (stdout only — nothing is written) ----
+        items.push(text::title3("Easyprof (generate to output)").into());
+        items.push(
+            row(vec![
+                text("Binary:").into(),
+                text_input("/usr/bin/app", &self.easyprof_binary)
+                    .on_input(|value| Message::ApparmorEasyprofChanged("binary", value))
+                    .width(Length::Fill)
+                    .into(),
+            ])
+            .spacing(8)
+            .width(Length::Fill)
+            .into(),
+        );
+        items.push(
+            row(vec![
+                text("Template:").into(),
+                text_input("user-application", &self.easyprof_template)
+                    .on_input(|value| Message::ApparmorEasyprofChanged("template", value))
+                    .width(Length::Fill)
+                    .into(),
+                text("Policy groups:").into(),
+                text_input("networking", &self.easyprof_groups)
+                    .on_input(|value| Message::ApparmorEasyprofChanged("groups", value))
+                    .width(Length::Fill)
+                    .into(),
+            ])
+            .spacing(8)
+            .width(Length::Fill)
+            .into(),
+        );
+        items.push(
+            row(vec![
+                small_button(
+                    "Generate",
+                    (!self.action_busy && !self.busy && !self.easyprof_binary.trim().is_empty())
+                        .then_some(Message::ApparmorQueryRequested(ApparmorQuery::Easyprof {
+                            binary: self.easyprof_binary.trim().to_string(),
+                            template: non_empty(&self.easyprof_template),
+                            policy_groups: non_empty(&self.easyprof_groups),
+                        })),
+                ),
+                small_button(
+                    "List templates",
+                    (!self.action_busy && !self.busy).then_some(Message::ApparmorQueryRequested(
+                        ApparmorQuery::EasyprofList("templates".into()),
+                    )),
+                ),
+                small_button(
+                    "List policy groups",
+                    (!self.action_busy && !self.busy).then_some(Message::ApparmorQueryRequested(
+                        ApparmorQuery::EasyprofList("policy_groups".into()),
+                    )),
+                ),
+            ])
+            .spacing(8)
+            .into(),
+        );
+
         // ---- confirm block for a pending mutation ----
         if let Some(pending) = &self.pending {
             items.push(text::title3("Confirm").into());
@@ -452,6 +524,11 @@ impl ApparmorState {
             .map(ApparmorOp::confirm_text)
             .unwrap_or_default()
     }
+}
+
+fn non_empty(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 fn confirm_row(armed: bool) -> Element<'static, Message> {

@@ -329,8 +329,9 @@ spec: `docs/specs/SPEC-apparmor.md`.
   for the session user — active from next login), cleanprof/autodep with
   backup, read-only reports (features-abi, decode).
 - Interactive-only tools excluded (aa-genprof/aa-logprof/aa-mergeprof),
-  aa-exec (runs programs); aa-easyprof deferred pending verification
-  (it is a policy generator, not a read-only report).
+  aa-exec (runs programs). aa-easyprof included 2026-11-11 (man
+  verified: default output = stdout, no file written) as
+  `apparmor_easyprof` + `apparmor_easyprof_list`.
 - Capability `AppArmor` (`aa-status` + `apparmor_parser`, fix
   `apk add apparmor apparmor-utils`); parity same task: GUI + `ursinectl
   apparmor …` + docs/man.

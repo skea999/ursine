@@ -607,6 +607,8 @@ pub enum Message {
     ApparmorQueryFinished(u64, Result<ApparmorOutput, ApiError>),
     /// Decode input changed.
     ApparmorDecodeChanged(String),
+    /// Easyprof input changed (field key, new value).
+    ApparmorEasyprofChanged(&'static str, String),
     SignOut,
 }
 
@@ -827,6 +829,12 @@ impl cosmic::Application for App {
                 return self.finish_apparmor_query(epoch, result)
             }
             Message::ApparmorDecodeChanged(value) => self.apparmor.decode_input = value,
+            Message::ApparmorEasyprofChanged(field, value) => match field {
+                "binary" => self.apparmor.easyprof_binary = value,
+                "template" => self.apparmor.easyprof_template = value,
+                "groups" => self.apparmor.easyprof_groups = value,
+                other => debug_assert!(false, "unknown easyprof field {other}"),
+            },
             Message::RefreshNetwork => return self.load_network(),
             Message::NetworkLoaded(epoch, result) => return self.finish_network(epoch, result),
             Message::WifiEnabled(enabled) => {
@@ -5484,6 +5492,14 @@ impl App {
                 ApparmorQuery::Unconfined => client::apparmor_unconfined(token).await,
                 ApparmorQuery::FeaturesAbi => client::apparmor_features_abi(token).await,
                 ApparmorQuery::Decode(hex) => client::apparmor_decode(token, hex).await,
+                ApparmorQuery::Easyprof {
+                    binary,
+                    template,
+                    policy_groups,
+                } => client::apparmor_easyprof(token, binary, template, policy_groups).await,
+                ApparmorQuery::EasyprofList(what) => {
+                    client::apparmor_easyprof_list(token, what).await
+                }
             };
             Message::ApparmorQueryFinished(epoch, result)
         })

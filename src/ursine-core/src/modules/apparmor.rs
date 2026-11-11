@@ -99,6 +99,12 @@ const AA_NOTIFY: [&str; 4] = [
     "/sbin/aa-notify",
     "/bin/aa-notify",
 ];
+const AA_EASYPROF: [&str; 4] = [
+    "/usr/sbin/aa-easyprof",
+    "/usr/bin/aa-easyprof",
+    "/sbin/aa-easyprof",
+    "/bin/aa-easyprof",
+];
 
 pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
     let user = ctx.principal.user.as_str();
@@ -200,6 +206,46 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             validate_hex(hex)?;
             let program = tool(&AA_DECODE, "aa-decode")?;
             let outcome = exec::run_root_program_tolerant(program, &[hex], TIMEOUT, None).await?;
+            Ok(json!(ApparmorOutput {
+                output: combine(&outcome.stdout, &outcome.stderr),
+            }))
+        }
+        Action::ApparmorEasyprof {
+            binary,
+            template,
+            policy_groups,
+        } => {
+            let program = tool(&AA_EASYPROF, "aa-easyprof")?;
+            let mut args: Vec<String> = Vec::new();
+            if let Some(template) = template {
+                validate_template(template)?;
+                // Two argv elements: Python optparse takes `-t VALUE`
+                // portably; `-t=VALUE` would keep the `=` in the value.
+                args.push("-t".to_string());
+                args.push(template.clone());
+            }
+            if let Some(groups) = policy_groups {
+                validate_policy_groups(groups)?;
+                args.push("-p".to_string());
+                args.push(groups.clone());
+            }
+            args.push(validate_binary(binary)?);
+            let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            // Quoted-value guard: profile paths contain `*` and spaces.
+            // No --output-directory → the tool prints to stdout only.
+            let outcome = exec::run_root_program_value(program, &arg_refs, TIMEOUT).await?;
+            Ok(json!(ApparmorOutput {
+                output: combine(&outcome.stdout, &outcome.stderr),
+            }))
+        }
+        Action::ApparmorEasyprofList { what } => {
+            let flag = match what.as_str() {
+                "templates" => "--list-templates",
+                "policy_groups" => "--list-policy-groups",
+                _ => return Err(ApiError::invalid("what must be templates or policy_groups")),
+            };
+            let program = tool(&AA_EASYPROF, "aa-easyprof")?;
+            let outcome = exec::run_root_program_value(program, &[flag], TIMEOUT).await?;
             Ok(json!(ApparmorOutput {
                 output: combine(&outcome.stdout, &outcome.stderr),
             }))
@@ -393,6 +439,48 @@ fn validate_target(value: &str) -> Result<String, ApiError> {
         return Err(ApiError::invalid("invalid profile target"));
     }
     Ok(value.to_string())
+}
+
+/// The `<path to binary>` argument of aa-easyprof (often `/opt/app/**`).
+fn validate_binary(value: &str) -> Result<String, ApiError> {
+    if value.is_empty()
+        || value.len() > 4096
+        || value
+            .chars()
+            .any(|c| matches!(c, '\n' | '\r' | '\0' | '\''))
+    {
+        return Err(ApiError::invalid("invalid binary path"));
+    }
+    Ok(value.to_string())
+}
+
+fn validate_template(value: &str) -> Result<(), ApiError> {
+    if value.is_empty()
+        || value.len() > 256
+        || !value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
+        return Err(ApiError::invalid("invalid template name"));
+    }
+    Ok(())
+}
+
+/// Comma-separated policy group names.
+fn validate_policy_groups(value: &str) -> Result<(), ApiError> {
+    if value.is_empty() || value.len() > 1024 {
+        return Err(ApiError::invalid("invalid policy groups"));
+    }
+    for group in value.split(',') {
+        if group.is_empty()
+            || !group
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        {
+            return Err(ApiError::invalid("invalid policy group name"));
+        }
+    }
+    Ok(())
 }
 
 fn validate_hex(value: &str) -> Result<(), ApiError> {
@@ -736,6 +824,19 @@ mod tests {
         assert_eq!(profile_key("usr.bin.foo"), "usr.bin.foo");
         assert_eq!(profile_key("docker-default"), "docker-default");
         assert_eq!(profile_key("/usr/sbin/dhclient"), "usr.sbin.dhclient");
+    }
+
+    #[test]
+    fn validates_easyprof_arguments() {
+        assert!(validate_binary("/opt/foo/**").is_ok());
+        assert!(validate_binary("/opt/my app/bin").is_ok());
+        assert!(validate_binary("").is_err());
+        assert!(validate_binary("bad\npath").is_err());
+        assert!(validate_template("user-application").is_ok());
+        assert!(validate_template("bad template").is_err());
+        assert!(validate_policy_groups("networking,user-application").is_ok());
+        assert!(validate_policy_groups("networking, bad").is_err());
+        assert!(validate_policy_groups("").is_err());
     }
 
     #[test]

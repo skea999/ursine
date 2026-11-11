@@ -266,6 +266,8 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::ApparmorAutodep { .. } => "apparmor_autodep",
         Action::ApparmorFeaturesAbi => "apparmor_features_abi",
         Action::ApparmorDecode { .. } => "apparmor_decode",
+        Action::ApparmorEasyprof { .. } => "apparmor_easyprof",
+        Action::ApparmorEasyprofList { .. } => "apparmor_easyprof_list",
         Action::GetFirewall => "get_firewall",
         Action::SetDefaultFirewallZone { .. } => "set_default_firewall_zone",
         Action::AddFirewallService { .. } => "add_firewall_service",
