@@ -5289,7 +5289,7 @@ checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "ursine"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "libcosmic",
  "serde",
@@ -5300,7 +5300,7 @@ dependencies = [
 
 [[package]]
 name = "ursine-api"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5309,7 +5309,7 @@ dependencies = [
 
 [[package]]
 name = "ursine-core"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "cosmic-config",
  "cosmic-theme",
@@ -5331,7 +5331,7 @@ dependencies = [
 
 [[package]]
 name = "ursinectl"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "serde_json",
  "tokio",
@@ -5341,7 +5341,7 @@ dependencies = [
 
 [[package]]
 name = "ursined"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "tokio",
  "tracing",
