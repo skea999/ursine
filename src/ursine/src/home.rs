@@ -1,7 +1,7 @@
 //! Home screen: the modules this principal may use, and what the machine offers.
 
 use cosmic::iced::Length;
-use cosmic::widget::{button, column, row, settings, text};
+use cosmic::widget::{button, column, row, scrollable, settings, text};
 use cosmic::Element;
 use ursine_api::{Capability, CapabilityReport, ModuleId, ModulesConfig, TriState};
 
@@ -203,7 +203,7 @@ impl HomeState {
         }
         items.push(modules.into());
 
-        column(items).spacing(16).padding(24).into()
+        scrollable(column(items).spacing(16).padding(24)).into()
     }
 
     fn module_status(

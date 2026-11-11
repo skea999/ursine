@@ -1,7 +1,7 @@
 //! Settings screen: live capability facts and manual module switches.
 
 use cosmic::iced::Length;
-use cosmic::widget::{button, column, dropdown, row, settings, text};
+use cosmic::widget::{button, column, row, scrollable, settings, text};
 use cosmic::Element;
 use ursine_api::{CapabilityReport, ModuleId, TriState};
 
@@ -178,9 +178,11 @@ impl SettingsState {
             items.push(text("Saving module mode…").into());
         }
 
-        column(items).spacing(16).padding(24).into()
+        scrollable(column(items).spacing(16).padding(24)).into()
     }
 
+    /// Segmented buttons (Auto / On / Off): the active state is the
+    /// suggested button and cannot be pressed again.
     fn switch_control(&self, module: ModuleId) -> Element<'_, Message> {
         let Some(config) = &self.config else {
             return text(if self.config_busy {
@@ -191,24 +193,21 @@ impl SettingsState {
             .into();
         };
         let current = module_switch(config, module);
-        let selected = match current {
-            TriState::Auto => 0,
-            TriState::On => 1,
-            TriState::Off => 2,
-        };
-        dropdown(
-            vec!["Auto", "Manual on", "Manual off"],
-            Some(selected),
-            move |index| {
-                let value = match index {
-                    0 => TriState::Auto,
-                    1 => TriState::On,
-                    _ => TriState::Off,
-                };
-                Message::SetModuleSwitch(module, value)
-            },
-        )
-        .into()
+        let mut buttons: Vec<Element<'_, Message>> = Vec::with_capacity(3);
+        for (label, value) in [
+            ("Auto", TriState::Auto),
+            ("On", TriState::On),
+            ("Off", TriState::Off),
+        ] {
+            let active = current == value;
+            let button = if active {
+                button::suggested(label)
+            } else {
+                button::text(label).on_press(Message::SetModuleSwitch(module, value))
+            };
+            buttons.push(button.into());
+        }
+        row(buttons).spacing(4).into()
     }
 }
 
