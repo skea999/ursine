@@ -39,7 +39,7 @@ pub use apparmor::{
 pub use bluetooth::{BluetoothAdapter, BluetoothDevice, BluetoothOp, BluetoothView};
 pub use booster::{BoosterConfig, BoosterConfigPatch, BoosterRegenerateReport};
 pub use capability::{Capability, CapabilityReport};
-pub use config::{BackupConfigs, ModulesConfig, TriState, UrsineConfig};
+pub use config::{BackupConfigs, ModulesConfig, TriState, UpdatesAuto, UrsineConfig};
 pub use crontab::{max_crontab_bytes, CrontabView};
 pub use disk::{Disk, DiskView, DISK_FSTYPES};
 pub use envelope::{Request, RequestBody, Response, ResponseBody, PROTOCOL_VERSION};
@@ -58,7 +58,7 @@ pub use niri::{
 };
 pub use nix::{
     installable_from_attr, is_safe_installable_atom, normalize_installable, validate_installable,
-    CommandOutcome, InstalledPackage, NixRepository, SearchResult,
+    CommandOutcome, InstalledPackage, NixRepository, NixUpdates, SearchResult,
 };
 pub use packages::{
     ApkPackage, ApkRepository, ApkUpdate, FlatpakEnvVar, FlatpakInfo, FlatpakPackage,

@@ -267,6 +267,7 @@ mod tests {
                 packages_nix: TriState::Off,
                 ..Default::default()
             },
+            updates: ursine_api::UpdatesAuto::default(),
             path: "/etc/ursine/config.toml".into(),
             exists: Some(true),
         };

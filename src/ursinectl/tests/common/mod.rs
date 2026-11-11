@@ -77,6 +77,13 @@ pub const SAMPLES: &[Sample] = &[
         destructive: false,
         dispatch: Dispatch::Skip,
     },
+    Sample {
+        module: ursine_api::ModuleId::Config,
+        action: "set_update_auto",
+        pairs: &[("manager", "apk"), ("enabled", "true")],
+        destructive: false,
+        dispatch: Dispatch::Skip,
+    },
     // -- capabilities --
     Sample {
         module: ursine_api::ModuleId::Capabilities,
@@ -96,6 +103,13 @@ pub const SAMPLES: &[Sample] = &[
     Sample {
         module: ursine_api::ModuleId::PackagesNix,
         action: "list_installed",
+        pairs: &[],
+        destructive: false,
+        dispatch: Dispatch::Gate,
+    },
+    Sample {
+        module: ursine_api::ModuleId::PackagesNix,
+        action: "list_nix_updates",
         pairs: &[],
         destructive: false,
         dispatch: Dispatch::Gate,
@@ -1192,6 +1206,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "add_nix_repository",
     "list_installed",
     "list_nix_repositories",
+    "list_nix_updates",
     "list_printers",
     "list_scanners",
     "list_services",
@@ -1245,6 +1260,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "set_printer_options",
     "set_scanner_device",
     "set_scanner_discovery",
+    "set_update_auto",
     "set_wifi_enabled",
     "stats",
     "status",

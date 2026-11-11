@@ -25,6 +25,12 @@ pub enum Action {
         module: ModuleId,
         value: crate::TriState,
     },
+    /// Persist the per-manager "check updates automatically" preference
+    /// (`manager` = apk | flatpak | nix) and apply it live.
+    SetUpdateAuto {
+        manager: String,
+        enabled: bool,
+    },
 
     // -- capabilities --
     /// List every capability with availability, reason and fix.
@@ -89,6 +95,9 @@ pub enum Action {
         #[serde(default)]
         dry_run: bool,
     },
+    /// Report upgradable packages via `nix profile upgrade --all
+    /// --dry-run` (unlocked flakes only; network + slow — on demand).
+    ListNixUpdates,
     /// Profile history (generations).
     Generations,
     /// Roll the profile back to a previous generation (default: previous).

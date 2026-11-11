@@ -10,6 +10,9 @@ pub const PROFILE_SECS: u64 = 60;
 pub const HISTORY_SECS: u64 = 60;
 /// `nix search`.
 pub const SEARCH_SECS: u64 = 300;
+/// On-demand nix upgrade check (`list_nix_updates`): the dry-run
+/// re-fetches every unlocked flake with tarballTtl=0.
+pub const UPDATE_CHECK_SECS: u64 = 300;
 /// Profile mutations (install, remove, upgrade, rollback, wipe).
 pub const MUTATE_SECS: u64 = 900;
 /// Store-wide garbage collection.

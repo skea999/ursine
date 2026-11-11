@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Update-check UX across the package managers (user decision
+  2026-11-11): a prominent **"Packages to update"** number in nix, apk
+  and flatpak; a **Refresh ("Check for updates")** button for the manual
+  check; and a persisted per-manager **"Check updates automatically"**
+  toggler (`[updates]` in `/etc/ursine/config.toml`, default apk/flatpak
+  on, nix off — written through the new `config.set_update_auto`, surgical
+  TOML edit with rotation). Flatpak now shows the count only (its
+  per-package update list is gone); apk shows the number only too —
+  its per-package Upgrade buttons stay in the Installed list.
+- Flatpak list: the "Show Apps/Runtimes" filter row is gone — apps AND
+  runtimes now share one list, and runtimes are listed as **protected**
+  (apk-style: no action buttons). Nix has no app/runtime split in its
+  profile, so nothing to change there.
+- Installed lists (nix, apk, flatpak): the per-package **Upgrade button
+  appears only when the update check says that package is outdated** —
+  current (or never checked) packages show no Upgrade button; Remove and
+  the flatpak Permissions button are unaffected.
+- `nix list_nix_updates`: on-demand upgrade check via
+  `nix profile upgrade --all --dry-run` (300 s budget; parses the
+  `upgrading '<name>'` lines into `{count, packages}`; unlocked flake
+  refs only, never touches the profile).
+
 ## [0.29.0] — 2026-11-11
 
 ### Added

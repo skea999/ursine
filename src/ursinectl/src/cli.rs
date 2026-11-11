@@ -45,13 +45,15 @@ USAGE: sudo ursinectl [--json] [--yes] [--as-user USER] [--config PATH] \\
 
 MODULES (wire name; short alias in parentheses):
   system              status, job_output
-  config              init, get_config, set_module_switch
+  config              init, get_config, set_module_switch,
+                      set_update_auto
   capabilities(caps)  list, refresh
   packages_nix(nix)   list_installed, search, install, remove, remove_all,
                       remove_regex, upgrade, upgrade_regex, generations,
                       rollback, wipe_history, diff_closures, store_gc,
                       prune_generations, list_nix_repositories,
-                      add_nix_repository, remove_nix_repository
+                      add_nix_repository, remove_nix_repository,
+                      list_nix_updates
   packages_apk(apk)   list_apk, search_apk, refresh_apk,
                       list_apk_repositories, add_apk_repository,
                       remove_apk_repository, install_apk,

@@ -68,6 +68,27 @@ impl<'de> Deserialize<'de> for TriState {
     }
 }
 
+/// Automatic update checks per package manager (GUI preference).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdatesAuto {
+    /// Check on screen open (apk is fast — default on).
+    pub apk: bool,
+    /// Check on screen open (flatpak is fast — default on).
+    pub flatpak: bool,
+    /// Check on screen open (nix re-fetches flakes — default OFF).
+    pub nix: bool,
+}
+
+impl Default for UpdatesAuto {
+    fn default() -> Self {
+        Self {
+            apk: true,
+            flatpak: true,
+            nix: false,
+        }
+    }
+}
+
 /// Per-module switches.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -178,6 +199,9 @@ pub struct UrsineConfig {
     /// Backup rotation policy shared by every file writer.
     #[serde(default)]
     pub backup_configs: BackupConfigs,
+    /// "Check updates automatically" per package manager (`[updates]`).
+    #[serde(default)]
+    pub updates: UpdatesAuto,
 }
 
 impl Default for UrsineConfig {
@@ -190,6 +214,7 @@ impl Default for UrsineConfig {
             disks_format: false,
             modules: ModulesConfig::default(),
             backup_configs: BackupConfigs::default(),
+            updates: UpdatesAuto::default(),
         }
     }
 }

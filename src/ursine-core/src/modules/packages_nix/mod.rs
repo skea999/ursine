@@ -24,6 +24,7 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(timeouts::PROFILE_SECS);
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(timeouts::SEARCH_SECS);
 const HISTORY_TIMEOUT: Duration = Duration::from_secs(timeouts::HISTORY_SECS);
 const MUTATE_TIMEOUT: Duration = Duration::from_secs(timeouts::MUTATE_SECS);
+const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(timeouts::UPDATE_CHECK_SECS);
 const GC_TIMEOUT: Duration = Duration::from_secs(timeouts::GC_SECS);
 
 /// Rotate the target user's flake registry JSON before `nix registry`
@@ -180,6 +181,26 @@ fn line_list(outcome: &CommandOutcome) -> Vec<String> {
         .filter(|l| !l.trim().is_empty())
         .map(generations::strip_ansi)
         .collect()
+}
+
+/// Names from `nix profile upgrade --all --dry-run`: nix logs
+/// `upgrading 'hello' from flake 'A' to 'B'` (stderr); warnings about
+/// locked/flake-less packages never match.
+fn parse_upgradable(outcome: &CommandOutcome) -> Vec<String> {
+    let mut packages: Vec<String> = Vec::new();
+    for line in outcome.stdout.lines().chain(outcome.stderr.lines()) {
+        let Some(rest) = line.split("upgrading '").nth(1) else {
+            continue;
+        };
+        let Some(name) = rest.split('\'').next() else {
+            continue;
+        };
+        let name = name.trim();
+        if !name.is_empty() && !packages.iter().any(|existing| existing == name) {
+            packages.push(name.to_string());
+        }
+    }
+    packages
 }
 
 fn lines(outcome: &CommandOutcome) -> serde_json::Value {
@@ -432,6 +453,26 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             argv.extend(names);
             start_argv_job(ctx, "upgrade_regex", "nix", argv, MUTATE_TIMEOUT)
         }
+        Action::ListNixUpdates => {
+            // On-demand and slow by design (re-fetches every unlocked
+            // flake with tarballTtl=0): never automatic without opt-in.
+            let out = exec::run_as_user(
+                user,
+                &[
+                    ("profile", ""),
+                    ("upgrade", ""),
+                    ("--all", ""),
+                    ("--dry-run", ""),
+                ],
+                UPDATE_CHECK_TIMEOUT,
+            )
+            .await?;
+            let packages = parse_upgradable(&out);
+            Ok(serde_json::json!(ursine_api::NixUpdates {
+                count: packages.len(),
+                packages,
+            }))
+        }
         Action::Generations => {
             let out = exec::run_as_user(user, &[("profile", ""), ("history", "")], HISTORY_TIMEOUT)
                 .await?;
@@ -618,6 +659,27 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn parse_upgradable_reads_dry_run_log_lines() {
+        let outcome = CommandOutcome {
+            stdout: String::new(),
+            stderr: concat!(
+                "warning: package 'x' not from a flake\n",
+                "upgrading 'hello' from flake 'nixpkgs' to 'github:a/b'\n",
+                "upgrading 'gh' from flake 'nixpkgs' to 'github:c/d'\n",
+                "upgrading 'hello' from flake 'nixpkgs' to 'github:a/e'\n",
+            )
+            .to_string(),
+        };
+        assert_eq!(parse_upgradable(&outcome), ["hello", "gh"]);
+        assert!(parse_upgradable(&CommandOutcome {
+            stdout: String::new(),
+            stderr: String::new(),
+        })
+        .is_empty());
+    }
+
     use super::*;
 
     #[test]

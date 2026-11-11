@@ -7,7 +7,7 @@ use ursine_api::{
     ApparmorProfileFile, ApparmorView, BoosterConfig, BoosterRegenerateReport, Capability,
     CapabilityReport, CrontabView, ErrorCode, FlatpakInfo, FlatpakPackage, FlatpakPermissions,
     JobOutput, JobStatus, LogChunk, LogCursor, LogFile, LogSearchResult, ModuleId, SessionToken,
-    ThemeApplyReport, ThemeSnapshot, ThemingStatus, TriState,
+    ThemeApplyReport, ThemeSnapshot, ThemingStatus, TriState, UpdatesAuto,
 };
 
 use crate::apparmor::{ApparmorOp, ApparmorQuery, ApparmorState};
@@ -175,6 +175,16 @@ pub enum Message {
     ConfigInitialized(u64, Result<ConfigSnapshot, ApiError>),
     SetModuleSwitch(ModuleId, TriState),
     ModuleSwitchSaved(u64, Result<ConfigSnapshot, ApiError>),
+    /// Persist one manager's "check updates automatically" preference.
+    UpdateAutoChanged(String, bool),
+    /// `set_update_auto` finished (same snapshot shape as switches).
+    UpdateAutoSaved(u64, Result<ConfigSnapshot, ApiError>),
+    /// Manual apk/flatpak update check (the on-demand path).
+    PackageUpdatesRefreshRequested,
+    /// Manual nix update check (`list_nix_updates`, dry-run).
+    NixUpdatesRequested,
+    /// `list_nix_updates` finished.
+    NixUpdatesLoaded(u64, StoreScope, Result<ursine_api::NixUpdates, ApiError>),
     OpenPackageManager,
     PackageTabChanged(PackageTab),
     OpenSnapshots,
@@ -297,7 +307,6 @@ pub enum Message {
     PackageInstallChanged(String),
     PackageInstallRemoteChanged(String),
     PackageScopeChanged(usize),
-    PackageFlatpakFilterChanged(usize),
     PackageSearchRequested,
     PackageInstallRequested,
     PackageInstallDirect(String),
@@ -327,7 +336,7 @@ pub enum Message {
     PackageRemoveConfirmed,
     PackageRemoveCancelled,
     PackageApkLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
-    PackageApkUpdatesLoaded(u64, Result<Vec<ApkUpdate>, ApiError>),
+    PackageApkUpdatesLoaded(u64, u64, Result<Vec<ApkUpdate>, ApiError>),
     PackageApkRepositoriesLoaded(u64, Result<Vec<ursine_api::ApkRepository>, ApiError>),
     PackageApkRepoUrlChanged(String),
     PackageApkRepoTagChanged(String),
@@ -354,7 +363,7 @@ pub enum Message {
     ),
     PackagePreviewFinished(u64, Result<String, ApiError>),
     PackageFlatpakLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
-    PackageFlatpakUpdatesLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
+    PackageFlatpakUpdatesLoaded(u64, u64, Result<Vec<FlatpakPackage>, ApiError>),
     PackageFlatpakRemotesLoaded(u64, Result<Vec<ursine_api::FlatpakRemote>, ApiError>),
     PackageApkSearchLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
     PackageFlatpakSearchLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
@@ -672,14 +681,24 @@ impl cosmic::Application for App {
             Message::RefreshCapabilities => return self.refresh_capabilities(),
             Message::StatusLoaded(epoch, result) => self.finish_status(epoch, result),
             Message::OpenSettings => return self.open_settings(),
-            Message::ConfigLoaded(epoch, result) | Message::ConfigInitialized(epoch, result) => {
+            Message::ConfigLoaded(epoch, result)
+            | Message::ConfigInitialized(epoch, result)
+            | Message::ModuleSwitchSaved(epoch, result)
+            | Message::UpdateAutoSaved(epoch, result) => {
                 self.finish_config(epoch, result);
             }
             Message::InitConfig => return self.init_config(),
             Message::SetModuleSwitch(module, value) => {
                 return self.set_module_switch(module, value)
             }
-            Message::ModuleSwitchSaved(epoch, result) => self.finish_config(epoch, result),
+            Message::UpdateAutoChanged(manager, enabled) => {
+                return self.set_update_auto(manager, enabled)
+            }
+            Message::PackageUpdatesRefreshRequested => return self.refresh_package_updates(),
+            Message::NixUpdatesRequested => return self.request_nix_updates(),
+            Message::NixUpdatesLoaded(epoch, scope, result) => {
+                return self.finish_nix_updates(epoch, scope, result)
+            }
             Message::OpenPackageManager => {
                 self.screen = Screen::Packages;
                 return self.load_package_tab();
@@ -1247,9 +1266,6 @@ impl cosmic::Application for App {
                     return self.load_packages(self.packages.kind.unwrap_or(PackageKind::Apk));
                 }
             }
-            Message::PackageFlatpakFilterChanged(index) => {
-                self.packages.show_runtimes = index == 1;
-            }
             Message::PackageSearchRequested => return self.search_packages(),
             Message::PackageInstallRequested => return self.install_package_input(),
             Message::PackageInstallDirect(id) => {
@@ -1353,8 +1369,8 @@ impl cosmic::Application for App {
                 return self.upgrade_flatpak_package(app_id)
             }
             Message::PackageApkLoaded(epoch, result) => return self.finish_apk(epoch, result),
-            Message::PackageApkUpdatesLoaded(epoch, result) => {
-                return self.finish_apk_updates(epoch, result)
+            Message::PackageApkUpdatesLoaded(epoch, seq, result) => {
+                return self.finish_apk_updates(epoch, seq, result)
             }
             Message::PackageApkRepositoriesLoaded(epoch, result) => {
                 return self.finish_apk_repositories(epoch, result)
@@ -1420,8 +1436,8 @@ impl cosmic::Application for App {
             Message::PackageFlatpakLoaded(epoch, result) => {
                 return self.finish_flatpak(epoch, result)
             }
-            Message::PackageFlatpakUpdatesLoaded(epoch, result) => {
-                return self.finish_flatpak_updates(epoch, result)
+            Message::PackageFlatpakUpdatesLoaded(epoch, seq, result) => {
+                return self.finish_flatpak_updates(epoch, seq, result)
             }
             Message::PackageFlatpakRemotesLoaded(epoch, result) => {
                 return self.finish_flatpak_remotes(epoch, result)
@@ -2677,6 +2693,11 @@ impl App {
 
     fn package_manager_view(&self) -> Element<'_, Message> {
         use cosmic::widget::{button, column, row};
+        let updates_auto = self
+            .settings
+            .config
+            .as_ref()
+            .map_or_else(UpdatesAuto::default, |config| config.updates);
 
         let tab = |target: PackageTab, label: &'static str, available: bool| {
             let selected = self.package_tab == target;
@@ -2701,8 +2722,8 @@ impl App {
         ])
         .spacing(8);
         let content = match self.package_tab {
-            PackageTab::Nix => self.store.view(),
-            PackageTab::Apk | PackageTab::Flatpak => self.packages.view(),
+            PackageTab::Nix => self.store.view(updates_auto.nix),
+            PackageTab::Apk | PackageTab::Flatpak => self.packages.view(updates_auto),
         };
         if let Some(job) = &self.job {
             // Below the tabs so the tab row never jumps; shared by all three
@@ -2724,6 +2745,19 @@ impl App {
         self.packages.busy = true;
         self.packages.searching = false;
         self.packages.error = None;
+        // A fresh load invalidates the previous count until the check
+        // (automatic when the preference is on) completes.
+        // Reload supersedes any in-flight check: bump the generation so
+        // its reply is dropped instead of landing on the new state.
+        self.packages.updates_seq = self.packages.updates_seq.wrapping_add(1);
+        let seq = self.packages.updates_seq;
+        self.packages.updates_checked = false;
+        self.packages.updates_checking = false;
+        let auto = self
+            .settings
+            .config
+            .as_ref()
+            .map_or_else(UpdatesAuto::default, |config| config.updates);
         let token = session.token.clone();
         let epoch = self.epoch;
         let system = self.packages.system;
@@ -2735,10 +2769,6 @@ impl App {
                 Message::PackageApkLoaded(epoch, client::apk_list(list_token).await)
             })
             .map(cosmic::Action::App);
-            let updates = Task::future(async move {
-                Message::PackageApkUpdatesLoaded(epoch, client::apk_updates(updates_token).await)
-            })
-            .map(cosmic::Action::App);
             let repositories = Task::future(async move {
                 Message::PackageApkRepositoriesLoaded(
                     epoch,
@@ -2746,7 +2776,21 @@ impl App {
                 )
             })
             .map(cosmic::Action::App);
-            Task::batch(vec![list, updates, repositories])
+            let mut tasks = vec![list, repositories];
+            if auto.apk {
+                self.packages.updates_checking = true;
+                tasks.push(
+                    Task::future(async move {
+                        Message::PackageApkUpdatesLoaded(
+                            epoch,
+                            seq,
+                            client::apk_updates(updates_token).await,
+                        )
+                    })
+                    .map(cosmic::Action::App),
+                );
+            }
+            Task::batch(tasks)
         } else {
             let remotes_token = token.clone();
             let updates_token = token.clone();
@@ -2761,14 +2805,21 @@ impl App {
                 )
             })
             .map(cosmic::Action::App);
-            let updates = Task::future(async move {
-                Message::PackageFlatpakUpdatesLoaded(
-                    epoch,
-                    client::flatpak_updates(updates_token, system).await,
-                )
-            })
-            .map(cosmic::Action::App);
-            Task::batch(vec![list, remotes, updates])
+            let mut tasks = vec![list, remotes];
+            if auto.flatpak {
+                self.packages.updates_checking = true;
+                tasks.push(
+                    Task::future(async move {
+                        Message::PackageFlatpakUpdatesLoaded(
+                            epoch,
+                            seq,
+                            client::flatpak_updates(updates_token, system).await,
+                        )
+                    })
+                    .map(cosmic::Action::App),
+                );
+            }
+            Task::batch(tasks)
         }
     }
 
@@ -2886,17 +2937,24 @@ impl App {
     fn finish_apk_updates(
         &mut self,
         epoch: u64,
+        seq: u64,
         result: Result<Vec<ApkUpdate>, ApiError>,
     ) -> Task<cosmic::Action<Message>> {
-        if epoch != self.epoch {
+        // Wrong generation (tab/scope switch or reload mid-flight): drop.
+        if epoch != self.epoch || seq != self.packages.updates_seq {
             return Task::none();
         }
+        self.packages.updates_checking = false;
         match result {
-            Ok(updates) => self.packages.apply_apk_updates(updates),
+            Ok(updates) => {
+                self.packages.apply_apk_updates(updates);
+                self.packages.updates_checked = true;
+            }
             Err(error) => {
                 if self.handle_session_error(&error) {
                     return Task::none();
                 }
+                self.packages.updates_checked = false;
                 self.packages.error = Some(friendly(&error));
             }
         }
@@ -3002,18 +3060,25 @@ impl App {
     fn finish_flatpak_updates(
         &mut self,
         epoch: u64,
+        seq: u64,
         result: Result<Vec<FlatpakPackage>, ApiError>,
     ) -> Task<cosmic::Action<Message>> {
-        if epoch != self.epoch {
+        // Wrong generation (tab/scope switch or reload mid-flight): drop.
+        if epoch != self.epoch || seq != self.packages.updates_seq {
             return Task::none();
         }
+        self.packages.updates_checking = false;
         match result {
-            Ok(updates) => self.packages.apply_flatpak_updates(updates),
+            Ok(updates) => {
+                self.packages.apply_flatpak_updates(updates);
+                self.packages.updates_checked = true;
+            }
             Err(error) => {
                 if self.handle_session_error(&error) {
                     return Task::none();
                 }
                 // The update list is informational: keep the panel usable.
+                self.packages.updates_checked = false;
                 self.packages.flatpak_updates.clear();
             }
         }
@@ -5837,6 +5902,112 @@ impl App {
         }
     }
 
+    /// Persist the auto-update preference for one package manager.
+    fn set_update_auto(&mut self, manager: String, enabled: bool) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.settings.config_busy {
+            return Task::none();
+        }
+        self.settings.config_busy = true;
+        self.settings.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        Task::future(async move {
+            Message::UpdateAutoSaved(
+                epoch,
+                client::set_update_auto(token, manager, enabled).await,
+            )
+        })
+        .map(cosmic::Action::App)
+    }
+
+    /// On-demand update check for the current apk/flatpak kind (the
+    /// manual path when "check automatically" is off).
+    fn refresh_package_updates(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some(kind) = self.packages.kind else {
+            return Task::none();
+        };
+        if self.packages.updates_checking || self.packages.busy || self.packages.action_busy {
+            return Task::none();
+        }
+        self.packages.updates_checking = true;
+        self.packages.error = None;
+        let token = session.token.clone();
+        let system = self.packages.system;
+        let epoch = self.epoch;
+        let seq = self.packages.updates_seq;
+        match kind {
+            PackageKind::Apk => Task::future(async move {
+                Message::PackageApkUpdatesLoaded(epoch, seq, client::apk_updates(token).await)
+            })
+            .map(cosmic::Action::App),
+            PackageKind::Flatpak => Task::future(async move {
+                Message::PackageFlatpakUpdatesLoaded(
+                    epoch,
+                    seq,
+                    client::flatpak_updates(token, system).await,
+                )
+            })
+            .map(cosmic::Action::App),
+        }
+    }
+
+    /// On-demand nix upgrade check (dry-run; slow by design).
+    fn request_nix_updates(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        if self.store.updates_checking
+            || self.store.busy
+            || self.store.action_busy
+            || !self.store.scope_ready()
+        {
+            return Task::none();
+        }
+        self.store.updates_checking = true;
+        self.store.error = None;
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        let scope = self.store.current_scope();
+        Task::future(async move {
+            Message::NixUpdatesLoaded(epoch, scope, client::nix_list_updates(token).await)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_nix_updates(
+        &mut self,
+        epoch: u64,
+        scope: StoreScope,
+        result: Result<ursine_api::NixUpdates, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        // A reply from another scope must never repopulate the count
+        // (tuple binding consumes the owned message payload).
+        let (reply_scope, current) = (scope, self.store.current_scope());
+        if epoch != self.epoch || reply_scope != current {
+            return Task::none();
+        }
+        self.store.updates_checking = false;
+        match result {
+            Ok(updates) => {
+                self.store.nix_updates = Some(updates);
+                self.store.error = None;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.store.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
     fn load_store(&mut self) -> Task<cosmic::Action<Message>> {
         let Some(session) = &self.session else {
             return Task::none();
@@ -5865,7 +6036,30 @@ impl App {
             )
         })
         .map(cosmic::Action::App);
-        Task::batch(vec![snapshot, repos])
+        let mut tasks = vec![snapshot, repos];
+        let auto_nix = self
+            .settings
+            .config
+            .as_ref()
+            .map_or_else(UpdatesAuto::default, |config| config.updates)
+            .nix;
+        if auto_nix {
+            self.store.updates_checking = true;
+            let updates_token = session.token.clone();
+            // Fresh capture: `scope` itself was moved into the snapshot task.
+            let nix_scope = self.store.current_scope();
+            tasks.push(
+                Task::future(async move {
+                    Message::NixUpdatesLoaded(
+                        epoch,
+                        nix_scope,
+                        client::nix_list_updates(updates_token).await,
+                    )
+                })
+                .map(cosmic::Action::App),
+            );
+        }
+        Task::batch(tasks)
     }
 
     /// One registry mutation (add/remove) with the store busy flags.
@@ -5966,6 +6160,11 @@ impl App {
         }
         match result {
             Ok(snapshot) => {
+                // A scope switch invalidates the last dry-run count.
+                if self.store.loaded_scope.as_user() != scope.as_user() {
+                    self.store.nix_updates = None;
+                    self.store.updates_checking = false;
+                }
                 self.store.packages = snapshot.packages;
                 self.store.generations = snapshot.generations;
                 self.store.loaded_scope = scope;

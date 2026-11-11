@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
 use toml_edit::{DocumentMut, Item, Table, Value};
-use ursine_api::{CapabilityReport, ModuleId, ModulesConfig, TriState, UrsineConfig};
+use ursine_api::{CapabilityReport, ModuleId, ModulesConfig, TriState, UpdatesAuto, UrsineConfig};
 
 use crate::error::CoreError;
 
@@ -145,6 +145,50 @@ pub fn set_module_switch(
     let copies = crate::backup_configs::copies_from(&updated);
     write_atomic(path, document.to_string().as_bytes(), copies)?;
     Ok(updated.modules)
+}
+
+/// Replace exactly one `[updates]` preference (`apk` / `flatpak` /
+/// `nix`), preserving comments, unknown keys and formatting. Atomic.
+pub fn set_update_auto(
+    path: &Path,
+    manager: &str,
+    enabled: bool,
+) -> Result<UpdatesAuto, CoreError> {
+    let key = match manager {
+        "apk" | "flatpak" | "nix" => manager,
+        _ => {
+            return Err(CoreError::config(format!(
+                "unknown update manager {manager:?} (want apk, flatpak or nix)"
+            )))
+        }
+    };
+
+    let raw = if path.exists() {
+        std::fs::read_to_string(path)
+            .map_err(|e| CoreError::config(format!("read {}: {e}", path.display())))?
+    } else {
+        String::from("[updates]\n")
+    };
+    let mut document = raw
+        .parse::<DocumentMut>()
+        .map_err(|e| CoreError::config(format!("parse {}: {e}", path.display())))?;
+
+    let updates_item = document
+        .entry("updates")
+        .or_insert_with(|| Item::Table(Table::new()));
+    match updates_item {
+        Item::Table(updates) => updates[key] = Item::Value(Value::from(enabled)),
+        Item::Value(Value::InlineTable(updates)) => {
+            updates.insert(key, Value::from(enabled));
+        }
+        _ => return Err(CoreError::config("[updates] is not a TOML table")),
+    }
+
+    let updated: UrsineConfig = toml::from_str(&document.to_string())
+        .map_err(|e| CoreError::config(format!("validate {}: {e}", path.display())))?;
+    let copies = crate::backup_configs::copies_from(&updated);
+    write_atomic(path, document.to_string().as_bytes(), copies)?;
+    Ok(updated.updates)
 }
 
 /// Monotonic suffix so concurrent process-local writers never share a temp.
@@ -305,6 +349,13 @@ pub fn render_template(caps: &[CapabilityReport]) -> String {
     out.push_str("crontab = \"auto\"\n");
     out.push_str("booster = \"auto\"\n");
     out.push_str("apparmor = \"auto\"\n\n");
+
+    out.push_str("[updates]\n");
+    out.push_str("# check for package updates when a manager screen opens\n");
+    out.push_str("# (nix re-fetches flakes: default off, check on demand)\n");
+    out.push_str("apk = true\n");
+    out.push_str("flatpak = true\n");
+    out.push_str("nix = false\n\n");
 
     out.push_str("# --- Detection hints (informational; not read by the daemon) ---\n");
     for report in caps {

@@ -1,7 +1,9 @@
 //! APK and Flatpak package panels.
 
 use cosmic::iced::Length;
-use cosmic::widget::{button, column, dropdown, row, scrollable, settings, text, text_input};
+use cosmic::widget::{
+    button, column, dropdown, row, scrollable, settings, text, text_input, toggler,
+};
 use cosmic::Element;
 use ursine_api::{
     ApkPackage, ApkUpdate, FlatpakEnvVar, FlatpakInfo, FlatpakPackage, FlatpakPermissions,
@@ -85,11 +87,16 @@ pub struct PackagesState {
     pub install: String,
     /// Selected Flatpak remote for installs (empty = daemon default).
     pub install_remote: String,
-    /// Flatpak list filter: false = apps, true = runtimes.
-    pub show_runtimes: bool,
     pub busy: bool,
     pub action_busy: bool,
     pub searching: bool,
+    /// An update check has completed for the current scope/kind.
+    pub updates_checked: bool,
+    /// An update check is running right now.
+    pub updates_checking: bool,
+    /// Generation counter: bumped on every reload so a check started
+    /// before the reload (wrong kind/scope) can never land after it.
+    pub updates_seq: u64,
     pub error: Option<String>,
     pub message: Option<String>,
     pub pending_remove: Option<(PackageKind, String, String)>,
@@ -125,10 +132,12 @@ impl Default for PackagesState {
             query: String::new(),
             install: String::new(),
             install_remote: String::new(),
-            show_runtimes: false,
             busy: false,
             action_busy: false,
             searching: false,
+            updates_checked: false,
+            updates_checking: false,
+            updates_seq: 0,
             error: None,
             message: None,
             pending_remove: None,
@@ -162,6 +171,9 @@ impl PackagesState {
         self.flatpak_updates.clear();
         self.flatpak_remotes.clear();
         self.searching = false;
+        self.updates_checked = false;
+        self.updates_checking = false;
+        self.updates_seq = self.updates_seq.wrapping_add(1);
         self.error = None;
         self.message = None;
         self.pending_remove = None;
@@ -213,12 +225,6 @@ impl PackagesState {
             }
         }
         names
-    }
-
-    /// Whether a Flatpak row shows under the current Show filter. Search
-    /// hits are apps (appstream) and are never hidden behind Runtimes.
-    pub fn flatpak_row_visible(&self, row_kind: FlatpakRefKind) -> bool {
-        self.searching || (row_kind == FlatpakRefKind::Runtime) == self.show_runtimes
     }
 
     pub fn selected_remote(&self) -> Option<String> {
@@ -327,7 +333,7 @@ impl PackagesState {
         }
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
+    pub fn view(&self, updates_auto: ursine_api::UpdatesAuto) -> Element<'_, Message> {
         let Some(kind) = self.kind else {
             return text("Select a package source.").into();
         };
@@ -356,7 +362,7 @@ impl PackagesState {
             items.push(text("Running package action…").into());
         }
 
-        let mut scope_section = settings::section().title("Scope").add(settings::item(
+        let scope_section = settings::section().title("Scope").add(settings::item(
             "Installation",
             if kind == PackageKind::Flatpak {
                 Element::from(dropdown(
@@ -368,16 +374,6 @@ impl PackagesState {
                 Element::from(text("system-wide"))
             },
         ));
-        if kind == PackageKind::Flatpak {
-            scope_section = scope_section.add(settings::item(
-                "Show",
-                dropdown(
-                    vec!["Apps", "Runtimes"],
-                    Some(usize::from(self.show_runtimes)),
-                    Message::PackageFlatpakFilterChanged,
-                ),
-            ));
-        }
         items.push(scope_section.into());
 
         items.push(
@@ -485,71 +481,39 @@ impl PackagesState {
             ));
             items.push(repos.into());
         }
-        if kind == PackageKind::Apk && !self.apk_updates.is_empty() {
-            upgrade = upgrade.add(settings::item(
-                format!("Available updates ({})", self.apk_updates.len()),
-                column(
-                    self.apk_updates
-                        .iter()
-                        .map(|update| {
-                            row(vec![
-                                text(format!(
-                                    "{} {} -> {}",
-                                    update.name, update.installed, update.available
-                                ))
-                                .width(Length::Fill)
-                                .into(),
-                                button::text("Upgrade")
-                                    .on_press(Message::ApkUpgradeRequested(update.name.clone()))
-                                    .into(),
-                            ])
-                            .spacing(8)
-                            .into()
-                        })
-                        .collect::<Vec<Element<'_, Message>>>(),
-                )
-                .spacing(4),
-            ));
-        }
-        if kind == PackageKind::Flatpak && !self.flatpak_updates.is_empty() {
-            upgrade = upgrade.add(settings::item(
-                format!("Available updates ({})", self.flatpak_updates.len()),
-                column(
-                    self.flatpak_updates
-                        .iter()
-                        .map(|update| {
-                            let installed = self
-                                .flatpak
-                                .iter()
-                                .find(|row| row.app_id == update.app_id)
-                                .map(|row| row.version.clone());
-                            let detail = match installed {
-                                Some(old) if !old.is_empty() => {
-                                    format!("{} {} -> {}", update.name, old, update.version)
-                                }
-                                _ => format!("{} {}", update.name, update.version),
-                            };
-                            let detail = if update.origin.is_empty() {
-                                detail
-                            } else {
-                                format!("{detail} · {}", update.origin)
-                            };
-                            row(vec![
-                                text(detail).width(Length::Fill).into(),
-                                button::text("Update")
-                                    .on_press(Message::FlatpakUpgradeRequested(
-                                        update.app_id.clone(),
-                                    ))
-                                    .into(),
-                            ])
-                            .spacing(8)
-                            .into()
-                        })
-                        .collect::<Vec<Element<'_, Message>>>(),
-                )
-                .spacing(4),
-            ));
-        }
+        // Auto-check preference (persisted in [updates]) + the count +
+        // a manual check — same three rows for every manager.
+        let (manager, auto) = match kind {
+            PackageKind::Apk => ("apk", updates_auto.apk),
+            PackageKind::Flatpak => ("flatpak", updates_auto.flatpak),
+        };
+        upgrade = upgrade.add(settings::item(
+            "Check updates automatically",
+            toggler(auto)
+                .on_toggle(move |value| Message::UpdateAutoChanged(manager.to_string(), value)),
+        ));
+        let number: Element<'_, Message> = if self.updates_checking {
+            text("Checking…").into()
+        } else if self.updates_checked {
+            let count = match kind {
+                PackageKind::Apk => self.apk_updates.len(),
+                PackageKind::Flatpak => self.flatpak_updates.len(),
+            };
+            text::title2(count.to_string()).into()
+        } else {
+            text("—").into()
+        };
+        upgrade = upgrade.add(settings::item("Packages to update", number));
+        let check_button: Element<'_, Message> = button::text("Check for updates")
+            .on_press_maybe(
+                (!self.busy && !self.action_busy && !self.updates_checking)
+                    .then_some(Message::PackageUpdatesRefreshRequested),
+            )
+            .into();
+        upgrade = upgrade.add(settings::item("Refresh", check_button));
+        // Number only for BOTH managers (user decision): no per-package
+        // update list — "Upgrade all" covers everything the count does,
+        // and the per-package Upgrade buttons stay in the Installed list.
         items.push(upgrade.into());
 
         if kind == PackageKind::Flatpak && !self.flatpak_remotes.is_empty() {
@@ -723,16 +687,23 @@ impl PackagesState {
                     } else if package.protected {
                         text("protected").into()
                     } else {
-                        row(vec![
-                            button::text("Upgrade")
-                                .on_press(Message::ApkUpgradeRequested(name.clone()))
-                                .into(),
+                        // Upgrade only when the updates check says this
+                        // package has one; up-to-date (or not checked)
+                        // shows no button.
+                        let mut buttons: Vec<Element<'_, Message>> = Vec::with_capacity(2);
+                        if self.apk_updates.iter().any(|update| update.name == name) {
+                            buttons.push(
+                                button::text("Upgrade")
+                                    .on_press(Message::ApkUpgradeRequested(name.clone()))
+                                    .into(),
+                            );
+                        }
+                        buttons.push(
                             button::text("Remove")
                                 .on_press(Message::PackageRemoveRequested(kind, name.clone(), name))
                                 .into(),
-                        ])
-                        .spacing(8)
-                        .into()
+                        );
+                        row(buttons).spacing(8).into()
                     };
                     let description = package.description.clone().map_or_else(
                         || text("no description").into(),
@@ -747,25 +718,40 @@ impl PackagesState {
             }
             PackageKind::Flatpak => {
                 let mut shown = 0usize;
-                for package in self
-                    .flatpak
-                    .iter()
-                    .filter(|package| self.flatpak_row_visible(package.kind))
-                {
+                // Apps AND runtimes in one list (user decision).
+                for package in &self.flatpak {
                     shown += 1;
                     let app_id = package.app_id.clone();
                     let action: Element<'_, Message> = if self.searching {
                         button::text("Install")
                             .on_press(Message::PackageInstallDirect(app_id.clone()))
                             .into()
+                    } else if package.kind == FlatpakRefKind::Runtime {
+                        // Runtimes are protected (apk-style): listed, no
+                        // action buttons at all.
+                        text("protected").into()
                     } else {
-                        row(vec![
-                            button::text("Upgrade")
-                                .on_press(Message::FlatpakUpgradeRequested(app_id.clone()))
-                                .into(),
+                        // Upgrade only when the updates check says this
+                        // app has one; up-to-date (or not checked) shows
+                        // no button.
+                        let mut buttons: Vec<Element<'_, Message>> = Vec::with_capacity(3);
+                        if self
+                            .flatpak_updates
+                            .iter()
+                            .any(|update| update.app_id == app_id)
+                        {
+                            buttons.push(
+                                button::text("Upgrade")
+                                    .on_press(Message::FlatpakUpgradeRequested(app_id.clone()))
+                                    .into(),
+                            );
+                        }
+                        buttons.push(
                             button::text("Permissions…")
                                 .on_press(Message::PackagePermissionsRequested(app_id.clone()))
                                 .into(),
+                        );
+                        buttons.push(
                             button::text("Remove")
                                 .on_press(Message::PackageRemoveRequested(
                                     kind,
@@ -773,9 +759,8 @@ impl PackagesState {
                                     app_id,
                                 ))
                                 .into(),
-                        ])
-                        .spacing(8)
-                        .into()
+                        );
+                        row(buttons).spacing(8).into()
                     };
                     let description = if package.origin.is_empty() {
                         format!("{} · {}", package.app_id, package.branch)
@@ -792,14 +777,7 @@ impl PackagesState {
                     ));
                 }
                 if !self.searching && shown == 0 {
-                    list = list.add(settings::item(
-                        "Result",
-                        text(if self.show_runtimes {
-                            "No runtimes installed."
-                        } else {
-                            "No apps installed."
-                        }),
-                    ));
+                    list = list.add(settings::item("Result", text("No packages installed.")));
                 }
             }
         }
@@ -1109,34 +1087,4 @@ fn permissions_section(editor: &PermissionsEditor, busy: bool) -> Element<'_, Me
     };
     section = section.add(settings::item("Actions", actions));
     section.into()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn show_filter_toggles_apps_and_runtimes() {
-        let state = PackagesState::default();
-        // Default: apps visible, runtimes hidden.
-        assert!(state.flatpak_row_visible(FlatpakRefKind::App));
-        assert!(!state.flatpak_row_visible(FlatpakRefKind::Runtime));
-        let state = PackagesState {
-            show_runtimes: true,
-            ..PackagesState::default()
-        };
-        assert!(!state.flatpak_row_visible(FlatpakRefKind::App));
-        assert!(state.flatpak_row_visible(FlatpakRefKind::Runtime));
-    }
-
-    #[test]
-    fn search_hits_are_never_filtered() {
-        let state = PackagesState {
-            searching: true,
-            show_runtimes: true,
-            ..PackagesState::default()
-        };
-        // Search rows are apps; the Runtimes filter must not hide them.
-        assert!(state.flatpak_row_visible(FlatpakRefKind::App));
-    }
 }

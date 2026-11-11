@@ -113,7 +113,8 @@ for the grouped list.
 .B config
 .BR init ,
 .BR get_config ,
-.BR set_module_switch .
+.BR set_module_switch ,
+.BR set_update_auto .
 .TP
 .B capabilities
 .BR list ,
@@ -122,6 +123,7 @@ for the grouped list.
 .B packages_nix
 list_installed, search, install, remove, remove_all, remove_regex,
 upgrade, upgrade_regex, generations, rollback, wipe_history,
+list_nix_updates (on-demand dry-run upgrade check),
 diff_closures, store_gc, prune_generations, list_nix_repositories,
 add_nix_repository, remove_nix_repository.
 search takes repo= (default nixpkgs) to run against any registry

@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use crate::package_row::package_row;
 use cosmic::iced::Length;
-use cosmic::widget::{button, column, dropdown, row, scrollable, settings, text, text_input};
+use cosmic::widget::{
+    button, column, dropdown, row, scrollable, settings, text, text_input, toggler,
+};
 use cosmic::Element;
 use ursine_api::{Action, CommandOutcome, InstalledPackage, SearchResult};
 
@@ -357,6 +359,10 @@ pub struct StoreState {
     pub install_input: String,
     pub regex: String,
     pub generation_input: String,
+    /// Last `list_nix_updates` result (None = never checked this session).
+    pub nix_updates: Option<ursine_api::NixUpdates>,
+    /// A nix upgrade check is running right now.
+    pub updates_checking: bool,
     pub keep_input: String,
     pub history_age: String,
     pub loaded_scope: StoreScope,
@@ -392,6 +398,8 @@ impl Default for StoreState {
             install_input: String::new(),
             regex: String::new(),
             generation_input: String::new(),
+            nix_updates: None,
+            updates_checking: false,
             keep_input: "5".into(),
             history_age: "30d".into(),
             loaded_scope: StoreScope::NotLoaded,
@@ -503,7 +511,7 @@ impl StoreState {
         !self.busy && !self.action_busy && (!action.uses_profile() || self.scope_ready())
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
+    pub fn view(&self, updates_auto: bool) -> Element<'_, Message> {
         let header = row(vec![
             text::title2("Nix store").into(),
             text("").width(Length::Fill).into(),
@@ -587,7 +595,7 @@ impl StoreState {
         }
         items.push(scope_section.into());
         items.push(self.maintenance_view());
-        items.push(self.upgrade_all_view());
+        items.push(self.upgrade_all_view(updates_auto));
         items.push(self.advanced_view());
         items.push(self.search_view());
         items.push(self.repositories_view());
@@ -802,19 +810,33 @@ impl StoreState {
         }
 
         for package in &self.packages {
-            let actions = row(vec![
-                button::text("Upgrade")
-                    .on_press_maybe(enabled.then(|| {
-                        Message::StoreActionRequested(StoreAction::Upgrade(package.name.clone()))
-                    }))
-                    .into(),
+            // Upgrade only when the last `list_nix_updates` dry-run
+            // named this element; without a check (or when current) the
+            // button is gone.
+            let mut buttons: Vec<Element<'_, Message>> = Vec::with_capacity(2);
+            let updatable = self
+                .nix_updates
+                .as_ref()
+                .is_some_and(|updates| updates.packages.iter().any(|name| name == &package.name));
+            if updatable {
+                buttons.push(
+                    button::text("Upgrade")
+                        .on_press_maybe(enabled.then(|| {
+                            Message::StoreActionRequested(StoreAction::Upgrade(
+                                package.name.clone(),
+                            ))
+                        }))
+                        .into(),
+                );
+            }
+            buttons.push(
                 button::text("Remove")
                     .on_press_maybe(enabled.then(|| {
                         Message::StoreActionRequested(StoreAction::Remove(package.name.clone()))
                     }))
                     .into(),
-            ])
-            .spacing(8);
+            );
+            let actions = row(buttons).spacing(8);
             section = section.add(package_row(
                 package.name.clone(),
                 package_detail(package),
@@ -832,17 +854,50 @@ impl StoreState {
         section.into()
     }
 
-    fn upgrade_all_view(&self) -> Element<'_, Message> {
+    fn upgrade_all_view(&self, updates_auto: bool) -> Element<'_, Message> {
         let enabled = self.scope_ready();
-        settings::section()
-            .title("Upgrade")
-            .add(settings::item(
-                "Upgrade every installed package",
-                button::suggested("Upgrade all").on_press_maybe(
-                    enabled.then(|| Message::StoreActionRequested(StoreAction::UpgradeAll)),
-                ),
-            ))
-            .into()
+        let mut section = settings::section().title("Upgrade").add(settings::item(
+            "Check updates automatically",
+            toggler(updates_auto)
+                .on_toggle(|value| Message::UpdateAutoChanged("nix".to_string(), value)),
+        ));
+        let number: Element<'_, Message> = if self.updates_checking {
+            text("Checking…").into()
+        } else {
+            self.nix_updates.as_ref().map_or_else(
+                || text("—").into(),
+                |updates| text::title2(updates.count.to_string()).into(),
+            )
+        };
+        section = section.add(settings::item("Packages to update", number));
+        let check_button: Element<'_, Message> = button::text("Check for updates")
+            .on_press_maybe(
+                (enabled && !self.updates_checking).then_some(Message::NixUpdatesRequested),
+            )
+            .into();
+        section = section.add(settings::item("Refresh", check_button));
+        if let Some(updates) = &self.nix_updates {
+            if !updates.packages.is_empty() {
+                section = section.add(settings::item(
+                    "Upgradable packages",
+                    column(
+                        updates
+                            .packages
+                            .iter()
+                            .map(|name| text(name.clone()).into())
+                            .collect::<Vec<Element<'_, Message>>>(),
+                    )
+                    .spacing(2),
+                ));
+            }
+        }
+        section = section.add(settings::item(
+            "Upgrade every installed package",
+            button::suggested("Upgrade all").on_press_maybe(
+                enabled.then(|| Message::StoreActionRequested(StoreAction::UpgradeAll)),
+            ),
+        ));
+        section.into()
     }
 
     /// Three stacked rows (title, full-width input, buttons): the old

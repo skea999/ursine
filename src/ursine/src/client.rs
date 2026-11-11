@@ -59,6 +59,8 @@ pub struct AuthSession {
 #[derive(Debug, Clone)]
 pub struct ConfigSnapshot {
     pub modules: ModulesConfig,
+    /// "Check updates automatically" per package manager.
+    pub updates: ursine_api::UpdatesAuto,
     pub path: String,
     /// Whether the configuration file exists on disk right now. `None` when an
     /// older daemon omits the flag (ambiguous; do not offer Create).
@@ -181,10 +183,29 @@ pub async fn set_module_switch(
     parse_config_snapshot(value)
 }
 
+/// Persist the per-manager "check updates automatically" preference.
+pub async fn set_update_auto(
+    token: SessionToken,
+    manager: String,
+    enabled: bool,
+) -> Result<ConfigSnapshot, ApiError> {
+    let value = call(
+        token,
+        ModuleId::Config,
+        Action::SetUpdateAuto { manager, enabled },
+        None,
+    )
+    .await?;
+    parse_config_snapshot(value)
+}
+
 fn parse_config_snapshot(value: serde_json::Value) -> Result<ConfigSnapshot, ApiError> {
     #[derive(serde::Deserialize)]
     struct Payload {
         modules: ModulesConfig,
+        // Older daemons omit `updates` (defaults apply).
+        #[serde(default)]
+        updates: Option<ursine_api::UpdatesAuto>,
         // v0.3.1 omitted `exists`; `written` is only present when Init wrote.
         #[serde(default)]
         exists: Option<bool>,
@@ -205,6 +226,7 @@ fn parse_config_snapshot(value: serde_json::Value) -> Result<ConfigSnapshot, Api
         .ok_or_else(|| ApiError::internal("daemon configuration response has no path"))?;
     Ok(ConfigSnapshot {
         modules: parsed.modules,
+        updates: parsed.updates.unwrap_or_default(),
         path,
         exists,
     })
@@ -373,6 +395,21 @@ pub async fn search(
     )
     .await?;
     parse_search_payload(value)
+}
+
+/// On-demand upgrade check (`nix profile upgrade --all --dry-run`).
+pub async fn nix_list_updates(token: SessionToken) -> Result<ursine_api::NixUpdates, ApiError> {
+    // The dry-run re-fetches flakes: give it the full check budget.
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesNix,
+        Action::ListNixUpdates,
+        None,
+        daemon_budget(timeouts::UPDATE_CHECK_SECS),
+    )
+    .await?;
+    serde_json::from_value(value)
+        .map_err(|e| ApiError::internal(format!("decode nix updates: {e}")))
 }
 
 pub async fn nix_repositories(

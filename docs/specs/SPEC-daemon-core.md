@@ -65,6 +65,21 @@ pub trait Authenticator: Send + Sync {
 4. Every subsequent `Call` carries `Authorization: Bearer <token>`; daemon validates + slides TTL (default 10 min idle, `token_ttl_min` in config)
 5. Auth failure → generic error (no user-exists oracle), audit line, rate-limit tick
 
+## Update-check preference (binding)
+
+`[updates]` in `/etc/ursine/config.toml` — the per-manager GUI preference
+"Check updates automatically" (persisted through `config.set_update_auto
+manager=… enabled=…`, surgical TOML edit with `backup_configs` rotation):
+
+- `apk = true`, `flatpak = true` — fast checks run on screen open and on
+  Refresh.
+- `nix = false` — the nix check is a `nix profile upgrade --all --dry-run`
+  (network, minutes on big profiles): with the preference off it runs only
+  when the user presses Refresh ("Check for updates"); with it on it runs
+  on open exactly like the others.
+- With the preference off, Refresh is the manual path that still fetches
+  the count; until a check runs the GUI shows "—", never a fake zero.
+
 ## File backups (binding)
 
 Every configuration file Ursine writes — directly or by invoking a CLI —

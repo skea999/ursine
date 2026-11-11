@@ -99,6 +99,26 @@ impl Daemon {
                 let config = self.config.read().await;
                 Ok(serde_json::json!({
                     "modules": config.modules,
+                    "updates": config.updates,
+                    "path": self.config_path.display().to_string(),
+                    "exists": self.config_path.exists(),
+                }))
+            }
+            Action::SetUpdateAuto { manager, enabled } => {
+                let manager = manager.clone();
+                let enabled = *enabled;
+                let mut config = self.config.write().await;
+                let path = self.config_path.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    crate::config::set_update_auto(&path, &manager, enabled)
+                })
+                .await
+                .map_err(|e| ApiError::internal(format!("configuration task failed: {e}")))?
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+                config.updates = result;
+                Ok(serde_json::json!({
+                    "modules": config.modules.clone(),
+                    "updates": result,
                     "path": self.config_path.display().to_string(),
                     "exists": self.config_path.exists(),
                 }))
@@ -405,7 +425,10 @@ impl Daemon {
             match (module, &action) {
                 (
                     ModuleId::Config,
-                    Action::GetConfig | Action::SetModuleSwitch { .. } | Action::Init,
+                    Action::GetConfig
+                    | Action::SetModuleSwitch { .. }
+                    | Action::SetUpdateAuto { .. }
+                    | Action::Init,
                 ) => self.handle_config_action(&principal, &action).await,
                 _ => modules::handle(module, &action, &ctx).await,
             }
@@ -506,6 +529,7 @@ mod tests {
             disks_format: false,
             modules: ursine_api::ModulesConfig::default(),
             backup_configs: ursine_api::BackupConfigs::default(),
+            updates: ursine_api::UpdatesAuto::default(),
         };
         let audit = Arc::new(AuditLog::open(cfg.audit_path.clone(), clock.clone()).unwrap());
         let jobs = JobRegistry::new(dir.join("jobs"), audit.clone(), clock.clone()).unwrap();

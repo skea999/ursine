@@ -29,6 +29,15 @@ pub struct InstalledPackage {
     pub active: bool,
 }
 
+/// Result of the on-demand upgrade check (`list_nix_updates`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NixUpdates {
+    /// How many packages a real upgrade would change.
+    pub count: usize,
+    /// Profile element names, in dry-run order (unique).
+    pub packages: Vec<String>,
+}
+
 /// One result row of `nix search nixpkgs <query> --json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchResult {

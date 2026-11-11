@@ -271,6 +271,11 @@ Configuration only; image acquisition is intentionally out of scope
 - Audit every mutation.
 - Exit codes/signals normalized into actionable errors.
 - GUI uses one sidebar, same header, confirmations, empty states.
+- Update-check UX (decision 2026-11-11): every package manager shows a
+  prominent "Packages to update" count, a "Check updates manually"
+  Refresh button, and a persisted "Check updates automatically" toggler
+  (`[updates]` in config.toml; defaults apk/flatpak on, nix off because
+  its dry-run is slow); flatpak shows the number only (no list).
 - Tests: parsing, validation, capability gating, failure paths, timeout.
 - Manual smoke on Alpine/FeralOS with real CUPS, SANE, BlueZ,
   NetworkManager, firewalld and UDisks2.
