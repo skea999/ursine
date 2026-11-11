@@ -173,14 +173,17 @@ fn filter_regex_matches(
         .collect())
 }
 
-fn lines(outcome: &CommandOutcome) -> serde_json::Value {
-    let lines: Vec<String> = outcome
+fn line_list(outcome: &CommandOutcome) -> Vec<String> {
+    outcome
         .stdout
         .lines()
         .filter(|l| !l.trim().is_empty())
         .map(generations::strip_ansi)
-        .collect();
-    json!({ "lines": lines })
+        .collect()
+}
+
+fn lines(outcome: &CommandOutcome) -> serde_json::Value {
+    json!({ "lines": line_list(outcome) })
 }
 
 /// Validate the profile link and read the active generation.
@@ -432,7 +435,10 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         Action::Generations => {
             let out = exec::run_as_user(user, &[("profile", ""), ("history", "")], HISTORY_TIMEOUT)
                 .await?;
-            Ok(lines(&out))
+            // Newest generation first for every frontend.
+            Ok(json!({
+                "lines": generations::reorder_newest_first(line_list(&out))
+            }))
         }
         Action::Rollback { generation } => {
             let gen_str = generation.map(|g| g.to_string());

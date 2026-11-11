@@ -52,6 +52,33 @@ pub(super) fn parse_history(text: &str) -> Vec<u32> {
     out
 }
 
+/// Display order: newest generation first. Each `Version N …` header
+/// keeps its indented change lines (details never separate), the GROUP
+/// order is reversed, lines inside a group stay untouched — the number
+/// in the header never changes.
+pub(super) fn reorder_newest_first(lines: Vec<String>) -> Vec<String> {
+    let mut groups: Vec<Vec<String>> = Vec::new();
+    let mut current: Option<Vec<String>> = None;
+    for line in lines {
+        if line.starts_with("Version ") {
+            if let Some(group) = current.take() {
+                groups.push(group);
+            }
+            current = Some(vec![line]);
+        } else if let Some(group) = current.as_mut() {
+            group.push(line);
+        } else {
+            // A detail line without a header: keep it, ungrouped.
+            groups.push(vec![line]);
+        }
+    }
+    if let Some(group) = current {
+        groups.push(group);
+    }
+    groups.reverse();
+    groups.into_iter().flatten().collect()
+}
+
 /// Current generation from a symlink target like `profile-34-link`.
 pub(super) fn parse_generation_link(target: &str) -> Option<u32> {
     let name = target.rsplit('/').next()?;
@@ -180,6 +207,31 @@ mod tests {
             "keep 35; 33 is current -> survives; 34 deleted"
         );
         assert!(!plan.contains(&33));
+    }
+
+    #[test]
+    fn display_order_puts_newest_first_and_keeps_details() {
+        let lines = vec![
+            "Version 33 (2026-10-14):".to_string(),
+            "  flake:nixpkgs#hello: ∅ -> 2.12".to_string(),
+            "Version 34 (2026-10-16) <- 33:".to_string(),
+            "  flake:nixpkgs#gh: ∅ -> 2.102.0".to_string(),
+        ];
+        assert_eq!(
+            reorder_newest_first(lines),
+            vec![
+                "Version 34 (2026-10-16) <- 33:".to_string(),
+                "  flake:nixpkgs#gh: ∅ -> 2.102.0".to_string(),
+                "Version 33 (2026-10-14):".to_string(),
+                "  flake:nixpkgs#hello: ∅ -> 2.12".to_string(),
+            ]
+        );
+        // Orphan details and empty input never panic.
+        assert_eq!(
+            reorder_newest_first(vec!["  x".to_string()]),
+            vec!["  x".to_string()]
+        );
+        assert!(reorder_newest_first(Vec::new()).is_empty());
     }
 
     #[test]
