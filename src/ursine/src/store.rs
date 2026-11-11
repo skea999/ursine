@@ -926,10 +926,41 @@ impl StoreState {
                 text("No profile generations reported."),
             ));
         } else {
+            // One row per generation: the NUMBER is the item label (the
+            // first thing you see, ready to copy into the input above);
+            // the daemon's `Version N (…) <- M:` header loses its prefix
+            // and the indented change lines are appended to their
+            // generation instead of getting their own "Profile history"
+            // label.
+            let mut entries: Vec<(String, String)> = Vec::new();
             for line in &self.generations {
-                // The daemon returns real `Version N (...) …` lines. Do not
-                // invent a second numbering that disagrees with rollback input.
-                section = section.add(settings::item("Profile history", text(line.clone())));
+                if let Some(rest) = line.strip_prefix("Version ") {
+                    let (number, body) = match rest.split_once(' ') {
+                        Some((number, body)) => (number.to_string(), body.to_string()),
+                        None => (rest.to_string(), String::new()),
+                    };
+                    entries.push((number, body));
+                } else if let Some(last) = entries.last_mut() {
+                    last.1.push('\n');
+                    last.1.push_str(line);
+                } else {
+                    entries.push((String::new(), line.clone()));
+                }
+            }
+            for (number, body) in entries {
+                // Owned title: `settings::item` takes `Into<Cow<str>>`, so
+                // the generation number can be the label itself.
+                let title = if number.is_empty() {
+                    "History".to_string()
+                } else {
+                    number
+                };
+                let body = if body.is_empty() {
+                    "(no details)".to_string()
+                } else {
+                    body
+                };
+                section = section.add(settings::item(title, text(body)));
             }
         }
 
