@@ -845,6 +845,9 @@ impl StoreState {
             .into()
     }
 
+    /// Three stacked rows (title, full-width input, buttons): the old
+    /// single row squeezed the text input to zero width next to the
+    /// three buttons and the field disappeared from view.
     fn advanced_view(&self) -> Element<'_, Message> {
         let enabled = self.scope_ready();
         let ready = enabled && !self.regex.trim().is_empty();
@@ -852,10 +855,17 @@ impl StoreState {
             .title("Pattern actions")
             .add(settings::item(
                 "Package pattern",
+                text("Matches against installed package names, e.g. ^python"),
+            ))
+            .add(settings::item(
+                "Regex",
+                text_input("Regex, e.g. ^python", self.regex.clone())
+                    .on_input(Message::StoreRegexChanged)
+                    .width(Length::Fill),
+            ))
+            .add(settings::item(
+                "Actions",
                 row(vec![
-                    text_input("Regex, e.g. ^python", self.regex.clone())
-                        .on_input(Message::StoreRegexChanged)
-                        .into(),
                     button::text("Preview matches")
                         .on_press_maybe(ready.then(|| {
                             Message::StoreActionRequested(StoreAction::RemoveRegex {
