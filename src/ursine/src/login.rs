@@ -1,7 +1,7 @@
 //! Login screen: credentials in, session token out.
 
 use cosmic::iced::Length;
-use cosmic::widget::{button, column, container, text, text_input};
+use cosmic::widget::{button, column, container, scrollable, text, text_input};
 use cosmic::Element;
 
 use crate::app::Message;
@@ -58,7 +58,9 @@ impl LoginState {
             button::suggested("Sign in").on_press_maybe((!self.busy).then_some(Message::SignIn));
         items.push(submit.into());
 
-        container(column(items).spacing(12).max_width(420))
+        // Scrollable so a long error line can never clip the form on a
+        // short window (hides itself when everything fits).
+        container(scrollable(column(items).spacing(12).max_width(420)).width(Length::Fill))
             .center_x(Length::Fill)
             .center_y(Length::Fill)
             .padding(24)
