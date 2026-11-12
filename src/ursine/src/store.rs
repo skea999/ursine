@@ -8,7 +8,7 @@ use std::time::Duration;
 use crate::package_row::package_row;
 use cosmic::iced::Length;
 use cosmic::widget::{
-    button, column, dropdown, row, scrollable, settings, text, text_input, toggler,
+    button, column, dropdown, row, scrollable, selectable_text, settings, text, text_input, toggler,
 };
 use cosmic::Element;
 use ursine_api::{Action, CommandOutcome, InstalledPackage, SearchResult};
@@ -739,7 +739,9 @@ impl StoreState {
                 .spacing(8),
             ));
         }
-        if self.repositories.is_empty() && self.error.is_none() {
+        // Only after the load settled: an in-flight load must not claim
+        // "only the default entry" while the rows are still coming.
+        if self.repositories.is_empty() && self.error.is_none() && !self.busy {
             section = section.add(settings::item(
                 "Entries",
                 text("Only the default nixpkgs registry entry (nothing extra)."),
@@ -748,13 +750,17 @@ impl StoreState {
         for repository in &self.repositories {
             let name = repository.name.clone();
             let row_items = vec![
-                text(format!(
+                selectable_text(format!(
                     "{} → {} · {}",
                     repository.name, repository.url, repository.scope
                 ))
                 .width(Length::Fill)
                 .into(),
-                if repository.scope == "user" {
+                // `user` entries and scopeless (older nix prints no
+                // scope column) are removable through the user registry;
+                // an explicit `global` row is nix's built-in default —
+                // overriding it is what "Add repository" is for.
+                if repository.scope == "user" || repository.scope == "default" {
                     button::destructive("Remove")
                         .on_press_maybe(
                             (self.scope_ready() && !self.action_busy && !self.search_busy)
@@ -762,7 +768,7 @@ impl StoreState {
                         )
                         .into()
                 } else {
-                    text("").into()
+                    text("built-in (override with Add)").into()
                 },
             ];
             section = section.add(settings::item(
@@ -1205,16 +1211,16 @@ fn truncate(text: &str) -> String {
 fn package_detail(package: &InstalledPackage) -> Element<'_, Message> {
     let mut lines: Vec<Element<'_, Message>> = Vec::new();
     if let Some(attr) = &package.attr_path {
-        lines.push(text(format!("attr: {attr}")).into());
+        lines.push(selectable_text(format!("attr: {attr}")).into());
     }
     if let Some(url) = &package.url {
-        lines.push(text(format!("url: {url}")).into());
+        lines.push(selectable_text(format!("url: {url}")).into());
     }
     if !package.active {
-        lines.push(text("state: inactive").into());
+        lines.push(selectable_text("state: inactive").into());
     }
     if lines.is_empty() {
-        lines.push(text("state: installed").into());
+        lines.push(selectable_text("state: installed").into());
     }
     column(lines).spacing(2).into()
 }

@@ -6,6 +6,16 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-11/12 — update-check UX + flatpak runtimes, release 0.30.0 (main, tag `v0.30.0`)
+
+**Status**: Pushed `e385eb0..cfd8902` (3 feature commits + release); CI green for `9030034` (`43116011460`) and both release runs (`43118141564`/`43118141595` success); auto-pin `0461357` pulled, local HEAD `0461357`.
+
+- **nix generations newest-first** (`8a4c722`): `Action::Generations` reorders groups (header+details kept together) before returning — CLI + GUI both benefit.
+- **Update-check UX** (`9030034`, session-state UPDATE-CHECK UX): every manager's Upgrade section = persisted toggler (`[updates]` in config.toml via new `config.set_update_auto`; apk/flatpak default on, nix off) + prominent count ("—" until first check, never fake zero) + manual "Check for updates" Refresh. New `nix list_nix_updates` = `upgrade --all --dry-run` (300 s, parses `upgrading '<name>'` → {count, packages}). apk/flatpak fetch updates on open ONLY when the toggle is on. Flatpak per-package update LIST removed (count only; user correction: apk's list also existed but hid behind `!is_empty` + needing `apk update` — removed too). Installed lists: per-package **Upgrade button only when the check says outdated** (nix via dry-run names, apk/flatpak via update lists). Race guards: updates_seq generation counter + StoreScope on nix replies.
+- **Flatpak runtimes** (same commit): "Show Apps/Runtimes" row gone — apps AND runtimes in one list, runtimes labelled **protected** (apk-style, no buttons). Nix: no app/runtime split → unchanged (explained to user).
+- Review closed:2 stale-scope/kind blockers (seq+scope guards), double-fetch nit, seeding consistent with set_module_switch, ec-indent in test string, empty tests mod, guide indent. Gates green each amend; static-check all PASS (final).
+- Release `cfd8902` + tag `v0.30.0`; VM smoke still pending (0.27–0.30 backlog: backup slots, no-D-Bus flows, booster/apparmor/easyprof, update-check UX + runtimes/conditional buttons).
+
 ## Session 2026-11-11 — easyprof + GUI fixes, release 0.29.0 (main, tag `v0.29.0`)
 
 **Status**: Pushed `03a3e4a..749db23` (credential hiccup mid-session — global libsecret helper hung the push until the user fixed auth); CI green for `7db9d85` (`43045873637`) and both release runs (`43048578226`/`43048578318` success); auto-pin `e385eb0` pulled, local HEAD `e385eb0`.

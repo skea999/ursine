@@ -2,7 +2,7 @@
 
 use cosmic::iced::Length;
 use cosmic::widget::{
-    button, column, dropdown, row, scrollable, settings, text, text_input, toggler,
+    button, column, dropdown, row, scrollable, selectable_text, settings, text, text_input, toggler,
 };
 use cosmic::Element;
 use ursine_api::{
@@ -376,27 +376,21 @@ impl PackagesState {
         ));
         items.push(scope_section.into());
 
-        items.push(
-            settings::section()
-                .title("Maintenance")
-                .add(settings::item(
-                    match kind {
-                        PackageKind::Apk => "Refresh repository indexes",
-                        PackageKind::Flatpak => "Remove unused runtimes",
-                    },
-                    button::text(match kind {
-                        PackageKind::Apk => "Refresh indexes",
-                        PackageKind::Flatpak => "Remove orphans…",
-                    })
-                    .on_press_maybe((!self.action_busy).then_some(
-                        match kind {
-                            PackageKind::Apk => Message::PackageRefreshIndexes,
-                            PackageKind::Flatpak => Message::PackageOrphansRequested,
-                        },
-                    )),
-                ))
-                .into(),
-        );
+        // No Maintenance row for apk: "Check for updates" refreshes the
+        // indexes itself (one control instead of two doing the same job).
+        if kind == PackageKind::Flatpak {
+            items.push(
+                settings::section()
+                    .title("Maintenance")
+                    .add(settings::item(
+                        "Remove unused runtimes",
+                        button::text("Remove orphans…").on_press_maybe(
+                            (!self.action_busy).then_some(Message::PackageOrphansRequested),
+                        ),
+                    ))
+                    .into(),
+            );
+        }
 
         let mut upgrade = settings::section().title("Upgrade").add(settings::item(
             "Upgrade every installed item",
@@ -706,8 +700,8 @@ impl PackagesState {
                         row(buttons).spacing(8).into()
                     };
                     let description = package.description.clone().map_or_else(
-                        || text("no description").into(),
-                        |description| text(description).into(),
+                        || text("").into(),
+                        |description| selectable_text(description).into(),
                     );
                     list = list.add(package_row(
                         format!("{} {}", package.name, package.version),
@@ -772,7 +766,7 @@ impl PackagesState {
                     };
                     list = list.add(package_row(
                         format!("{} {}", package.name, package.version),
-                        text(description).into(),
+                        selectable_text(description).into(),
                         action,
                     ));
                 }

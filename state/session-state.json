@@ -1,6 +1,6 @@
 {
   "goal": "Ursine — FeralOS complete control center (Webmin-style): root daemon + libcosmic GUI (v1), full module coverage (v2), OIDC+web (v3, memory-safe stack), Incus UI (v4), ZFS+Pirateus (v5), multi-distro (v6). Intent source of truth: docs/intent/ursine.md.",
-  "status": "v0.29.0 RELEASED (2026-11-11) — easyprof + GUI fixes CI-green; VM smoke pending",
+  "status": "v0.30.0 RELEASED (2026-11-12) — update-check UX + flatpak runtimes CI-green; VM smoke pending (0.27-0.30)",
   "active_goals": [
     "RELEASE 0.22.0 (2026-10-29): GTK3 chain + eog/galculator targets + minimize toggle + log viewer; gate green; tagged for nix release and VM smoke.",
     "v0.18.4 INIT HARDENING (2026-10-26): PID1/init detection, root-owned daemon/PAM copies, dinit unit idempotency/stale cleanup, install.sh dinit defaults/restart, CI regression coverage. Review-closed; tag pending in this release commit.",
@@ -15,6 +15,8 @@
     "Nix package chain 2026-10-21: `ursine` -> `ursined` -> `ursine-activate`; daemon owns tools/packaging. Profile discovery is generic via SUDO_HOME/SUDO_USER/default. Staged tests and Nix checks green; host service activation pending root."
   ],
   "next_actions": [
+    "VM SMOKE FINDINGS (2026-11-12, FIXED pending next tag — verified by hand on the reference VM): (1) nix 2.31.5 really prints \"error: unrecognised flag '--dry-run'\" (British) and has NO dry-run in upgrade --help → classifier now matches both spellings, Unavailable with upgrade-nix fix; (2) apk check root cause = `apk version -l '<'` rejected by the atom guard (\"invalid command argument\", always broken — caught by the new e2e test) → quoted-value guard + `apk update` first + maintenance Refresh-indexes row removed; (3) real `nix registry list` output (nix 2.31.5) captured as a test fixture — scope column present, parser covers it, scopeless/star shapes covered too, repos hint now waits for load; (4) apk e2e test retries on the shared apk db lock. Manual VM commands reported to user: `apk version -l '<'`, `nix registry list`, `nix profile upgrade --help` (no dry-run).",
+    "RELEASED v0.30.0 (2026-11-12): 8a4c722 (generations newest-first) + 9030034 (update-check UX, flatpak runtimes, conditional Upgrade buttons) + cfd8902 (chore(release)); tag CI 43118141564/43118141595 success; nix auto-pin 0461357 pulled. Local HEAD 0461357.",
     "RELEASED v0.29.0 (2026-11-11): 7d1e17b (easyprof) + e27388e/d28ea71 (scrollables, segmented switches) + 1867bc6 (regex input) + 7db9d85 (generation labels) + 749db23 (chore(release)); tag CI 43048578226/43048578318 success; nix auto-pin e385eb0 pulled. Local HEAD e385eb0.",
     "RELEASED v0.28.0 (2026-11-10): 65df199 (booster) + 49ed08b (apparmor) + 1b8a2aa (chore(release)); tag CI 42867007902/42867008016 success; nix auto-pin 03a3e4a pulled. Local HEAD 03a3e4a.",
     "VM SMOKE pending: (a) booster — edit a key, Save (backup slot + marker intact), Regenerate shows hook output, UKI rebuilt under /boot/efi/Alpine, forced build failure keeps old image, non-booster box shows apk add booster; (b) apparmor — aa-status view, complain→enforce round-trip, Check rejects broken profile before Load, disable/enable cycle (disable/ marker removed), Save refuses bad syntax with parser error, notifications button → notify.conf + autostart present, poller after next login, remove_unknown behind --yes.",

@@ -24,10 +24,10 @@ channels / `nix-env` are out of scope by decision (skea999).
 | `nix.upgrade` | asUser | `nix profile upgrade <element>` / `--all` |
 | `nix.upgradeRegex` | asUser | `nix profile upgrade --regex <pattern>` |
 | `nix.search` | asUser | `nix search <repo> <query> --json` → `SearchResult[]` (repo defaults to `nixpkgs`; custom repos prefix bare installables) |
-| `nix.listRepositories` | asUser | `nix registry list` → `NixRepository[]` (name/url/scope) |
+| `nix.listRepositories` | asUser | `nix registry list` → `NixRepository[]` (name/url/scope; rows WITHOUT a scope column — older nix — parse as `default` and are shown + removable; an explicit `global` row is nix's built-in default: shown with an override hint, not removable as the user) |
 | `nix.addRepository` | asUser | `nix registry add <name> <flake-ref>` |
 | `nix.removeRepository` | asUser | `nix registry remove <name>` (destructive in the CLI) |
-| `nix.listNixUpdates` | asUser | `nix profile upgrade --all --dry-run` (300 s budget: re-fetches every unlocked flake with `tarballTtl=0`; parses `upgrading '<name>' …` log lines → `NixUpdates {count, packages}`; read-only, on demand) |
+| `nix.listNixUpdates` | asUser | `nix profile upgrade --all --dry-run` (300 s budget: re-fetches every unlocked flake with `tarballTtl=0`; parses `upgrading '<name>' …` log lines → `NixUpdates {count, packages}`; read-only, on demand; nix builds whose `upgrade` lacks `--dry-run` map to `Unavailable` with an upgrade-nix fix) |
 | `nix.generations` | asUser | `nix profile history` → lines (returned NEWEST first) |
 | `nix.rollback` | asUser | `nix profile rollback [--to N]` |
 | `nix.wipeHistory` | asUser | `nix profile wipe-history [--older-than D] [--dry-run]` |

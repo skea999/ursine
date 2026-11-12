@@ -77,7 +77,14 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             start_job(ctx, "remove_apk", &["del", package], true)
         }
         Action::UpgradeApk => start_job(ctx, "upgrade_apk", &["upgrade"], false),
-        Action::ListApkUpdates => Ok(json!({"updates": updates().await?})),
+        Action::ListApkUpdates => {
+            // The check refreshes the indexes first: `apk version -l <`
+            // compares against the INDEXES, so without a fetch it never
+            // sees new packages (this replaces the old maintenance
+            // "Refresh indexes" button — one control, one job).
+            run(&["update"]).await?;
+            Ok(json!({"updates": updates().await?}))
+        }
         _ => Err(ApiError::invalid(
             "action is not valid for module packages_apk",
         )),
@@ -317,7 +324,13 @@ fn parse_installed(versioned: &str, names: &str, protected: &[String]) -> Vec<Ap
 }
 
 async fn updates() -> Result<Vec<ApkUpdate>, ApiError> {
-    let output = run(&["version", "-l", "<"]).await?;
+    // `<` (the installed-vs-index separator) is outside the strict atom
+    // charset the generic runner enforces — this FIXED argument rides
+    // the quoted-value guard instead (no shell, nothing interpolates it).
+    let program = apk_path()?;
+    let output = exec::run_root_program_value(program, &["version", "-l", "<"], TIMEOUT)
+        .await?
+        .stdout;
     Ok(parse_updates(&output))
 }
 

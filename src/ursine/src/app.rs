@@ -322,7 +322,6 @@ pub enum Message {
     PackagePermissionsApplyRequested,
     PackagePermissionsCancelled,
     PackageRefresh,
-    PackageRefreshIndexes,
     PackageUpdateRequested,
     ApkUpgradeRequested(String),
     ApkPreviewRequested,
@@ -1346,7 +1345,6 @@ impl cosmic::Application for App {
             Message::PackageRefresh => {
                 return self.load_packages(self.packages.kind.unwrap_or(PackageKind::Apk))
             }
-            Message::PackageRefreshIndexes => return self.refresh_apk_indexes(),
             Message::PackageUpdateRequested => {
                 self.packages.pending_update = self.packages.kind;
             }
@@ -3384,28 +3382,6 @@ impl App {
             }
         }
         Task::none()
-    }
-
-    fn refresh_apk_indexes(&mut self) -> Task<cosmic::Action<Message>> {
-        let Some(session) = &self.session else {
-            return Task::none();
-        };
-        if self.packages.action_busy || self.job.is_some() {
-            return Task::none();
-        }
-        let token = session.token.clone();
-        let epoch = self.epoch;
-        self.packages.action_busy = true;
-        self.packages.message = None;
-        self.packages.error = None;
-        Task::future(async move {
-            Message::PackageActionFinished(
-                epoch,
-                "refresh_indexes".into(),
-                client::apk_refresh(token).await,
-            )
-        })
-        .map(cosmic::Action::App)
     }
 
     fn preview_apk_package(&mut self) -> Task<cosmic::Action<Message>> {

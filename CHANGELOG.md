@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- `nix list_nix_updates` on nix builds whose `profile upgrade` has no
+  `--dry-run` flag (VM smoke): the raw "command failed" is now an
+  `Unavailable` with the fix "upgrade nix — the update check needs the
+  dry-run flag".
+- **apk "Check for updates" actually runs now** (real e2e test found it):
+  `apk version -l '<'` was rejected by the strict argv guard (`<` is
+  outside the atom charset) — the check failed with "invalid command
+  argument" every time. The fixed argument now rides the quoted-value
+  guard, and the check also refreshes the indexes first (`apk update` +
+  `apk version -l '<'`) so stale indexes cannot report nothing. The old
+  maintenance "Refresh indexes" row is gone (one control doing the job).
+- `nix list_nix_updates` classification knows BOTH nix spellings —
+  2.31.5 (reference VM, verified by hand) prints "unrecognised flag".
+- apk rows no longer print "no description" (empty instead).
+- Package list text (nix, apk, flatpak: names, versions, descriptions,
+  details, registry rows) is now mouse-selectable.
+- nix flake registry: rows printed WITHOUT a scope column (older nix)
+  were silently dropped — the GUI then only showed "Only the default
+  nixpkgs registry entry" while listing nothing. Those rows parse as
+  `default`, are shown and removable; an explicit `global` row (nix's
+  built-in) shows an override hint instead of a dead Remove button.
+
 ## [0.30.0] — 2026-11-12
 
 ### Added

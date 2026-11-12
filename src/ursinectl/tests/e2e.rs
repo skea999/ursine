@@ -419,6 +419,29 @@ fn apk_job_mutation_streams_log_and_exits_with_job_code() {
 }
 
 #[test]
+fn apk_update_check_refreshes_indexes_and_lists() {
+    // The real chain behind "Check for updates": `apk update` FIRST
+    // (stale indexes reported nothing — VM finding) then
+    // `apk version -l '<'`. Needs the network the CI image was built
+    // with, like the rest of the apk e2e surface.
+    // Parallel e2e tests share one apk database: retry while another
+    // test holds the lock (the check itself takes the lock twice —
+    // update + version — so a single other apk op can collide).
+    let mut last = None;
+    for _ in 0..20 {
+        let attempt = run(&["apk", "list_apk_updates", "--json"]);
+        if !stderr(&attempt).contains("Unable to lock database") {
+            last = Some(attempt);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    let out = last.expect("apk database stayed locked for 10s");
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("\"updates\""), "{}", stdout(&out));
+}
+
+#[test]
 fn crontab_payload_boundaries_are_enforced_by_the_daemon() {
     // Over the 256 KiB cap: rejected at dispatch (exit 1), never staged.
     let big = "x".repeat(300 * 1024);

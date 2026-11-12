@@ -64,21 +64,29 @@ fn parse_registry_list(output: &str) -> Vec<NixRepository> {
     output
         .lines()
         .filter_map(|line| {
-            let mut fields = line.split_whitespace();
-            let scope = fields.next()?;
-            let flake = fields.next()?;
-            let name = flake.strip_prefix("flake:")?;
+            // Shapes seen in the wild:
+            //   user   flake:nixpkgs github:…
+            //   global flake:nixpkgs github:…
+            //   flake:nixpkgs github:…            (no scope column)
+            //   *user  flake:nixpkgs …            (active marker)
+            let mut fields = line.split_whitespace().collect::<Vec<_>>().into_iter();
+            let first = fields.next()?.trim_start_matches('*');
+            let (scope, first) = if first == "user" || first == "global" {
+                (first.to_string(), fields.next()?)
+            } else {
+                // Older/other nix builds omit the scope column: those
+                // rows are still visible (and removable) as "default".
+                ("default".to_string(), first)
+            };
+            let name = first.strip_prefix("flake:")?;
             let url = fields.collect::<Vec<_>>().join(" ");
             if url.is_empty() || name.is_empty() {
-                return None;
-            }
-            if scope != "user" && scope != "global" {
                 return None;
             }
             Some(NixRepository {
                 name: name.to_string(),
                 url,
-                scope: scope.to_string(),
+                scope,
             })
         })
         .collect()
@@ -181,6 +189,27 @@ fn line_list(outcome: &CommandOutcome) -> Vec<String> {
         .filter(|l| !l.trim().is_empty())
         .map(generations::strip_ansi)
         .collect()
+}
+
+/// Older nix builds predate `upgrade --dry-run`: the flag is rejected
+/// instantly (before any network), so map it to an actionable
+/// Unavailable instead of a raw "command failed".
+fn dry_run_unsupported(message: &str) -> bool {
+    message.contains("dry-run")
+        && [
+            // Both spellings: nix 2.31.5 (verified on the reference VM)
+            // prints "unrecognised flag", others use "unrecognized".
+            "unrecognized flag",
+            "unrecognised flag",
+            "unknown flag",
+            "unrecognized option",
+            "unrecognised option",
+            "unknown option",
+            "unrecognized argument",
+            "unrecognised argument",
+        ]
+        .iter()
+        .any(|needle| message.contains(needle))
 }
 
 /// Names from `nix profile upgrade --all --dry-run`: nix logs
@@ -466,7 +495,17 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                 ],
                 UPDATE_CHECK_TIMEOUT,
             )
-            .await?;
+            .await
+            .map_err(|error| {
+                if dry_run_unsupported(&error.message) {
+                    ApiError::unavailable(
+                        "this nix is too old: `profile upgrade` has no --dry-run flag",
+                        "upgrade nix — the update check needs the dry-run flag",
+                    )
+                } else {
+                    error
+                }
+            })?;
             let packages = parse_upgradable(&out);
             Ok(serde_json::json!(ursine_api::NixUpdates {
                 count: packages.len(),
@@ -661,6 +700,20 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
 mod tests {
 
     #[test]
+    fn classifies_missing_dry_run_flag() {
+        // Verbatim from `nix profile upgrade --all --dry-run` on the
+        // reference VM (nix 2.31.5): British spelling.
+        assert!(dry_run_unsupported(
+            "error: unrecognised flag '--dry-run'\nTry 'nix --help' for more information."
+        ));
+        assert!(dry_run_unsupported("error: unrecognized flag '--dry-run'"));
+        assert!(dry_run_unsupported("nix: unknown option: --dry-run"));
+        // Real failures keep their own error.
+        assert!(!dry_run_unsupported("error: connection refused"));
+        assert!(!dry_run_unsupported("unrecognized flag 'other'"));
+    }
+
+    #[test]
     fn parse_upgradable_reads_dry_run_log_lines() {
         let outcome = CommandOutcome {
             stdout: String::new(),
@@ -692,6 +745,43 @@ global flake:agenix github:ryantm/agenix\nweird line\n";
         assert_eq!(rows[0].url, "github:NixOS/nixpkgs/nixos-26.05");
         assert_eq!(rows[0].scope, "user");
         assert_eq!(rows[1].scope, "global");
+        assert_eq!(rows[1].name, "agenix");
+    }
+
+    #[test]
+    fn parses_registry_real_reference_vm_output() {
+        // Verbatim shape from `nix registry list` on nix 2.31.5
+        // (reference VM): scope column present, duplicate names across
+        // scopes, slash names, URL with query string.
+        let out = "user   flake:nixpkgs github:NixOS/nixpkgs/nixos-26.05\n\
+user   flake:ursine github:skea999/ursine\n\
+global flake:nixpkgs https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.zst\n\
+global flake:nixpkgs/nixos-26.05 https://channels.nixos.org/nixos-26.05/nixexprs.tar.zst\n\
+global flake:blender-bin github:edolstra/nix-warez?dir=blender\n";
+        let rows = parse_registry_list(out);
+        assert_eq!(rows.len(), 5, "{rows:?}");
+        assert_eq!(rows[0].scope, "user");
+        assert_eq!(rows[0].name, "nixpkgs");
+        assert_eq!(rows[1].name, "ursine");
+        assert_eq!(rows[2].scope, "global");
+        assert!(rows[2].url.starts_with("https://channels"));
+        assert_eq!(rows[3].name, "nixpkgs/nixos-26.05");
+        assert!(rows[4].url.contains("?dir=blender"));
+        // The default the user manages is a user row → removable scope.
+        assert_eq!(rows[0].scope, "user");
+    }
+
+    #[test]
+    fn parses_registry_without_scope_column_and_markers() {
+        // Older/other nix builds print no scope; an active marker may
+        // prefix the scope. Both must still show up (as "default").
+        let out = "flake:nixpkgs github:NixOS/nixpkgs\n\
+*user flake:agenix github:ryantm/agenix\n";
+        let rows = parse_registry_list(out);
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        assert_eq!(rows[0].scope, "default");
+        assert_eq!(rows[0].name, "nixpkgs");
+        assert_eq!(rows[1].scope, "user");
         assert_eq!(rows[1].name, "agenix");
     }
 

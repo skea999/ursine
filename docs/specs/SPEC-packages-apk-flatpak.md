@@ -18,6 +18,7 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `install_apk` | `apk add <package>` (progress via job log) |
 | `remove_apk` | `apk del <package>` |
 | `upgrade_apk` | `apk upgrade` (progress via job log) |
+| `list_apk_updates` | `apk update` FIRST (the check refreshes the indexes — replaces the old maintenance "Refresh indexes" button) then `apk version -l <` → `ApkUpdate[]` |
 | `list_flatpak` | `flatpak list --columns=... --system/--user` |
 | `list_flatpak_remotes` | `flatpak remotes --columns=name,url [--system/--user]` |
 | `add_flatpak_remote` | `flatpak remote-add <scope> <name> <url>` |
@@ -73,8 +74,10 @@ Sidebar entries **APK packages** and **Flatpak applications**. Each panel has:
   install entry, sizes shown in the install confirmation);
 - installed/search rows with install/remove actions;
 - refresh/update controls with confirmations;
-- Upgrade section lists Flatpak update-available rows (from
-  `list_flatpak_updates`) with a per-app Update button;
+- Upgrade section shows only the update COUNT for both managers (the
+  per-package lists are gone by user decision); per-package Upgrade
+  buttons live in Installed and appear only when the check says the
+  package is outdated;
 - per-app Permissions editor (row button): sockets/devices/filesystems
   add-remove lists, environment name/value rows, read-only effective
   view from `flatpak info --show-permissions`, Apply writes the four

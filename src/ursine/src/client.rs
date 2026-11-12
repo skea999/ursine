@@ -1434,17 +1434,6 @@ pub async fn apk_search(token: SessionToken, query: String) -> Result<Vec<ApkPac
     apk_packages(token, Action::SearchApk { query }, MUTATE_TIMEOUT).await
 }
 
-pub async fn apk_refresh(token: SessionToken) -> Result<serde_json::Value, ApiError> {
-    call_with_timeout(
-        token,
-        ModuleId::PackagesApk,
-        Action::RefreshApk,
-        None,
-        MUTATE_TIMEOUT,
-    )
-    .await
-}
-
 pub async fn apk_add_repository(
     token: SessionToken,
     url: String,
