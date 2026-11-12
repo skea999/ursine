@@ -306,6 +306,16 @@ Paths are relative to `/var/log`; escapes and binary files are rejected.
 Operations run as root through the portable `crontab -u <user>` form —
 no `su`, no suid requirement on the tool.
 
+### apk regex (pattern actions)
+
+- `apk_remove_regex pattern=… [dry_run=true]`, `apk_upgrade_regex
+  pattern=… [dry_run=true]` — the daemon matches installed names (the
+  apk CLI has no regex); dry-run previews `would_change`, the apply runs
+  one job over the matched set (`--yes` required).
+- `flatpak_remove_regex pattern=… [dry_run=true] [system=true|false]`,
+  `flatpak_upgrade_regex pattern=… [dry_run=true] [system=true|false]` —
+  same contract against Flatpak app ids/names.
+
 ### booster
 
 `booster_config_get`, `booster_config_set keys={…}` and

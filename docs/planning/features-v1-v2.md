@@ -271,6 +271,14 @@ Configuration only; image acquisition is intentionally out of scope
 - Audit every mutation.
 - Exit codes/signals normalized into actionable errors.
 - GUI uses one sidebar, same header, confirmations, empty states.
+- Pattern (regex) actions for apk AND flatpak (decision 2026-11-12,
+  parity with nix): daemon-side matching over installed names/ids (the
+  CLIs have none), dry-run preview + one job over the matched set;
+  sections ordered Scope → Maintenance → Upgrade → Search →
+  Remotes/Repositories → Pattern → Installed in all three managers;
+  installed titles carry the count; apk detail = repository above the
+  description (one `apk policy` call + apk db `T:` read), flatpak detail
+  adds the remote URL, nix detail adds `repository: <original_url>`.
 - Update-check UX (decision 2026-11-11): every package manager shows a
   prominent "Packages to update" count, a "Check updates manually"
   Refresh button, and a persisted "Check updates automatically" toggler

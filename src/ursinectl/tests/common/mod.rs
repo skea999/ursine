@@ -997,6 +997,43 @@ pub const SAMPLES: &[Sample] = &[
     // aa-status/apparmor_parser, so every action hits the Unavailable
     // gate; mutations would really run on a host with the tools. --
     Sample {
+        module: ursine_api::ModuleId::PackagesApk,
+        action: "apk_remove_regex",
+        pairs: &[("pattern", "^lib.*"), ("dry_run", "true")],
+        destructive: false,
+        // CI has apk: the dry-run really runs (matches lib* — no writes).
+        dispatch: Dispatch::Ok,
+    },
+    Sample {
+        module: ursine_api::ModuleId::PackagesApk,
+        action: "apk_upgrade_regex",
+        pairs: &[("pattern", "^lib.*"), ("dry_run", "true")],
+        destructive: false,
+        dispatch: Dispatch::Ok,
+    },
+    Sample {
+        module: ursine_api::ModuleId::PackagesFlatpak,
+        action: "flatpak_remove_regex",
+        pairs: &[
+            ("pattern", "org\\.gnome\\..*"),
+            ("dry_run", "true"),
+            ("system", "false"),
+        ],
+        destructive: false,
+        dispatch: Dispatch::Gate,
+    },
+    Sample {
+        module: ursine_api::ModuleId::PackagesFlatpak,
+        action: "flatpak_upgrade_regex",
+        pairs: &[
+            ("pattern", "org\\.gnome\\..*"),
+            ("dry_run", "true"),
+            ("system", "false"),
+        ],
+        destructive: false,
+        dispatch: Dispatch::Gate,
+    },
+    Sample {
         module: ursine_api::ModuleId::Apparmor,
         action: "apparmor_status",
         pairs: &[],
@@ -1139,6 +1176,8 @@ pub const ALL_ACTIONS: &[&str] = &[
     "add_firewall_service",
     "add_printer",
     "add_printer_manual",
+    "apk_remove_regex",
+    "apk_upgrade_regex",
     "apparmor_autodep",
     "apparmor_check",
     "apparmor_cleanprof",
@@ -1174,6 +1213,8 @@ pub const ALL_ACTIONS: &[&str] = &[
     "delete_user",
     "diff_closures",
     "disconnect_network",
+    "flatpak_remove_regex",
+    "flatpak_upgrade_regex",
     "forget_network",
     "format_disk",
     "generations",

@@ -19,6 +19,8 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `remove_apk` | `apk del <package>` |
 | `upgrade_apk` | `apk upgrade` (progress via job log) |
 | `list_apk_updates` | `apk update` FIRST (the check refreshes the indexes — replaces the old maintenance "Refresh indexes" button) then `apk version -l <` → `ApkUpdate[]` |
+| `apk_remove_regex` | match installed names against the regex daemon-side (the apk CLI has none) → dry-run returns `{dry_run, would_change}`, apply runs one `apk del <names…>` job (destructive in the CLI) |
+| `apk_upgrade_regex` | same match → one `apk upgrade <names…>` job |
 | `list_flatpak` | `flatpak list --columns=... --system/--user` |
 | `list_flatpak_remotes` | `flatpak remotes --columns=name,url [--system/--user]` |
 | `add_flatpak_remote` | `flatpak remote-add <scope> <name> <url>` |
@@ -33,6 +35,8 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `install_flatpak` | `flatpak install -y --noninteractive <scope> <remote> <app>` (remote default `flathub`, validated) |
 | `get_flatpak_info` | `flatpak remote-info <scope> <remote> <app>` (name, version, sizes) |
 | `remove_flatpak` | `flatpak uninstall -y --noninteractive <scope> <app>` |
+| `flatpak_remove_regex` | match app id/name daemon-side → dry-run `{dry_run, would_change}` or one `flatpak uninstall … <refs…>` job |
+| `flatpak_upgrade_regex` | same match → one `flatpak update … <refs…>` job |
 | `update_flatpak` | `flatpak update -y --noninteractive <scope>` |
 
 - APK is system scope: root only.

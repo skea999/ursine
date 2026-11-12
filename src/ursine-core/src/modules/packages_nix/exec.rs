@@ -88,7 +88,7 @@ pub(super) fn validate_username(user: &str) -> Result<(), ApiError> {
 
 /// Validate a nix regex pattern (`--regex`): safe inside single quotes, no shell
 /// metacharacters that we refuse, no quote/newline. Spaces are allowed.
-pub(super) fn validate_regex(pattern: &str) -> Result<(), ApiError> {
+pub(crate) fn validate_regex(pattern: &str) -> Result<(), ApiError> {
     if pattern.is_empty() || pattern.len() > 256 {
         return Err(ApiError::invalid("invalid regex pattern"));
     }

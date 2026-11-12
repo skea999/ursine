@@ -11,6 +11,8 @@ pub struct LoginState {
     pub password: String,
     pub busy: bool,
     pub error: Option<String>,
+    /// Password field id: focused on entry so typing works immediately.
+    pub password_id: cosmic::widget::Id,
 }
 
 impl Default for LoginState {
@@ -20,6 +22,7 @@ impl Default for LoginState {
             password: String::new(),
             busy: false,
             error: None,
+            password_id: cosmic::widget::Id::unique(),
         }
     }
 }
@@ -42,6 +45,7 @@ impl LoginState {
                 .into(),
             text_input("Password", self.password.clone())
                 .password()
+                .id(self.password_id.clone())
                 .on_input(Message::PasswordChanged)
                 .on_submit(|_| Message::SignIn)
                 .into(),

@@ -133,7 +133,10 @@ flake; remove_nix_repository is destructive and requires --yes.
 list_apk, search_apk, refresh_apk, list_apk_repositories,
 add_apk_repository, remove_apk_repository, install_apk,
 preview_apk_install, remove_apk, upgrade_apk, list_apk_updates,
-upgrade_apk_package.
+upgrade_apk_package, apk_remove_regex, apk_upgrade_regex.
+The regex actions match installed names daemon-side (the apk CLI has
+none): dry_run previews would_change, the apply runs one job over the
+matched set and requires --yes.
 add_apk_repository writes an apk-repositories line (an optional tag
 masks it: @tag url, enabled only via a world pin pkg@tag) and refreshes
 indexes; re-adding an existing URL updates its tag, an empty tag
@@ -143,7 +146,9 @@ unmasks. remove_apk_repository is destructive and requires --yes.
 list_flatpak, list_flatpak_remotes, list_flatpak_updates, search_flatpak,
 install_flatpak, get_flatpak_info, remove_flatpak, update_flatpak,
 update_flatpak_app, remove_flatpak_orphans, get_flatpak_permissions,
-set_flatpak_permissions, add_flatpak_remote, remove_flatpak_remote.
+set_flatpak_permissions, add_flatpak_remote, remove_flatpak_remote,
+flatpak_remove_regex, flatpak_upgrade_regex (daemon-side match over
+app ids/names; dry_run preview, one job on apply, --yes required).
 add_flatpak_remote registers a remote URL on the selected installation;
 remove_flatpak_remote is destructive and requires --yes.
 install_flatpak accepts an optional remote (default flathub);

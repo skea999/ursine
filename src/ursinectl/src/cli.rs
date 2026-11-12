@@ -55,6 +55,7 @@ MODULES (wire name; short alias in parentheses):
                       add_nix_repository, remove_nix_repository,
                       list_nix_updates
   packages_apk(apk)   list_apk, search_apk, refresh_apk,
+                      apk_remove_regex, apk_upgrade_regex,
                       list_apk_repositories, add_apk_repository,
                       remove_apk_repository, install_apk,
                       preview_apk_install, remove_apk, upgrade_apk,
@@ -65,7 +66,8 @@ MODULES (wire name; short alias in parentheses):
                       install_flatpak, get_flatpak_info, remove_flatpak,
                       update_flatpak, update_flatpak_app,
                       remove_flatpak_orphans, add_flatpak_remote,
-                      remove_flatpak_remote, get_flatpak_permissions,
+                      remove_flatpak_remote, flatpak_remove_regex,
+                      flatpak_upgrade_regex, get_flatpak_permissions,
                       set_flatpak_permissions
   printers            list_printers, printer_jobs, add_printer,
                       add_printer_manual, remove_printer,
@@ -337,8 +339,9 @@ fn expand_value(raw: &str) -> Result<serde_json::Value, String> {
 /// action lands in the API it must be added here (review checklist).
 pub fn is_destructive(action: &Action) -> bool {
     use Action::{
-        ApparmorCleanprof, ApparmorRemoveUnknown, BoosterRegenerate, CancelPrinterJobs, CrontabSet,
-        DeleteFirewallService, DeleteSnapshot, DeleteSnapshots, DeleteUser, ForgetNetwork,
+        ApkRemoveRegex, ApkUpgradeRegex, ApparmorCleanprof, ApparmorRemoveUnknown,
+        BoosterRegenerate, CancelPrinterJobs, CrontabSet, DeleteFirewallService, DeleteSnapshot,
+        DeleteSnapshots, DeleteUser, FlatpakRemoveRegex, FlatpakUpgradeRegex, ForgetNetwork,
         FormatDisk, PartitionCreate, PartitionDelete, PruneGenerations, Remove, RemoveAll,
         RemoveApk, RemoveApkRepository, RemoveFirewallPort, RemoveFirewallService, RemoveFlatpak,
         RemoveFlatpakOrphans, RemoveFlatpakRemote, RemoveNixRepository, RemovePrinter, RemoveRegex,
@@ -358,6 +361,10 @@ pub fn is_destructive(action: &Action) -> bool {
             | RemoveAll
             | RemoveRegex { dry_run: false, .. }
             | UpgradeRegex { dry_run: false, .. }
+            | ApkRemoveRegex { dry_run: false, .. }
+            | ApkUpgradeRegex { dry_run: false, .. }
+            | FlatpakRemoveRegex { dry_run: false, .. }
+            | FlatpakUpgradeRegex { dry_run: false, .. }
             | WipeHistory { dry_run: false, .. }
             | Rollback { .. }
             | StoreGc

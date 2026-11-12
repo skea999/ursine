@@ -146,6 +146,44 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             let args = ["uninstall", "--unused", "-y", "--noninteractive", scope];
             start_job(ctx, "remove_flatpak_orphans", *system, &args)
         }
+        Action::FlatpakRemoveRegex {
+            pattern,
+            dry_run,
+            system,
+        } => {
+            let ids = matched_app_ids(pattern, *system, ctx.as_user).await?;
+            if *dry_run {
+                return Ok(json!({"dry_run": true, "would_change": ids}));
+            }
+            if ids.is_empty() {
+                return Ok(json!(ursine_api::CommandOutcome {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                }));
+            }
+            let mut args: Vec<&str> = vec!["uninstall", "-y", "--noninteractive", scope(*system)];
+            args.extend(ids.iter().map(String::as_str));
+            start_job(ctx, "remove_regex", *system, &args)
+        }
+        Action::FlatpakUpgradeRegex {
+            pattern,
+            dry_run,
+            system,
+        } => {
+            let ids = matched_app_ids(pattern, *system, ctx.as_user).await?;
+            if *dry_run {
+                return Ok(json!({"dry_run": true, "would_change": ids}));
+            }
+            if ids.is_empty() {
+                return Ok(json!(ursine_api::CommandOutcome {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                }));
+            }
+            let mut args: Vec<&str> = vec!["update", "-y", "--noninteractive", scope(*system)];
+            args.extend(ids.iter().map(String::as_str));
+            start_job(ctx, "update_regex", *system, &args)
+        }
         Action::UpdateFlatpak { system } => {
             let scope = scope(*system);
             let args = ["update", "-y", "--noninteractive", scope];
@@ -199,6 +237,18 @@ const fn scope(system: bool) -> &'static str {
     } else {
         "--user"
     }
+}
+
+/// Installed Flatpak refs matching `pattern` (id or human name).
+async fn matched_app_ids(pattern: &str, system: bool, user: &str) -> Result<Vec<String>, ApiError> {
+    exec::validate_regex(pattern)?;
+    let re = regex::Regex::new(pattern).map_err(|_| ApiError::invalid("invalid regex pattern"))?;
+    let packages = list(system, user).await?;
+    Ok(packages
+        .into_iter()
+        .filter(|package| re.is_match(&package.app_id) || re.is_match(&package.name))
+        .map(|package| package.app_id)
+        .collect())
 }
 
 async fn list(system: bool, user: &str) -> Result<Vec<FlatpakPackage>, ApiError> {

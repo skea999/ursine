@@ -22,7 +22,7 @@ use crate::login::LoginState;
 use crate::logs::{LogPhase, LogsState, LOGS_SCROLL_ID};
 use crate::network::NetworkState;
 use crate::niri::NiriState;
-use crate::packages::{PackageKind, PackagesState};
+use crate::packages::{PackageKind, PackagesState, PatternOp};
 use crate::printers::PrintersState;
 use crate::scanners::ScannersState;
 use crate::services::ServicesState;
@@ -183,6 +183,16 @@ pub enum Message {
     PackageUpdatesRefreshRequested,
     /// Manual nix update check (`list_nix_updates`, dry-run).
     NixUpdatesRequested,
+    /// Pattern-actions input changed (regex over installed names).
+    PackagePatternChanged(String),
+    /// Dry-run the pattern against the installed list.
+    PackagePatternPreviewRequested,
+    /// Pattern preview finished (`would_change` names).
+    PackagePatternPreviewFinished(u64, Result<serde_json::Value, ApiError>),
+    /// Ask for confirmation before applying the pattern.
+    PackagePatternApplyRequested(PatternOp),
+    PackagePatternConfirmed,
+    PackagePatternCancelled,
     /// `list_nix_updates` finished.
     NixUpdatesLoaded(u64, StoreScope, Result<ursine_api::NixUpdates, ApiError>),
     OpenPackageManager,
@@ -667,7 +677,10 @@ impl cosmic::Application for App {
             epoch: 0,
             job: None,
         };
-        (app, Task::none())
+        // Focus the password field so the first keystroke lands in it.
+        let focus = cosmic::widget::text_input::focus::<Message>(app.login.password_id.clone())
+            .map(cosmic::Action::App);
+        (app, focus)
     }
 
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
@@ -695,6 +708,24 @@ impl cosmic::Application for App {
             }
             Message::PackageUpdatesRefreshRequested => return self.refresh_package_updates(),
             Message::NixUpdatesRequested => return self.request_nix_updates(),
+            Message::PackagePatternChanged(value) => {
+                self.packages.pattern = value;
+                // The preview belonged to the previous pattern.
+                self.packages.pattern_preview = None;
+            }
+            Message::PackagePatternPreviewRequested => return self.request_pattern_preview(),
+            Message::PackagePatternPreviewFinished(epoch, result) => {
+                return self.finish_pattern_preview(epoch, result)
+            }
+            Message::PackagePatternApplyRequested(op) => {
+                let pattern = self.packages.pattern.trim().to_string();
+                if !pattern.is_empty() && !self.packages.action_busy && !self.packages.busy {
+                    self.packages.pending_pattern = Some((op, pattern));
+                    self.packages.pattern_preview = None;
+                }
+            }
+            Message::PackagePatternConfirmed => return self.confirm_pattern(),
+            Message::PackagePatternCancelled => self.packages.pending_pattern = None,
             Message::NixUpdatesLoaded(epoch, scope, result) => {
                 return self.finish_nix_updates(epoch, scope, result)
             }
@@ -1981,7 +2012,14 @@ impl cosmic::Application for App {
             Message::JobClose => {
                 self.job = None;
             }
-            Message::SignOut => self.sign_out(),
+            Message::SignOut => {
+                self.sign_out();
+                // Back on the login screen: focus the password again.
+                return cosmic::widget::text_input::focus::<Message>(
+                    self.login.password_id.clone(),
+                )
+                .map(cosmic::Action::App);
+            }
         }
         Task::none()
     }
@@ -5711,7 +5749,9 @@ impl App {
                 // Do not retain a rejected password while the user reads error.
                 self.login.password.clear();
                 self.login.error = Some(friendly(&error));
-                Task::none()
+                // Ready for the retry without a click.
+                cosmic::widget::text_input::focus::<Message>(self.login.password_id.clone())
+                    .map(cosmic::Action::App)
             }
         }
     }
@@ -5931,6 +5971,119 @@ impl App {
             })
             .map(cosmic::Action::App),
         }
+    }
+
+    /// Dry-run the current pattern against the installed list.
+    fn request_pattern_preview(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let Some(kind) = self.packages.kind else {
+            return Task::none();
+        };
+        let pattern = self.packages.pattern.trim().to_string();
+        if pattern.is_empty()
+            || self.packages.busy
+            || self.packages.action_busy
+            || self.packages.pending_pattern.is_some()
+        {
+            return Task::none();
+        }
+        self.packages.action_busy = true;
+        self.packages.error = None;
+        self.packages.pattern_preview = None;
+        let token = session.token.clone();
+        let system = self.packages.system;
+        let epoch = self.epoch;
+        Task::future(async move {
+            let result = match kind {
+                PackageKind::Apk => client::apk_remove_regex(token, pattern, true).await,
+                PackageKind::Flatpak => {
+                    client::flatpak_remove_regex(token, pattern, true, system).await
+                }
+            };
+            Message::PackagePatternPreviewFinished(epoch, result)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    fn finish_pattern_preview(
+        &mut self,
+        epoch: u64,
+        result: Result<serde_json::Value, ApiError>,
+    ) -> Task<cosmic::Action<Message>> {
+        if epoch != self.epoch {
+            return Task::none();
+        }
+        self.packages.action_busy = false;
+        match result {
+            Ok(value) => {
+                let matched = value
+                    .get("would_change")
+                    .and_then(|value| value.as_array())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|item| item.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                self.packages.pattern_preview = Some(matched);
+                self.packages.error = None;
+            }
+            Err(error) => {
+                if self.handle_session_error(&error) {
+                    return Task::none();
+                }
+                self.packages.error = Some(friendly(&error));
+            }
+        }
+        Task::none()
+    }
+
+    /// Apply the confirmed pattern (fresh dry-run is not needed: the
+    /// daemon recomputes the match server-side).
+    fn confirm_pattern(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        // Guards BEFORE the take(): a busy system must not swallow the
+        // pending confirmation.
+        if self.packages.action_busy || self.packages.busy || self.job.is_some() {
+            return Task::none();
+        }
+        if self.packages.kind.is_none() {
+            return Task::none();
+        }
+        let Some((op, pattern)) = self.packages.pending_pattern.take() else {
+            return Task::none();
+        };
+        let kind = self.packages.kind.unwrap_or(PackageKind::Apk);
+        self.packages.action_busy = true;
+        self.packages.pattern_preview = None;
+        self.packages.error = None;
+        self.packages.message = None;
+        let token = session.token.clone();
+        let system = self.packages.system;
+        let epoch = self.epoch;
+        Task::future(async move {
+            let result = match (kind, op) {
+                (PackageKind::Apk, PatternOp::Remove) => {
+                    client::apk_remove_regex(token, pattern, false).await
+                }
+                (PackageKind::Apk, PatternOp::Upgrade) => {
+                    client::apk_upgrade_regex(token, pattern, false).await
+                }
+                (PackageKind::Flatpak, PatternOp::Remove) => {
+                    client::flatpak_remove_regex(token, pattern, false, system).await
+                }
+                (PackageKind::Flatpak, PatternOp::Upgrade) => {
+                    client::flatpak_upgrade_regex(token, pattern, false, system).await
+                }
+            };
+            Message::PackageActionFinished(epoch, "pattern".into(), result)
+        })
+        .map(cosmic::Action::App)
     }
 
     /// On-demand nix upgrade check (dry-run; slow by design).

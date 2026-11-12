@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Regex **Pattern actions for apk and flatpak** (parity with nix, user
+  decision): `apk_remove_regex` / `apk_upgrade_regex` /
+  `flatpak_remove_regex` / `flatpak_upgrade_regex` — the daemon matches
+  installed names/ids itself (neither CLI has regex), dry-run previews
+  the `would_change` set, the apply runs ONE job over the matched set
+  behind a confirmation (`--yes` in the CLI).
+
+### Changed
+
+- Package-manager UI parity (user decision): section order is now
+  Scope → Maintenance → Upgrade → Search → Remotes/Repositories →
+  Pattern → Installed everywhere (sections a manager lacks are skipped);
+  installed titles carry the package count; apk installed rows show
+  `from <repository>` ABOVE the real description (origin from one
+  `apk policy` call, description from the apk db); flatpak rows add the
+  remote URL; nix details add `repository: <original_url>`; the login
+  screen focuses the password field on entry, after sign-out and after
+  a failed attempt.
+
 ## [0.31.0] — 2026-11-12
 
 ### Fixed

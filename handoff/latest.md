@@ -6,6 +6,14 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-12 — VM-smoke fixes + hand-verified commands, release 0.31.0 (main, tag `v0.31.0`)
+
+**Status**: Pushed `0461357..417fb39` (push hit a transient DNS outage mid-way, recovered on retry); CI green for `52f6b82` (`43197471698`) and both release runs (`43199990883`/`43199991246` success); auto-pin `075f43f` pulled, local HEAD `075f43f`.
+
+- **Hand-tested on the reference VM (user demanded real tests over hypotheses)**: `nix --version` = 2.31.5; `nix registry list` real output captured verbatim as a test fixture (scope column `user`/`global`, ~50 global rows, slash names, query-string URLs); `nix profile upgrade --help` has NO dry-run; `nix profile upgrade --all --dry-run` → `error: unrecognised flag '--dry-run'` (BRITISH spelling — classifier now matches both spellings); `apk version -l` alone errors — correct form `apk version -l '<'`.
+- **Real bugs found by tests**: (1) `apk version -l '<'` was rejected by the strict argv guard (`<` outside atom charset) → the apk check ALWAYS failed with "invalid command argument" (the true cause of "non funziona") — fixed via quoted-value guard; the check also runs `apk update` first (indexes), maintenance "Refresh indexes" row removed; (2) nix dry-run Unavailable mapping; (3) registry scopeless rows were dropped (now `default`, shown+removable; global shows override hint; hint waits for load); (4) no-description text gone; (5) package-list text selectable (nix/apk/flatpak). New e2e `apk_update_check_refreshes_indexes_and_lists` runs the real chain (with apk-db lock retry).
+- Gates green; release `417fb39` + tag `v0.31.0`. User retesting the VM next — findings to follow.
+
 ## Session 2026-11-11/12 — update-check UX + flatpak runtimes, release 0.30.0 (main, tag `v0.30.0`)
 
 **Status**: Pushed `e385eb0..cfd8902` (3 feature commits + release); CI green for `9030034` (`43116011460`) and both release runs (`43118141564`/`43118141595` success); auto-pin `0461357` pulled, local HEAD `0461357`.

@@ -397,6 +397,80 @@ pub async fn search(
     parse_search_payload(value)
 }
 
+/// Regex preview/apply over installed apk packages (the CLI has none).
+pub async fn apk_remove_regex(
+    token: SessionToken,
+    pattern: String,
+    dry_run: bool,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesApk,
+        Action::ApkRemoveRegex { pattern, dry_run },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+/// Regex preview/apply: upgrade matching installed apk packages.
+pub async fn apk_upgrade_regex(
+    token: SessionToken,
+    pattern: String,
+    dry_run: bool,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesApk,
+        Action::ApkUpgradeRegex { pattern, dry_run },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+/// Regex preview/apply over installed Flatpaks (remove).
+pub async fn flatpak_remove_regex(
+    token: SessionToken,
+    pattern: String,
+    dry_run: bool,
+    system: bool,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::FlatpakRemoveRegex {
+            pattern,
+            dry_run,
+            system,
+        },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
+/// Regex preview/apply over installed Flatpaks (update).
+pub async fn flatpak_upgrade_regex(
+    token: SessionToken,
+    pattern: String,
+    dry_run: bool,
+    system: bool,
+) -> Result<serde_json::Value, ApiError> {
+    call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::FlatpakUpgradeRegex {
+            pattern,
+            dry_run,
+            system,
+        },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await
+}
+
 /// On-demand upgrade check (`nix profile upgrade --all --dry-run`).
 pub async fn nix_list_updates(token: SessionToken) -> Result<ursine_api::NixUpdates, ApiError> {
     // The dry-run re-fetches flakes: give it the full check budget.

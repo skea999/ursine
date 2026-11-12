@@ -76,6 +76,36 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             validate_package(package)?;
             start_job(ctx, "remove_apk", &["del", package], true)
         }
+        Action::ApkRemoveRegex { pattern, dry_run } => {
+            let names = matched_names(pattern).await?;
+            if *dry_run {
+                return Ok(json!({"dry_run": true, "would_change": names}));
+            }
+            if names.is_empty() {
+                return Ok(json!(ursine_api::CommandOutcome {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                }));
+            }
+            let mut args: Vec<&str> = vec!["del"];
+            args.extend(names.iter().map(String::as_str));
+            start_job(ctx, "remove_regex", &args, true)
+        }
+        Action::ApkUpgradeRegex { pattern, dry_run } => {
+            let names = matched_names(pattern).await?;
+            if *dry_run {
+                return Ok(json!({"dry_run": true, "would_change": names}));
+            }
+            if names.is_empty() {
+                return Ok(json!(ursine_api::CommandOutcome {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                }));
+            }
+            let mut args: Vec<&str> = vec!["upgrade"];
+            args.extend(names.iter().map(String::as_str));
+            start_job(ctx, "upgrade_regex", &args, false)
+        }
         Action::UpgradeApk => start_job(ctx, "upgrade_apk", &["upgrade"], false),
         Action::ListApkUpdates => {
             // The check refreshes the indexes first: `apk version -l <`
@@ -274,7 +304,80 @@ fn validate_repo_tag(tag: &str) -> Result<(), ApiError> {
 async fn installed() -> Result<Vec<ApkPackage>, ApiError> {
     let versioned = run(&["info", "-v"]).await?;
     let names = run(&["info"]).await?;
-    Ok(parse_installed(&versioned, &names, &protected_names()?))
+    // ONE `apk policy <names…>` call answers "which repository did this
+    // installed version come from" for every package (the installed
+    // block lists `lib/apk/db/installed` next to the repo URL).
+    let name_list: Vec<&str> = names.lines().filter(|line| !line.is_empty()).collect();
+    let policy = if name_list.is_empty() {
+        String::new()
+    } else {
+        let mut args = vec!["policy"];
+        args.extend(name_list.iter().copied());
+        run(&args).await.unwrap_or_default()
+    };
+    let origins = parse_policy_origins(&policy);
+    // Descriptions live in the apk database (`T:` lines) — one read.
+    let descriptions = read_apk_descriptions();
+    let mut packages = parse_installed(&versioned, &names, &protected_names()?);
+    for package in &mut packages {
+        package.origin = origins.get(&package.name).cloned();
+        package.description = descriptions.get(&package.name).cloned();
+    }
+    Ok(packages)
+}
+
+/// `/lib/apk/db/installed` → package → description (`T:` field).
+fn read_apk_descriptions() -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    let Ok(content) = std::fs::read_to_string("/lib/apk/db/installed") else {
+        return map;
+    };
+    let mut current: Option<String> = None;
+    for line in content.lines() {
+        if let Some(name) = line.strip_prefix("P:") {
+            current = Some(name.to_string());
+        } else if let Some(description) = line.strip_prefix("T:") {
+            if let Some(name) = &current {
+                map.entry(name.clone())
+                    .or_insert_with(|| description.to_string());
+            }
+        }
+    }
+    map
+}
+
+/// `apk policy <names…>` → package → repository tail (`main`, …).
+/// Only the version block that contains `lib/apk/db/installed` counts,
+/// and only an http(s) URL inside that block is an origin.
+fn parse_policy_origins(output: &str) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    let mut current: Option<String> = None;
+    let mut installed_version = false;
+    for line in output.lines() {
+        if !line.starts_with(char::is_whitespace) {
+            if let Some(name) = line.strip_suffix(" policy:") {
+                current = Some(name.to_string());
+                installed_version = false;
+            }
+            continue;
+        }
+        let trimmed = line.trim();
+        if trimmed == "lib/apk/db/installed" {
+            installed_version = true;
+        } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            if installed_version {
+                if let Some(name) = &current {
+                    let tail = trimmed.rsplit('/').next().unwrap_or(trimmed);
+                    map.entry(name.clone()).or_insert_with(|| tail.to_string());
+                }
+            }
+        } else if trimmed.ends_with(':') && !trimmed.contains(' ') {
+            // A different version header: the installed flag belongs to
+            // the previous block only.
+            installed_version = false;
+        }
+    }
+    map
 }
 
 fn protected_names() -> Result<Vec<String>, ApiError> {
@@ -318,6 +421,7 @@ fn parse_installed(versioned: &str, names: &str, protected: &[String]) -> Vec<Ap
             version,
             description: None,
             protected: protected.iter().any(|entry| entry == name),
+            origin: None,
         });
     }
     rows
@@ -389,9 +493,22 @@ async fn search(query: &str) -> Result<Vec<ApkPackage>, ApiError> {
             version,
             description,
             protected: false,
+            origin: None,
         });
     }
     Ok(rows)
+}
+
+/// Installed package names matching `pattern` (validate + compile once).
+async fn matched_names(pattern: &str) -> Result<Vec<String>, ApiError> {
+    exec::validate_regex(pattern)?;
+    let re = regex::Regex::new(pattern).map_err(|_| ApiError::invalid("invalid regex pattern"))?;
+    let packages = installed().await?;
+    Ok(packages
+        .into_iter()
+        .filter(|package| re.is_match(&package.name))
+        .map(|package| package.name)
+        .collect())
 }
 
 fn split_id(id: &str) -> (String, String) {

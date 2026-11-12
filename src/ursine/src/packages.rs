@@ -2,7 +2,7 @@
 
 use cosmic::iced::Length;
 use cosmic::widget::{
-    button, column, dropdown, row, scrollable, selectable_text, settings, text, text_input, toggler,
+    button, column, dropdown, row, scrollable, selectable_text, settings, text, text_input,
 };
 use cosmic::Element;
 use ursine_api::{
@@ -12,6 +12,23 @@ use ursine_api::{
 
 use crate::app::Message;
 use crate::package_row::package_row;
+use crate::package_ui::{repository_row, update_control_items};
+
+/// Which regex action the Pattern section is confirming.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatternOp {
+    Upgrade,
+    Remove,
+}
+
+impl std::fmt::Display for PatternOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Upgrade => f.write_str("Upgrade"),
+            Self::Remove => f.write_str("Remove"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PackageKind {
@@ -97,6 +114,12 @@ pub struct PackagesState {
     /// Generation counter: bumped on every reload so a check started
     /// before the reload (wrong kind/scope) can never land after it.
     pub updates_seq: u64,
+    /// Pattern-actions input (regex over installed names).
+    pub pattern: String,
+    /// Last dry-run preview (`would_change`) for the pattern.
+    pub pattern_preview: Option<Vec<String>>,
+    /// (operation, pattern) waiting for confirmation.
+    pub pending_pattern: Option<(PatternOp, String)>,
     pub error: Option<String>,
     pub message: Option<String>,
     pub pending_remove: Option<(PackageKind, String, String)>,
@@ -138,6 +161,9 @@ impl Default for PackagesState {
             updates_checked: false,
             updates_checking: false,
             updates_seq: 0,
+            pattern: String::new(),
+            pattern_preview: None,
+            pending_pattern: None,
             error: None,
             message: None,
             pending_remove: None,
@@ -174,6 +200,8 @@ impl PackagesState {
         self.updates_checked = false;
         self.updates_checking = false;
         self.updates_seq = self.updates_seq.wrapping_add(1);
+        self.pattern_preview = None;
+        self.pending_pattern = None;
         self.error = None;
         self.message = None;
         self.pending_remove = None;
@@ -397,95 +425,12 @@ impl PackagesState {
             button::suggested("Upgrade all")
                 .on_press_maybe((!self.action_busy).then_some(Message::PackageUpdateRequested)),
         ));
-        if let Some(url) = &self.pending_apk_repo_remove {
-            items.push(
-                settings::section()
-                    .title("Confirm repository removal")
-                    .add(settings::item(
-                        "Consequences",
-                        text(format!(
-                            "Remove {url} from /etc/apk/repositories? Indexes refresh after the change."
-                        )),
-                    ))
-                    .add(settings::item(
-                        "Actions",
-                        row(vec![
-                            button::destructive("Remove")
-                                .on_press_maybe(
-                                    (!self.action_busy)
-                                        .then_some(Message::PackageApkRepoRemoveConfirmed),
-                                )
-                                .into(),
-                            button::text("Cancel")
-                                .on_press_maybe(
-                                    (!self.action_busy)
-                                        .then_some(Message::PackageApkRepoRemoveCancelled),
-                                )
-                                .into(),
-                        ])
-                        .spacing(8),
-                    ))
-                    .into(),
-            );
-        }
-
-        if kind == PackageKind::Apk {
-            let mut repos = settings::section().title("Repositories");
-            for repository in &self.apk_repositories {
-                let url = repository.url.clone();
-                let label = repository.tag.as_ref().map_or_else(
-                    || repository.url.clone(),
-                    |tag| format!("@{tag} {}", repository.url),
-                );
-                let mut actions = row(vec![button::destructive("Remove")
-                    .on_press_maybe(
-                        (!self.action_busy)
-                            .then_some(Message::PackageApkRepoRemoveRequested(url.clone())),
-                    )
-                    .into()])
-                .spacing(8);
-                if repository.tag.is_some() {
-                    let unmask: Element<'_, Message> = button::text("Unmask")
-                        .on_press_maybe(
-                            (!self.action_busy)
-                                .then_some(Message::PackageApkRepoUnmask(url.clone())),
-                        )
-                        .into();
-                    actions = actions.push(unmask);
-                }
-                repos = repos.add(settings::item(label, actions));
-            }
-            repos = repos.add(settings::item(
-                "Add repository",
-                row(vec![
-                    text_input("https://… or /media/…", self.apk_repo_url.clone())
-                        .on_input(Message::PackageApkRepoUrlChanged)
-                        .into(),
-                    text_input("mask tag (e.g. edge)", self.apk_repo_tag.clone())
-                        .on_input(Message::PackageApkRepoTagChanged)
-                        .into(),
-                    button::text("Add")
-                        .on_press_maybe(
-                            (!self.action_busy && !self.apk_repo_url.trim().is_empty())
-                                .then_some(Message::PackageApkRepoAdd),
-                        )
-                        .into(),
-                ])
-                .spacing(8),
-            ));
-            items.push(repos.into());
-        }
-        // Auto-check preference (persisted in [updates]) + the count +
-        // a manual check — same three rows for every manager.
+        // Shared three control rows (auto toggler, count, refresh) —
+        // identical layout in every manager (package_ui).
         let (manager, auto) = match kind {
             PackageKind::Apk => ("apk", updates_auto.apk),
             PackageKind::Flatpak => ("flatpak", updates_auto.flatpak),
         };
-        upgrade = upgrade.add(settings::item(
-            "Check updates automatically",
-            toggler(auto)
-                .on_toggle(move |value| Message::UpdateAutoChanged(manager.to_string(), value)),
-        ));
         let number: Element<'_, Message> = if self.updates_checking {
             text("Checking…").into()
         } else if self.updates_checked {
@@ -497,107 +442,20 @@ impl PackagesState {
         } else {
             text("—").into()
         };
-        upgrade = upgrade.add(settings::item("Packages to update", number));
-        let check_button: Element<'_, Message> = button::text("Check for updates")
-            .on_press_maybe(
-                (!self.busy && !self.action_busy && !self.updates_checking)
-                    .then_some(Message::PackageUpdatesRefreshRequested),
-            )
-            .into();
-        upgrade = upgrade.add(settings::item("Refresh", check_button));
+        let refresh_armed = !self.busy && !self.action_busy && !self.updates_checking;
+        for item in update_control_items(
+            auto,
+            move |value| Message::UpdateAutoChanged(manager.to_string(), value),
+            number,
+            Message::PackageUpdatesRefreshRequested,
+            refresh_armed,
+        ) {
+            upgrade = upgrade.add(item);
+        }
         // Number only for BOTH managers (user decision): no per-package
         // update list — "Upgrade all" covers everything the count does,
         // and the per-package Upgrade buttons stay in the Installed list.
         items.push(upgrade.into());
-
-        if kind == PackageKind::Flatpak && !self.flatpak_remotes.is_empty() {
-            items.push(
-                settings::section()
-                    .title("Remotes")
-                    .add(self.pending_flatpak_remote_remove.as_ref().map_or_else(
-                        || {
-                            settings::item(
-                                "Add remote",
-                                row(vec![
-                                    text_input("name", self.flatpak_remote_name.clone())
-                                        .on_input(Message::FlatpakRemoteNameChanged)
-                                        .into(),
-                                    text_input("https://…", self.flatpak_remote_url.clone())
-                                        .on_input(Message::FlatpakRemoteUrlChanged)
-                                        .into(),
-                                    button::text("Add")
-                                        .on_press_maybe(
-                                            (!self.action_busy
-                                                && !self.flatpak_remote_name.trim().is_empty()
-                                                && !self.flatpak_remote_url.trim().is_empty())
-                                                .then_some(Message::FlatpakRemoteAdd),
-                                        )
-                                        .into(),
-                                ])
-                                .spacing(8),
-                            )
-                        },
-                        |(name, _system)| {
-                            settings::item(
-                                "Confirm removal",
-                                row(vec![
-                                    text(format!(
-                                        "Remove the remote {name}? Packages from it stop receiving updates."
-                                    ))
-                                    .into(),
-                                    button::destructive("Remove")
-                                        .on_press_maybe(
-                                            (!self.action_busy)
-                                                .then_some(Message::FlatpakRemoteRemoveConfirmed),
-                                        )
-                                        .into(),
-                                    button::text("Cancel")
-                                        .on_press_maybe(
-                                            (!self.action_busy)
-                                                .then_some(Message::FlatpakRemoteRemoveCancelled),
-                                        )
-                                        .into(),
-                                ])
-                                .spacing(8),
-                            )
-                        },
-                    ))
-                    .add({
-                        if self.flatpak_remotes.is_empty() {
-                            settings::item("Configured", text("No remotes."))
-                        } else {
-                            settings::item(
-                                "Configured",
-                                column(
-                                    self.flatpak_remotes
-                                        .iter()
-                                        .map(|remote| {
-                                            let name = remote.name.clone();
-                                            row(vec![
-                                                text(format!("{} — {}", remote.name, remote.url))
-                                                    .width(Length::Fill)
-                                                    .into(),
-                                                button::text("Remove…").on_press_maybe(
-                                                    (!self.action_busy)
-                                                        .then_some(
-                                                            Message::FlatpakRemoteRemoveRequested(
-                                                                name,
-                                                            ),
-                                                        ),
-                                                ).into(),
-                                            ])
-                                            .spacing(8)
-                                            .into()
-                                        })
-                                        .collect::<Vec<Element<'_, Message>>>(),
-                                )
-                                .spacing(2),
-                            )
-                        }
-                    })
-                    .into(),
-            );
-        }
 
         items.push(
             settings::section()
@@ -665,11 +523,246 @@ impl PackagesState {
                 .into(),
         );
 
-        let mut list = settings::section().title(if self.searching {
+        if let Some(url) = &self.pending_apk_repo_remove {
+            items.push(
+                settings::section()
+                    .title("Confirm repository removal")
+                    .add(settings::item(
+                        "Consequences",
+                        text(format!(
+                            "Remove {url} from /etc/apk/repositories? Indexes refresh after the change."
+                        )),
+                    ))
+                    .add(settings::item(
+                        "Actions",
+                        row(vec![
+                            button::destructive("Remove")
+                                .on_press_maybe(
+                                    (!self.action_busy)
+                                        .then_some(Message::PackageApkRepoRemoveConfirmed),
+                                )
+                                .into(),
+                            button::text("Cancel")
+                                .on_press_maybe(
+                                    (!self.action_busy)
+                                        .then_some(Message::PackageApkRepoRemoveCancelled),
+                                )
+                                .into(),
+                        ])
+                        .spacing(8),
+                    ))
+                    .into(),
+            );
+        }
+
+        if kind == PackageKind::Apk {
+            let mut repos = settings::section().title("Repositories");
+            for repository in &self.apk_repositories {
+                let url = repository.url.clone();
+                let label = repository.tag.as_ref().map_or_else(
+                    || repository.url.clone(),
+                    |tag| format!("@{tag} {}", repository.url),
+                );
+                let mut actions: Vec<Element<'_, Message>> = vec![button::destructive("Remove")
+                    .on_press_maybe(
+                        (!self.action_busy)
+                            .then_some(Message::PackageApkRepoRemoveRequested(url.clone())),
+                    )
+                    .into()];
+                if repository.tag.is_some() {
+                    actions.push(
+                        button::text("Unmask")
+                            .on_press_maybe(
+                                (!self.action_busy)
+                                    .then_some(Message::PackageApkRepoUnmask(url.clone())),
+                            )
+                            .into(),
+                    );
+                }
+                repos = repos.add(repository_row(label, None, actions));
+            }
+            repos = repos.add(settings::item(
+                "Add repository",
+                row(vec![
+                    text_input("https://… or /media/…", self.apk_repo_url.clone())
+                        .on_input(Message::PackageApkRepoUrlChanged)
+                        .into(),
+                    text_input("mask tag (e.g. edge)", self.apk_repo_tag.clone())
+                        .on_input(Message::PackageApkRepoTagChanged)
+                        .into(),
+                    button::text("Add")
+                        .on_press_maybe(
+                            (!self.action_busy && !self.apk_repo_url.trim().is_empty())
+                                .then_some(Message::PackageApkRepoAdd),
+                        )
+                        .into(),
+                ])
+                .spacing(8),
+            ));
+            items.push(repos.into());
+        }
+        if kind == PackageKind::Flatpak {
+            let mut remotes_section = settings::section()
+                .title("Remotes")
+                .add(self.pending_flatpak_remote_remove.as_ref().map_or_else(
+                        || {
+                            settings::item(
+                                "Add remote",
+                                row(vec![
+                                    text_input("name", self.flatpak_remote_name.clone())
+                                        .on_input(Message::FlatpakRemoteNameChanged)
+                                        .into(),
+                                    text_input("https://…", self.flatpak_remote_url.clone())
+                                        .on_input(Message::FlatpakRemoteUrlChanged)
+                                        .into(),
+                                    button::text("Add")
+                                        .on_press_maybe(
+                                            (!self.action_busy
+                                                && !self.flatpak_remote_name.trim().is_empty()
+                                                && !self.flatpak_remote_url.trim().is_empty())
+                                                .then_some(Message::FlatpakRemoteAdd),
+                                        )
+                                        .into(),
+                                ])
+                                .spacing(8),
+                            )
+                        },
+                        |(name, _system)| {
+                            settings::item(
+                                "Confirm removal",
+                                row(vec![
+                                    text(format!(
+                                        "Remove the remote {name}? Packages from it stop receiving updates."
+                                    ))
+                                    .into(),
+                                    button::destructive("Remove")
+                                        .on_press_maybe(
+                                            (!self.action_busy)
+                                                .then_some(Message::FlatpakRemoteRemoveConfirmed),
+                                        )
+                                        .into(),
+                                    button::text("Cancel")
+                                        .on_press_maybe(
+                                            (!self.action_busy)
+                                                .then_some(Message::FlatpakRemoteRemoveCancelled),
+                                        )
+                                        .into(),
+                                ])
+                                .spacing(8),
+                            )
+                        },
+                    ));
+            if self.flatpak_remotes.is_empty() {
+                remotes_section =
+                    remotes_section.add(settings::item("Configured", text("No remotes.")));
+            } else {
+                // One item per remote (apk/nix style), url as the detail
+                // line, Remove on the right.
+                for remote in &self.flatpak_remotes {
+                    let name = remote.name.clone();
+                    remotes_section = remotes_section.add(repository_row(
+                        name.clone(),
+                        Some(remote.url.clone()),
+                        vec![button::destructive("Remove")
+                            .on_press_maybe(
+                                (!self.action_busy)
+                                    .then_some(Message::FlatpakRemoteRemoveRequested(name)),
+                            )
+                            .into()],
+                    ));
+                }
+            }
+            items.push(remotes_section.into());
+        }
+
+        // Pattern actions (regex) — same shape as the nix store: input,
+        // preview, then the two apply buttons behind a confirmation.
+        let pattern_ready = !self.pattern.trim().is_empty() && !self.busy && !self.action_busy;
+        let mut pattern_section = settings::section()
+            .title("Pattern actions")
+            .add(settings::item(
+                "Package pattern",
+                row(vec![
+                    text_input("Regex, e.g. ^lib", self.pattern.clone())
+                        .on_input(Message::PackagePatternChanged)
+                        .width(Length::Fill)
+                        .into(),
+                    button::text("Preview matches")
+                        .on_press_maybe(
+                            pattern_ready.then_some(Message::PackagePatternPreviewRequested),
+                        )
+                        .into(),
+                ])
+                .spacing(8),
+            ));
+        if let Some(matched) = &self.pattern_preview {
+            let shown: Vec<Element<'_, Message>> = matched
+                .iter()
+                .take(50)
+                .map(|name| selectable_text(name.clone()).into())
+                .collect();
+            let label = if matched.len() > 50 {
+                format!("Matches ({} — showing 50)", matched.len())
+            } else {
+                format!("Matches ({})", matched.len())
+            };
+            pattern_section = pattern_section.add(settings::item(label, column(shown).spacing(2)));
+        }
+        if let Some((op, pattern)) = &self.pending_pattern {
+            pattern_section = pattern_section.add(settings::item(
+                "Confirm",
+                column(vec![
+                    text(format!(
+                        "{op} every installed package matching \"{pattern}\"?"
+                    ))
+                    .into(),
+                    row(vec![
+                        button::destructive("Confirm")
+                            .on_press_maybe(
+                                (!self.action_busy && !self.busy)
+                                    .then_some(Message::PackagePatternConfirmed),
+                            )
+                            .into(),
+                        button::text("Cancel")
+                            .on_press(Message::PackagePatternCancelled)
+                            .into(),
+                    ])
+                    .spacing(8)
+                    .into(),
+                ])
+                .spacing(8),
+            ));
+        } else {
+            pattern_section =
+                pattern_section.add(settings::item(
+                    "Actions",
+                    row(vec![
+                        button::text("Upgrade matching")
+                            .on_press_maybe(pattern_ready.then_some(
+                                Message::PackagePatternApplyRequested(PatternOp::Upgrade),
+                            ))
+                            .into(),
+                        button::text("Remove matching")
+                            .on_press_maybe(pattern_ready.then_some(
+                                Message::PackagePatternApplyRequested(PatternOp::Remove),
+                            ))
+                            .into(),
+                    ])
+                    .spacing(8),
+                ));
+        }
+        items.push(pattern_section.into());
+
+        let listed = match kind {
+            PackageKind::Apk => self.apk.len(),
+            PackageKind::Flatpak => self.flatpak.len(),
+        };
+        let list_title = if self.searching {
             "Search results"
         } else {
             "Installed"
-        });
+        };
+        let mut list = settings::section().title(format!("{list_title} ({listed})"));
         match kind {
             PackageKind::Apk => {
                 for package in &self.apk {
@@ -699,10 +792,21 @@ impl PackagesState {
                         );
                         row(buttons).spacing(8).into()
                     };
-                    let description = package.description.clone().map_or_else(
-                        || text("").into(),
-                        |description| selectable_text(description).into(),
-                    );
+                    // Repository first, description under it (parity
+                    // with the nix/flatpak detail blocks).
+                    let mut detail: Vec<Element<'_, Message>> = Vec::with_capacity(2);
+                    if let Some(origin) = &package.origin {
+                        detail.push(selectable_text(format!("from {origin}")).into());
+                    }
+                    if let Some(description) = &package.description {
+                        if !description.is_empty() {
+                            detail.push(selectable_text(description.clone()).into());
+                        }
+                    }
+                    if detail.is_empty() {
+                        detail.push(text("").into());
+                    }
+                    let description = column(detail).spacing(2).into();
                     list = list.add(package_row(
                         format!("{} {}", package.name, package.version),
                         description,
@@ -764,9 +868,19 @@ impl PackagesState {
                             package.app_id, package.branch, package.origin
                         )
                     };
+                    let mut detail: Vec<Element<'_, Message>> =
+                        vec![selectable_text(description).into()];
+                    if let Some(remote) = self
+                        .flatpak_remotes
+                        .iter()
+                        .find(|remote| remote.name == package.origin)
+                    {
+                        detail.push(selectable_text(remote.url.clone()).into());
+                    }
+                    let description = column(detail).spacing(2).into();
                     list = list.add(package_row(
                         format!("{} {}", package.name, package.version),
-                        selectable_text(description).into(),
+                        description,
                         action,
                     ));
                 }

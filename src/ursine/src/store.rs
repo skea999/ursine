@@ -8,7 +8,7 @@ use std::time::Duration;
 use crate::package_row::package_row;
 use cosmic::iced::Length;
 use cosmic::widget::{
-    button, column, dropdown, row, scrollable, selectable_text, settings, text, text_input, toggler,
+    button, column, dropdown, row, scrollable, selectable_text, settings, text, text_input,
 };
 use cosmic::Element;
 use ursine_api::{Action, CommandOutcome, InstalledPackage, SearchResult};
@@ -596,9 +596,9 @@ impl StoreState {
         items.push(scope_section.into());
         items.push(self.maintenance_view());
         items.push(self.upgrade_all_view(updates_auto));
-        items.push(self.advanced_view());
         items.push(self.search_view());
         items.push(self.repositories_view());
+        items.push(self.advanced_view());
         items.push(self.installed_view());
         items.push(self.generations_view());
 
@@ -749,31 +749,25 @@ impl StoreState {
         }
         for repository in &self.repositories {
             let name = repository.name.clone();
-            let row_items = vec![
-                selectable_text(format!(
-                    "{} → {} · {}",
-                    repository.name, repository.url, repository.scope
-                ))
-                .width(Length::Fill)
-                .into(),
-                // `user` entries and scopeless (older nix prints no
-                // scope column) are removable through the user registry;
-                // an explicit `global` row is nix's built-in default —
-                // overriding it is what "Add repository" is for.
-                if repository.scope == "user" || repository.scope == "default" {
-                    button::destructive("Remove")
-                        .on_press_maybe(
-                            (self.scope_ready() && !self.action_busy && !self.search_busy)
-                                .then_some(Message::StoreRepoRemoveRequested(name.clone())),
-                        )
-                        .into()
-                } else {
-                    text("built-in (override with Add)").into()
-                },
-            ];
-            section = section.add(settings::item(
-                repository.name.clone(),
-                row(row_items).spacing(8),
+            // `user` entries and scopeless (older nix prints no scope
+            // column) are removable through the user registry; an
+            // explicit `global` row is nix's built-in default —
+            // overriding it is what "Add repository" is for.
+            let action = if repository.scope == "user" || repository.scope == "default" {
+                button::destructive("Remove")
+                    .on_press_maybe(
+                        (self.scope_ready() && !self.action_busy && !self.search_busy)
+                            .then_some(Message::StoreRepoRemoveRequested(name.clone())),
+                    )
+                    .into()
+            } else {
+                text("built-in (override with Add)").into()
+            };
+            let detail = format!("{} · {}", repository.url, repository.scope);
+            section = section.add(crate::package_ui::repository_row(
+                name,
+                Some(detail),
+                vec![action],
             ));
         }
         section = section.add(settings::item(
@@ -862,11 +856,7 @@ impl StoreState {
 
     fn upgrade_all_view(&self, updates_auto: bool) -> Element<'_, Message> {
         let enabled = self.scope_ready();
-        let mut section = settings::section().title("Upgrade").add(settings::item(
-            "Check updates automatically",
-            toggler(updates_auto)
-                .on_toggle(|value| Message::UpdateAutoChanged("nix".to_string(), value)),
-        ));
+        let mut section = settings::section().title("Upgrade");
         let number: Element<'_, Message> = if self.updates_checking {
             text("Checking…").into()
         } else {
@@ -875,13 +865,15 @@ impl StoreState {
                 |updates| text::title2(updates.count.to_string()).into(),
             )
         };
-        section = section.add(settings::item("Packages to update", number));
-        let check_button: Element<'_, Message> = button::text("Check for updates")
-            .on_press_maybe(
-                (enabled && !self.updates_checking).then_some(Message::NixUpdatesRequested),
-            )
-            .into();
-        section = section.add(settings::item("Refresh", check_button));
+        for item in crate::package_ui::update_control_items(
+            updates_auto,
+            |value| Message::UpdateAutoChanged("nix".to_string(), value),
+            number,
+            Message::NixUpdatesRequested,
+            enabled && !self.updates_checking,
+        ) {
+            section = section.add(item);
+        }
         if let Some(updates) = &self.nix_updates {
             if !updates.packages.is_empty() {
                 section = section.add(settings::item(
@@ -1210,6 +1202,9 @@ fn truncate(text: &str) -> String {
 
 fn package_detail(package: &InstalledPackage) -> Element<'_, Message> {
     let mut lines: Vec<Element<'_, Message>> = Vec::new();
+    if let Some(repository) = &package.original_url {
+        lines.push(selectable_text(format!("repository: {repository}")).into());
+    }
     if let Some(attr) = &package.attr_path {
         lines.push(selectable_text(format!("attr: {attr}")).into());
     }

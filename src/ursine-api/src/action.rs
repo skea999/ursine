@@ -244,6 +244,33 @@ pub enum Action {
         app_id: String,
         system: bool,
     },
+    /// Preview/apply removing installed apk packages matching a regex
+    /// (the apk CLI has no regex: the daemon matches names itself).
+    ApkRemoveRegex {
+        pattern: String,
+        #[serde(default)]
+        dry_run: bool,
+    },
+    /// Preview/apply upgrading installed apk packages matching a regex.
+    ApkUpgradeRegex {
+        pattern: String,
+        #[serde(default)]
+        dry_run: bool,
+    },
+    /// Preview/apply removing installed Flatpaks matching a regex.
+    FlatpakRemoveRegex {
+        pattern: String,
+        #[serde(default)]
+        dry_run: bool,
+        system: bool,
+    },
+    /// Preview/apply updating installed Flatpaks matching a regex.
+    FlatpakUpgradeRegex {
+        pattern: String,
+        #[serde(default)]
+        dry_run: bool,
+        system: bool,
+    },
     /// Update every Flatpak application in the selected installation.
     UpdateFlatpak {
         system: bool,
