@@ -530,17 +530,10 @@ impl StoreState {
             text("Search, install and maintain the target user's nix profile.").into(),
         ];
 
-        if let Some(error) = &self.error {
-            items.push(text(error.clone()).into());
-        }
-        if let Some(message) = &self.action_message {
-            items.push(
-                settings::section()
-                    .title("Last action")
-                    .add(settings::item("Result", text(message.clone())))
-                    .into(),
-            );
-        }
+        items.extend(crate::package_ui::status_items(
+            self.error.as_deref(),
+            self.action_message.as_deref(),
+        ));
         if self.action_busy {
             let label = self
                 .action_label
@@ -559,27 +552,14 @@ impl StoreState {
             let confirm = self.can_run(&pending.action)
                 && (!pending.action.uses_profile()
                     || pending.scope.matches(self.target_user().as_deref()));
-            items.push(
-                settings::section()
-                    .title("Confirm action")
-                    .add(settings::item(
-                        "Target",
-                        text(pending.action.target_label(&pending.scope)),
-                    ))
-                    .add(settings::item(
-                        label,
-                        row(vec![
-                            button::suggested("Confirm")
-                                .on_press_maybe(confirm.then_some(Message::StoreActionConfirmed))
-                                .into(),
-                            button::text("Cancel")
-                                .on_press(Message::StoreConfirmCancelled)
-                                .into(),
-                        ])
-                        .spacing(8),
-                    ))
-                    .into(),
-            );
+            items.push(crate::package_ui::confirm_section(
+                pending.action.target_label(&pending.scope),
+                label,
+                Message::StoreActionConfirmed,
+                Message::StoreConfirmCancelled,
+                confirm,
+                false,
+            ));
         }
 
         let mut scope_section = settings::section().title("Scope").add(settings::item(
@@ -668,7 +648,10 @@ impl StoreState {
             ));
         }
         if let Some(error) = &self.search_error {
-            section = section.add(settings::item("Search failed", text(error.clone())));
+            section = section.add(settings::item(
+                "Search failed",
+                selectable_text(error.clone()),
+            ));
         }
 
         if self.search_results.is_empty() && self.search_done {
@@ -763,9 +746,9 @@ impl StoreState {
             } else {
                 text("built-in (override with Add)").into()
             };
-            let detail = format!("{} · {}", repository.url, repository.scope);
+            let detail = format!("{} · {}", repository.name, repository.scope);
             section = section.add(crate::package_ui::repository_row(
-                name,
+                repository.url.clone(),
                 Some(detail),
                 vec![action],
             ));
@@ -839,7 +822,7 @@ impl StoreState {
             let actions = row(buttons).spacing(8);
             section = section.add(package_row(
                 package.name.clone(),
-                package_detail(package),
+                package_detail(package, &self.repositories),
                 actions.into(),
             ));
         }
@@ -902,51 +885,24 @@ impl StoreState {
     /// single row squeezed the text input to zero width next to the
     /// three buttons and the field disappeared from view.
     fn advanced_view(&self) -> Element<'_, Message> {
-        let enabled = self.scope_ready();
-        let ready = enabled && !self.regex.trim().is_empty();
-        settings::section()
-            .title("Pattern actions")
-            .add(settings::item(
-                "Package pattern",
-                text("Matches against installed package names, e.g. ^python"),
-            ))
-            .add(settings::item(
-                "Regex",
-                text_input("Regex, e.g. ^python", self.regex.clone())
-                    .on_input(Message::StoreRegexChanged)
-                    .width(Length::Fill),
-            ))
-            .add(settings::item(
-                "Actions",
-                row(vec![
-                    button::text("Preview matches")
-                        .on_press_maybe(ready.then(|| {
-                            Message::StoreActionRequested(StoreAction::RemoveRegex {
-                                pattern: self.regex.trim().to_string(),
-                                dry_run: true,
-                            })
-                        }))
-                        .into(),
-                    button::text("Upgrade matching")
-                        .on_press_maybe(ready.then(|| {
-                            Message::StoreActionRequested(StoreAction::UpgradeRegex {
-                                pattern: self.regex.trim().to_string(),
-                                dry_run: false,
-                            })
-                        }))
-                        .into(),
-                    button::text("Remove matching")
-                        .on_press_maybe(ready.then(|| {
-                            Message::StoreActionRequested(StoreAction::RemoveRegex {
-                                pattern: self.regex.trim().to_string(),
-                                dry_run: false,
-                            })
-                        }))
-                        .into(),
-                ])
-                .spacing(8),
-            ))
-            .into()
+        crate::package_ui::pattern_section(crate::package_ui::PatternSection {
+            hint: "Matches against installed package names, e.g. ^python".to_string(),
+            regex: self.regex.clone(),
+            on_input: Message::StoreRegexChanged,
+            preview: Message::StoreActionRequested(StoreAction::RemoveRegex {
+                pattern: self.regex.trim().to_string(),
+                dry_run: true,
+            }),
+            upgrade: Message::StoreActionRequested(StoreAction::UpgradeRegex {
+                pattern: self.regex.trim().to_string(),
+                dry_run: false,
+            }),
+            remove: Message::StoreActionRequested(StoreAction::RemoveRegex {
+                pattern: self.regex.trim().to_string(),
+                dry_run: false,
+            }),
+            armed: self.scope_ready() && !self.regex.trim().is_empty() && !self.action_busy,
+        })
     }
 
     fn generations_view(&self) -> Element<'_, Message> {
@@ -1200,29 +1156,114 @@ fn truncate(text: &str) -> String {
     clipped
 }
 
-fn package_detail(package: &InstalledPackage) -> Element<'_, Message> {
-    let mut lines: Vec<Element<'_, Message>> = Vec::new();
-    if let Some(repository) = &package.original_url {
-        lines.push(selectable_text(format!("repository: {repository}")).into());
-    }
+/// Flatpak-style detail: identity line first (`attr · flake:nixpkgs`),
+/// the repository https link under it.
+fn package_detail<'a>(
+    package: &'a InstalledPackage,
+    repositories: &'a [ursine_api::NixRepository],
+) -> Element<'a, Message> {
+    let mut info: Vec<&str> = Vec::new();
     if let Some(attr) = &package.attr_path {
-        lines.push(selectable_text(format!("attr: {attr}")).into());
+        info.push(attr);
     }
-    if let Some(url) = &package.url {
-        lines.push(selectable_text(format!("url: {url}")).into());
+    if let Some(repository) = &package.original_url {
+        info.push(repository);
+    }
+    let mut lines: Vec<Element<'_, Message>> = Vec::new();
+    if !info.is_empty() {
+        lines.push(selectable_text(info.join(" · ")).into());
+    }
+    if let Some(link) = package_https(package, repositories) {
+        lines.push(selectable_text(link).into());
     }
     if !package.active {
         lines.push(selectable_text("state: inactive").into());
-    }
-    if lines.is_empty() {
+    } else if lines.is_empty() {
         lines.push(selectable_text("state: installed").into());
     }
     column(lines).spacing(2).into()
 }
 
+/// Best https link for the package's repository: the registry entry for
+/// `original_url` first (a ref like `nixos-26.05` beats a pinned
+/// revision), then the element's own locked url, then the reference.
+fn package_https(
+    package: &InstalledPackage,
+    repositories: &[ursine_api::NixRepository],
+) -> Option<String> {
+    if let Some(original) = &package.original_url {
+        // Registry rows drop the `flake:` prefix (`nix registry list`
+        // prints `flake:nixpkgs`, the GUI name is `nixpkgs`): match
+        // both forms so the registry entry wins when it exists.
+        let key = original.strip_prefix("flake:").unwrap_or(original);
+        if let Some(entry) = repositories
+            .iter()
+            .find(|repo| repo.name == key || repo.name == *original)
+        {
+            if let Some(link) = flake_to_https(&entry.url) {
+                return Some(link);
+            }
+        }
+    }
+    package
+        .url
+        .as_deref()
+        .and_then(flake_to_https)
+        .or_else(|| package.original_url.as_deref().and_then(flake_to_https))
+}
+
+/// `github:owner/repo[/ref]` → `https://github.com/owner/repo[/tree/ref]`
+/// (same for `gitlab:`); http(s) and `git+https` pass through after the
+/// query string is stripped. Anything else → None.
+fn flake_to_https(reference: &str) -> Option<String> {
+    let trimmed = reference.split('?').next().unwrap_or(reference);
+    let stripped = trimmed.strip_prefix("git+").unwrap_or(trimmed);
+    if stripped.starts_with("https://") || stripped.starts_with("http://") {
+        return Some(stripped.to_string());
+    }
+    for (prefix, host) in [("github:", "github.com"), ("gitlab:", "gitlab.com")] {
+        if let Some(rest) = stripped.strip_prefix(prefix) {
+            let mut parts = rest.splitn(3, '/');
+            let owner = parts.next()?;
+            let repo = parts.next()?;
+            if owner.is_empty() || repo.is_empty() {
+                return None;
+            }
+            let mut link = format!("https://{host}/{owner}/{repo}");
+            if let Some(reference) = parts.next() {
+                if !reference.is_empty() {
+                    link.push_str("/tree/");
+                    link.push_str(reference);
+                }
+            }
+            return Some(link);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flake_refs_become_https_links() {
+        assert_eq!(
+            flake_to_https("github:NixOS/nixpkgs/nixos-26.05"),
+            Some("https://github.com/NixOS/nixpkgs/tree/nixos-26.05".to_string())
+        );
+        assert_eq!(
+            flake_to_https("github:a/b/13d0c311e3ae923a00f734b43fd1d35b47d8943a?narHash=sha256-x"),
+            Some(
+                "https://github.com/a/b/tree/13d0c311e3ae923a00f734b43fd1d35b47d8943a".to_string()
+            )
+        );
+        assert_eq!(
+            flake_to_https("https://example.com/x.git"),
+            Some("https://example.com/x.git".to_string())
+        );
+        assert_eq!(flake_to_https("flake:nixpkgs"), None);
+    }
 
     #[test]
     fn blank_target_user_means_the_principal() {

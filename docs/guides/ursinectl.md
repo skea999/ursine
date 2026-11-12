@@ -107,8 +107,9 @@ audit log). Run `ursinectl --help` for the grouped list.
 `remove package=…`, `remove_all`, `remove_regex pattern=… [dry_run=true]`,
 `upgrade [package=… | all=true]`, `upgrade_regex pattern=… [dry_run=true]`,
 `generations`, `rollback [generation=…]`,
-`list_nix_updates` (on-demand dry-run upgrade check: prints the count +
-names; network + slow, unlocked flake refs only),
+`list_nix_updates` (on-demand update check: compares each profile
+element's pinned lock with the current `nix flake metadata` lock of its
+flake reference; prints the count + names; network),
 `wipe_history [older_than=…] dry_run=…`, `diff_closures [generation=…]`,
 `store_gc`, `prune_generations keep=… dry_run=…`
 

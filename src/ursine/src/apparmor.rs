@@ -2,6 +2,7 @@
 //! editor (syntax-checked save) and the notifications button.
 
 use cosmic::iced::Length;
+use cosmic::widget::selectable_text;
 use cosmic::widget::text::monotext;
 use cosmic::widget::text_editor::{self, text_editor};
 use cosmic::widget::{button, column, container, row, scrollable, text, text_input};
@@ -155,7 +156,7 @@ impl ApparmorState {
         .into()];
 
         if let Some(error) = &self.error {
-            items.push(text(error.clone()).into());
+            items.push(selectable_text(error.clone()).into());
         }
         if let Some(message) = &self.message {
             items.push(text(message.clone()).into());

@@ -1,6 +1,7 @@
 //! Snapshots screen: btrbk config dropdowns, list/stats/create, restore and delete.
 
 use cosmic::iced::Length;
+use cosmic::widget::selectable_text;
 use cosmic::widget::{
     button, column, dropdown, row, scrollable, settings, text, text_input, toggler,
 };
@@ -232,7 +233,7 @@ impl SnapshotsState {
         .into()];
 
         if let Some(error) = &self.error {
-            items.push(text(error.clone()).into());
+            items.push(selectable_text(error.clone()).into());
         }
         if self.busy {
             items.push(text("Reading btrbk state…").into());

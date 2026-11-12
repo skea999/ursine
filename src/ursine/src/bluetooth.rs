@@ -1,6 +1,7 @@
 //! Bluetooth screen: adapter power, scan and device actions.
 
 use cosmic::iced::Length;
+use cosmic::widget::selectable_text;
 use cosmic::widget::{button, column, row, scrollable, settings, text, toggler};
 use cosmic::Element;
 use ursine_api::{BluetoothOp, BluetoothView};
@@ -40,7 +41,7 @@ impl BluetoothState {
         .into()];
 
         if let Some(error) = &self.error {
-            items.push(text(error.clone()).into());
+            items.push(selectable_text(error.clone()).into());
         }
         if let Some(message) = &self.message {
             items.push(text(message.clone()).into());

@@ -181,7 +181,7 @@ pub enum Message {
     UpdateAutoSaved(u64, Result<ConfigSnapshot, ApiError>),
     /// Manual apk/flatpak update check (the on-demand path).
     PackageUpdatesRefreshRequested,
-    /// Manual nix update check (`list_nix_updates`, dry-run).
+    /// Manual nix update check (`list_nix_updates`, flake metadata compare).
     NixUpdatesRequested,
     /// Pattern-actions input changed (regex over installed names).
     PackagePatternChanged(String),
@@ -708,11 +708,7 @@ impl cosmic::Application for App {
             }
             Message::PackageUpdatesRefreshRequested => return self.refresh_package_updates(),
             Message::NixUpdatesRequested => return self.request_nix_updates(),
-            Message::PackagePatternChanged(value) => {
-                self.packages.pattern = value;
-                // The preview belonged to the previous pattern.
-                self.packages.pattern_preview = None;
-            }
+            Message::PackagePatternChanged(value) => self.packages.pattern = value,
             Message::PackagePatternPreviewRequested => return self.request_pattern_preview(),
             Message::PackagePatternPreviewFinished(epoch, result) => {
                 return self.finish_pattern_preview(epoch, result)
@@ -721,7 +717,6 @@ impl cosmic::Application for App {
                 let pattern = self.packages.pattern.trim().to_string();
                 if !pattern.is_empty() && !self.packages.action_busy && !self.packages.busy {
                     self.packages.pending_pattern = Some((op, pattern));
-                    self.packages.pattern_preview = None;
                 }
             }
             Message::PackagePatternConfirmed => return self.confirm_pattern(),
@@ -5991,7 +5986,6 @@ impl App {
         }
         self.packages.action_busy = true;
         self.packages.error = None;
-        self.packages.pattern_preview = None;
         let token = session.token.clone();
         let system = self.packages.system;
         let epoch = self.epoch;
@@ -6018,17 +6012,23 @@ impl App {
         self.packages.action_busy = false;
         match result {
             Ok(value) => {
-                let matched = value
+                // Same wording as the nix preview (shared schema).
+                let names = value
                     .get("would_change")
                     .and_then(|value| value.as_array())
                     .map(|items| {
                         items
                             .iter()
-                            .filter_map(|item| item.as_str().map(str::to_string))
-                            .collect()
+                            .filter_map(|item| item.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     })
                     .unwrap_or_default();
-                self.packages.pattern_preview = Some(matched);
+                self.packages.message = Some(if names.is_empty() {
+                    "No installed package matches.".to_string()
+                } else {
+                    format!("Matching packages: {names}.")
+                });
                 self.packages.error = None;
             }
             Err(error) => {
@@ -6060,7 +6060,6 @@ impl App {
         };
         let kind = self.packages.kind.unwrap_or(PackageKind::Apk);
         self.packages.action_busy = true;
-        self.packages.pattern_preview = None;
         self.packages.error = None;
         self.packages.message = None;
         let token = session.token.clone();
@@ -6086,7 +6085,7 @@ impl App {
         .map(cosmic::Action::App)
     }
 
-    /// On-demand nix upgrade check (dry-run; slow by design).
+    /// On-demand nix upgrade check (metadata compare; network-bound).
     fn request_nix_updates(&mut self) -> Task<cosmic::Action<Message>> {
         let Some(session) = &self.session else {
             return Task::none();

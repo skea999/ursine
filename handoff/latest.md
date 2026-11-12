@@ -6,6 +6,16 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-12 (b) — package-UI parity + regex + login focus, release 0.32.0 (main, tag `v0.32.0`)
+
+**Status**: Pushed `075f43f..0315a59`; CI green for `ae065d2` (`43230992841`) and both release runs (`43233852074`/`43233852955` success); auto-pin `b02992d` pulled, local HEAD `b02992d`.
+
+- **UI parity** (decision PACKAGE-MANAGER UI PARITY): identical section order Scope → Maintenance → Upgrade → Search → Remotes/Repositories → Pattern → Installed; counts on Installed titles; apk description = real (apk db `T:`) under `from <repo>` (one `apk policy` call); flatpak detail + remote URL; nix detail + `repository: <original_url>`; shared `package_ui.rs` (repository_row — flatpak remotes now item-per-remote like apk/nix — + update_control_items).
+- **Regex Pattern actions for apk+flatpak** (decision PATTERN-REGEX):4 new actions, daemon-side match (CLIs have none), dry_run preview + ONE job over the matched set behind confirm; destructive = dry_run:false; samples apk=Ok/flatpak=Gate; help/guide/man.
+- **Login password focus** at entry, after sign-out, after failed attempt.
+- **libcosmic bump reverted** (decision recorded): no menu-position fix in ecc5fe4 range + zbus6/theme-rename risk; right-click menu position stays OPEN (user: leave it for now).
+- Review closed (man parity blocker, confirm guards-before-take, doc wording, session-state). Gates green each step. Release `0315a59` + tag `v0.32.0`.
+
 ## Session 2026-11-12 — VM-smoke fixes + hand-verified commands, release 0.31.0 (main, tag `v0.31.0`)
 
 **Status**: Pushed `0461357..417fb39` (push hit a transient DNS outage mid-way, recovered on retry); CI green for `52f6b82` (`43197471698`) and both release runs (`43199990883`/`43199991246` success); auto-pin `075f43f` pulled, local HEAD `075f43f`.

@@ -60,7 +60,7 @@ fn is_safe_atom(s: &str) -> bool {
 /// Values are single-quoted in the `su -c` string, so anything except a quote,
 /// newline or NUL is literal. This is what lets regex patterns and paths with
 /// spaces reach nix without shell interpretation.
-fn is_safe_quoted_value(value: &str) -> bool {
+pub(super) fn is_safe_quoted_value(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 4096
         && !value
@@ -367,8 +367,9 @@ pub(super) async fn run_as_user(
     run_as_user_limited(user, "nix", args, timeout, OutputPolicy::Truncate).await
 }
 
-/// Run `nix search` as `user`, keeping the JSON document intact.
-pub(super) async fn run_as_user_search(
+/// Run `nix <args…>` as `user`, keeping the JSON document intact
+/// (`search`, `profile list --json`, `flake metadata --json`).
+pub(super) async fn run_as_user_json(
     user: &str,
     args: &[(&str, &str)],
     timeout: Duration,

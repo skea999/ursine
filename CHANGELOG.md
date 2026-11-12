@@ -1,5 +1,45 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **nix "Check for updates" works again** on nix builds without
+  `profile upgrade --dry-run` (hand-tested on nix 2.31.5, which has no
+  such flag): the check now compares each profile element's pinned
+  `narHash`/`rev` with the current lock returned by
+  `nix flake metadata <ref> --json` (one fetch per unique flake
+  reference). The old path could only ever fail with an uncopyable
+  error.
+- GUI **errors are selectable** everywhere (login and every module):
+  copy an error straight from the window.
+
+### Changed
+
+- Installed-package details follow the flatpak format in **all three
+  managers** (info line first, repository https link under it): apk
+  rows show the full repository URL (was the `main` tail) under the
+  description, nix rows show `attr · flake:nixpkgs` with an https link
+  resolved from the registry (falling back to the element's locked
+  url), flatpak unchanged.
+- nix **registry rows** list the flake URL as the title (apk style)
+  with `name · scope` under it; user/default entries keep Remove,
+  built-in global entries keep the override hint.
+- Pattern actions in **apk and flatpak follow the nix schema**: hint
+  row, regex input row, one Actions row (`Preview matches`,
+  `Upgrade matching`, `Remove matching`); the preview result lands in
+  the shared "Last action" line (same wording as nix), and a
+  destructive apply opens the shared top "Confirm action" block.
+
+### Added
+
+- Shared GUI builders for the three package managers
+  (`src/ursine/src/package_ui.rs`): `status_items` (copyable error +
+  last-action result), `pattern_section` (nix schema, used by nix,
+  apk and flatpak) and `confirm_section` (top confirmation, used by
+  nix and apk/flatpak) — one code path for the sections the managers
+  share.
+
 ## [0.32.0] — 2026-11-12
 
 ### Added

@@ -13,7 +13,7 @@ pub struct ApkPackage {
     pub description: Option<String>,
     #[serde(default)]
     pub protected: bool,
-    /// Repository tail (e.g. `main`) the installed version came from
+    /// Repository URL (https) the installed version came from
     /// (from `apk policy`; None for locally installed packages).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,

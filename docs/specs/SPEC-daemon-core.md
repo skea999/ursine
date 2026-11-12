@@ -73,10 +73,11 @@ manager=… enabled=…`, surgical TOML edit with `backup_configs` rotation):
 
 - `apk = true`, `flatpak = true` — fast checks run on screen open and on
   Refresh.
-- `nix = false` — the nix check is a `nix profile upgrade --all --dry-run`
-  (network, minutes on big profiles): with the preference off it runs only
-  when the user presses Refresh ("Check for updates"); with it on it runs
-  on open exactly like the others.
+- `nix = false` — the nix check compares each profile element's pinned
+  lock with the current `nix flake metadata` lock of its flake reference
+  (network): with the preference off it runs only when the user presses
+  Refresh ("Check for updates"); with it on it runs on open exactly like
+  the others.
 - With the preference off, Refresh is the manual path that still fetches
   the count; until a check runs the GUI shows "—", never a fake zero.
 

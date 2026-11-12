@@ -1,6 +1,7 @@
 //! Disks screen: block devices and mount state.
 
 use cosmic::iced::Length;
+use cosmic::widget::selectable_text;
 use cosmic::widget::{button, column, dropdown, row, scrollable, settings, text, text_input};
 use cosmic::Element;
 use ursine_api::{Disk, DiskView, DISK_FSTYPES};
@@ -70,7 +71,7 @@ impl DisksState {
         .into()];
 
         if let Some(error) = &self.error {
-            items.push(text(error.clone()).into());
+            items.push(selectable_text(error.clone()).into());
         }
         if let Some(message) = &self.message {
             items.push(text(message.clone()).into());

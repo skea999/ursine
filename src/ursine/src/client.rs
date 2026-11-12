@@ -471,9 +471,10 @@ pub async fn flatpak_upgrade_regex(
     .await
 }
 
-/// On-demand upgrade check (`nix profile upgrade --all --dry-run`).
+/// On-demand upgrade check (compares each element's pinned lock with
+/// the current `nix flake metadata` lock of its flake reference).
 pub async fn nix_list_updates(token: SessionToken) -> Result<ursine_api::NixUpdates, ApiError> {
-    // The dry-run re-fetches flakes: give it the full check budget.
+    // The check fetches flake metadata: give it the full check budget.
     let value = call_with_timeout(
         token,
         ModuleId::PackagesNix,

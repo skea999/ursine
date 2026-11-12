@@ -346,9 +346,10 @@ fn read_apk_descriptions() -> std::collections::HashMap<String, String> {
     map
 }
 
-/// `apk policy <names…>` → package → repository tail (`main`, …).
+/// `apk policy <names…>` → package → repository URL (https).
 /// Only the version block that contains `lib/apk/db/installed` counts,
-/// and only an http(s) URL inside that block is an origin.
+/// and only an http(s) URL inside that block is an origin (kept in
+/// full — the frontends render it as the repository link).
 fn parse_policy_origins(output: &str) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     let mut current: Option<String> = None;
@@ -367,8 +368,10 @@ fn parse_policy_origins(output: &str) -> std::collections::HashMap<String, Strin
         } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
             if installed_version {
                 if let Some(name) = &current {
-                    let tail = trimmed.rsplit('/').next().unwrap_or(trimmed);
-                    map.entry(name.clone()).or_insert_with(|| tail.to_string());
+                    // Full https URL: the GUI detail shows it as the
+                    // repository link (flatpak parity).
+                    map.entry(name.clone())
+                        .or_insert_with(|| trimmed.to_string());
                 }
             }
         } else if trimmed.ends_with(':') && !trimmed.contains(' ') {

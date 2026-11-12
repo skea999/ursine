@@ -8,6 +8,7 @@ pub mod exec;
 mod generations;
 mod parse;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -191,42 +192,124 @@ fn line_list(outcome: &CommandOutcome) -> Vec<String> {
         .collect()
 }
 
-/// Older nix builds predate `upgrade --dry-run`: the flag is rejected
-/// instantly (before any network), so map it to an actionable
-/// Unavailable instead of a raw "command failed".
-fn dry_run_unsupported(message: &str) -> bool {
-    message.contains("dry-run")
-        && [
-            // Both spellings: nix 2.31.5 (verified on the reference VM)
-            // prints "unrecognised flag", others use "unrecognized".
-            "unrecognized flag",
-            "unrecognised flag",
-            "unknown flag",
-            "unrecognized option",
-            "unrecognised option",
-            "unknown option",
-            "unrecognized argument",
-            "unrecognised argument",
-        ]
-        .iter()
-        .any(|needle| message.contains(needle))
+/// A lock we can compare: source content hash or commit id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FlakeLock {
+    Nar(String),
+    Rev(String),
 }
 
-/// Names from `nix profile upgrade --all --dry-run`: nix logs
-/// `upgrading 'hello' from flake 'A' to 'B'` (stderr); warnings about
-/// locked/flake-less packages never match.
-fn parse_upgradable(outcome: &CommandOutcome) -> Vec<String> {
+/// The current locks of one flake reference (either may be missing).
+#[derive(Debug, Default, PartialEq, Eq)]
+struct MetaLock {
+    nar: Option<String>,
+    rev: Option<String>,
+}
+
+/// Percent-decode a query value (`%2B` → `+`): flake URLs encode the
+/// narHash parameter this way.
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0usize;
+    while let Some(&byte) = bytes.get(index) {
+        if byte == b'%' {
+            let pair = bytes.get(index + 1..index + 3).and_then(|pair| {
+                let hex = std::str::from_utf8(pair).ok()?;
+                u8::from_str_radix(hex, 16).ok()
+            });
+            if let Some(decoded) = pair {
+                out.push(decoded);
+                index += 3;
+                continue;
+            }
+        }
+        out.push(byte);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Commit-shaped hex segment (nix revisions are 40 hex chars; short
+/// forms appear in hand-written flake refs).
+fn is_rev(value: &str) -> bool {
+    (7..=40).contains(&value.len()) && value.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// A profile element's `url` → the lock it is pinned to: the `narHash`
+/// query parameter first (what `nix profile list --json` emits), then a
+/// `rev=` query parameter, then a hex path segment. `None` means the
+/// element carries no comparable lock — never guess.
+fn element_lock(url: &str) -> Option<FlakeLock> {
+    let (path, query) = url.split_once('?').unwrap_or((url, ""));
+    for pair in query.split('&') {
+        if let Some(value) = pair.strip_prefix("narHash=") {
+            let nar = percent_decode(value);
+            if !nar.is_empty() {
+                return Some(FlakeLock::Nar(nar));
+            }
+        }
+    }
+    for pair in query.split('&') {
+        if let Some(value) = pair.strip_prefix("rev=") {
+            if is_rev(value) {
+                return Some(FlakeLock::Rev(value.to_string()));
+            }
+        }
+    }
+    let last = path.rsplit('/').next().unwrap_or("");
+    if is_rev(last) {
+        Some(FlakeLock::Rev(last.to_string()))
+    } else {
+        None
+    }
+}
+
+/// `nix flake metadata <ref> --json` → comparable locks (tolerant:
+/// a missing field or an unparsable document yields `Default`, and the
+/// caller then reports nothing for that ref instead of failing).
+fn meta_locks(json: &str) -> MetaLock {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
+        return MetaLock::default();
+    };
+    MetaLock {
+        nar: value
+            .pointer("/locked/narHash")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        rev: value
+            .get("revision")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+    }
+}
+
+/// True only when the element's lock kind exists in the metadata and
+/// the values differ. A missing matching field means "cannot tell" —
+/// never report an update we cannot prove.
+fn outdatable(lock: &FlakeLock, meta: &MetaLock) -> bool {
+    match lock {
+        FlakeLock::Nar(nar) => meta.nar.as_ref().is_some_and(|current| current != nar),
+        FlakeLock::Rev(rev) => meta.rev.as_ref().is_some_and(|current| current != rev),
+    }
+}
+
+/// Element names whose pinned lock differs from the current metadata
+/// lock of their original flake reference (profile order, unique).
+fn outdated_names(elements: &[InstalledPackage], metas: &HashMap<String, MetaLock>) -> Vec<String> {
     let mut packages: Vec<String> = Vec::new();
-    for line in outcome.stdout.lines().chain(outcome.stderr.lines()) {
-        let Some(rest) = line.split("upgrading '").nth(1) else {
+    for element in elements {
+        let (Some(original), Some(url)) = (&element.original_url, &element.url) else {
             continue;
         };
-        let Some(name) = rest.split('\'').next() else {
+        let Some(lock) = element_lock(url) else {
             continue;
         };
-        let name = name.trim();
-        if !name.is_empty() && !packages.iter().any(|existing| existing == name) {
-            packages.push(name.to_string());
+        let Some(meta) = metas.get(original) else {
+            continue;
+        };
+        if outdatable(&lock, meta) && !packages.contains(&element.name) {
+            packages.push(element.name.clone());
         }
     }
     packages
@@ -350,7 +433,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                 }
                 None => "nixpkgs".to_string(),
             };
-            let out = exec::run_as_user_search(
+            let out = exec::run_as_user_json(
                 user,
                 &[
                     ("search", ""),
@@ -483,30 +566,50 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             start_argv_job(ctx, "upgrade_regex", "nix", argv, MUTATE_TIMEOUT)
         }
         Action::ListNixUpdates => {
-            // On-demand and slow by design (re-fetches every unlocked
-            // flake with tarballTtl=0): never automatic without opt-in.
-            let out = exec::run_as_user(
+            // Hand-tested on the reference VM (nix 2.31.5): `profile
+            // upgrade` has NO --dry-run flag, so the check compares each
+            // element's pinned lock with the CURRENT lock of its
+            // original flake reference (`nix flake metadata --json`).
+            // On-demand and network-bound: never automatic without opt-in.
+            let out = exec::run_as_user_json(
                 user,
-                &[
-                    ("profile", ""),
-                    ("upgrade", ""),
-                    ("--all", ""),
-                    ("--dry-run", ""),
-                ],
+                &[("profile", ""), ("list", ""), ("--json", "")],
                 UPDATE_CHECK_TIMEOUT,
             )
-            .await
-            .map_err(|error| {
-                if dry_run_unsupported(&error.message) {
-                    ApiError::unavailable(
-                        "this nix is too old: `profile upgrade` has no --dry-run flag",
-                        "upgrade nix — the update check needs the dry-run flag",
-                    )
-                } else {
-                    error
+            .await?;
+            let elements = parse::parse_profile_list(&out.stdout)?;
+            let mut metas: HashMap<String, MetaLock> = HashMap::new();
+            for element in &elements {
+                let (Some(original), Some(url)) = (&element.original_url, &element.url.as_deref())
+                else {
+                    continue;
+                };
+                // One metadata fetch per unique reference, and only for
+                // elements that actually carry a comparable lock.
+                if metas.contains_key(original) || element_lock(url).is_none() {
+                    continue;
                 }
-            })?;
-            let packages = parse_upgradable(&out);
+                // The ref rides a single-quoted VALUE after `--` (so
+                // `&`/`?` queries survive; quotes/newlines do not) —
+                // skip what that guard refuses instead of failing the
+                // whole check.
+                if !exec::is_safe_quoted_value(original) {
+                    continue;
+                }
+                let meta = exec::run_as_user_json(
+                    user,
+                    &[
+                        ("flake", ""),
+                        ("metadata", ""),
+                        ("--json", ""),
+                        ("--", original.as_str()),
+                    ],
+                    UPDATE_CHECK_TIMEOUT,
+                )
+                .await?;
+                metas.insert(original.clone(), meta_locks(&meta.stdout));
+            }
+            let packages = outdated_names(&elements, &metas);
             Ok(serde_json::json!(ursine_api::NixUpdates {
                 count: packages.len(),
                 packages,
@@ -700,37 +803,110 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
 mod tests {
 
     #[test]
-    fn classifies_missing_dry_run_flag() {
-        // Verbatim from `nix profile upgrade --all --dry-run` on the
-        // reference VM (nix 2.31.5): British spelling.
-        assert!(dry_run_unsupported(
-            "error: unrecognised flag '--dry-run'\nTry 'nix --help' for more information."
-        ));
-        assert!(dry_run_unsupported("error: unrecognized flag '--dry-run'"));
-        assert!(dry_run_unsupported("nix: unknown option: --dry-run"));
-        // Real failures keep their own error.
-        assert!(!dry_run_unsupported("error: connection refused"));
-        assert!(!dry_run_unsupported("unrecognized flag 'other'"));
+    fn element_lock_prefers_percent_encoded_narhash() {
+        // Verbatim element url from `nix profile list --json` on the
+        // reference VM (nix 2.31.5).
+        let url = "github:NixOS/nixpkgs/7dcdd87373d72e7a2173e4db02e20d3d7f495cfd\
+            ?narHash=sha256-tItrb9M8eYA6WhFgmT9tpGKueri3%2BwRuVA952o/2x";
+        assert_eq!(
+            element_lock(url),
+            Some(FlakeLock::Nar(
+                "sha256-tItrb9M8eYA6WhFgmT9tpGKueri3+wRuVA952o/2x".to_string()
+            ))
+        );
     }
 
     #[test]
-    fn parse_upgradable_reads_dry_run_log_lines() {
-        let outcome = CommandOutcome {
-            stdout: String::new(),
-            stderr: concat!(
-                "warning: package 'x' not from a flake\n",
-                "upgrading 'hello' from flake 'nixpkgs' to 'github:a/b'\n",
-                "upgrading 'gh' from flake 'nixpkgs' to 'github:c/d'\n",
-                "upgrading 'hello' from flake 'nixpkgs' to 'github:a/e'\n",
-            )
-            .to_string(),
+    fn element_lock_falls_back_to_rev_and_none_without_lock() {
+        assert_eq!(
+            element_lock("github:a/b/13d0c311e3ae923a00f734b43fd1d35b47d8943a"),
+            Some(FlakeLock::Rev(
+                "13d0c311e3ae923a00f734b43fd1d35b47d8943a".to_string()
+            ))
+        );
+        assert_eq!(
+            element_lock("git+https://example.com/x/y?rev=abcdef1"),
+            Some(FlakeLock::Rev("abcdef1".to_string()))
+        );
+        assert_eq!(element_lock("flake:nixpkgs#hello"), None);
+    }
+
+    #[test]
+    fn meta_locks_read_locked_narhash_and_revision() {
+        // Field shape from `nix flake metadata flake:nixpkgs --json`.
+        let meta = meta_locks(
+            "{\"locked\":{\"narHash\":\"sha256-XuAV2cUwaod3Bt4XFVqiXz3v1w2ex16W6Sv4S7EWres=\"},\
+              \"revision\":\"ac588ef1c914865dad517b337ea0eb9694a4021c\"}",
+        );
+        assert_eq!(
+            meta.nar.as_deref(),
+            Some("sha256-XuAV2cUwaod3Bt4XFVqiXz3v1w2ex16W6Sv4S7EWres=")
+        );
+        assert_eq!(
+            meta.rev.as_deref(),
+            Some("ac588ef1c914865dad517b337ea0eb9694a4021c")
+        );
+        // Garbage never invents a lock.
+        assert_eq!(meta_locks("not json"), MetaLock::default());
+    }
+
+    #[test]
+    fn outdatable_requires_a_matching_lock_kind() {
+        let meta = MetaLock {
+            nar: Some("sha256-b".to_string()),
+            rev: Some("aaaaaaa".to_string()),
         };
-        assert_eq!(parse_upgradable(&outcome), ["hello", "gh"]);
-        assert!(parse_upgradable(&CommandOutcome {
-            stdout: String::new(),
-            stderr: String::new(),
-        })
-        .is_empty());
+        assert!(outdatable(&FlakeLock::Nar("sha256-a".to_string()), &meta));
+        assert!(!outdatable(&FlakeLock::Nar("sha256-b".to_string()), &meta));
+        assert!(outdatable(&FlakeLock::Rev("bbbbbbb".to_string()), &meta));
+        assert!(!outdatable(&FlakeLock::Rev("aaaaaaa".to_string()), &meta));
+        // No matching field on the metadata side → cannot tell.
+        assert!(!outdatable(
+            &FlakeLock::Nar("sha256-a".to_string()),
+            &MetaLock::default()
+        ));
+    }
+
+    #[test]
+    fn outdated_names_flags_only_proven_changes() {
+        let element = |name: &str, url: Option<&str>| InstalledPackage {
+            name: name.to_string(),
+            attr_path: None,
+            original_url: Some("flake:nixpkgs".to_string()),
+            url: url.map(str::to_string),
+            store_paths: Vec::new(),
+            active: true,
+        };
+        let elements = vec![
+            element(
+                "bleachbit",
+                Some(
+                    "github:NixOS/nixpkgs/7dcdd87373d72e7a2173e4db02e20d3d7f495cfd\
+                      ?narHash=sha256-old",
+                ),
+            ),
+            element(
+                "fresh",
+                Some(
+                    "github:NixOS/nixpkgs/ac588ef1c914865dad517b337ea0eb9694a4021c\
+                      ?narHash=sha256-new",
+                ),
+            ),
+            element("no-lock", Some("flake:nixpkgs#hello")),
+            element("no-url", None),
+        ];
+        let mut metas = HashMap::new();
+        metas.insert(
+            "flake:nixpkgs".to_string(),
+            MetaLock {
+                nar: Some("sha256-new".to_string()),
+                rev: None,
+            },
+        );
+        // Only the element whose narHash differs is flagged; a missing
+        // metadata entry (unfetchable ref) flags nothing.
+        assert_eq!(outdated_names(&elements, &metas), ["bleachbit"]);
+        assert!(outdated_names(&elements, &HashMap::new()).is_empty());
     }
 
     use super::*;

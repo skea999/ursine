@@ -116,8 +116,6 @@ pub struct PackagesState {
     pub updates_seq: u64,
     /// Pattern-actions input (regex over installed names).
     pub pattern: String,
-    /// Last dry-run preview (`would_change`) for the pattern.
-    pub pattern_preview: Option<Vec<String>>,
     /// (operation, pattern) waiting for confirmation.
     pub pending_pattern: Option<(PatternOp, String)>,
     pub error: Option<String>,
@@ -162,7 +160,6 @@ impl Default for PackagesState {
             updates_checking: false,
             updates_seq: 0,
             pattern: String::new(),
-            pattern_preview: None,
             pending_pattern: None,
             error: None,
             message: None,
@@ -200,7 +197,6 @@ impl PackagesState {
         self.updates_checked = false;
         self.updates_checking = false;
         self.updates_seq = self.updates_seq.wrapping_add(1);
-        self.pattern_preview = None;
         self.pending_pattern = None;
         self.error = None;
         self.message = None;
@@ -378,16 +374,24 @@ impl PackagesState {
         .width(Length::Fill)
         .into()];
 
-        if let Some(error) = &self.error {
-            items.push(text(error.clone()).into());
-        }
-        if let Some(message) = &self.message {
-            items.push(text(message.clone()).into());
-        }
+        items.extend(crate::package_ui::status_items(
+            self.error.as_deref(),
+            self.message.as_deref(),
+        ));
         if self.busy {
             items.push(text("Reading package state…").into());
         } else if self.action_busy {
             items.push(text("Running package action…").into());
+        }
+        if let Some((op, pattern)) = &self.pending_pattern {
+            items.push(crate::package_ui::confirm_section(
+                kind.title().to_string(),
+                format!("{op} every installed package matching \"{pattern}\"?"),
+                Message::PackagePatternConfirmed,
+                Message::PackagePatternCancelled,
+                !self.action_busy && !self.busy,
+                true,
+            ));
         }
 
         let scope_section = settings::section().title("Scope").add(settings::item(
@@ -675,83 +679,23 @@ impl PackagesState {
             items.push(remotes_section.into());
         }
 
-        // Pattern actions (regex) — same shape as the nix store: input,
-        // preview, then the two apply buttons behind a confirmation.
-        let pattern_ready = !self.pattern.trim().is_empty() && !self.busy && !self.action_busy;
-        let mut pattern_section = settings::section()
-            .title("Pattern actions")
-            .add(settings::item(
-                "Package pattern",
-                row(vec![
-                    text_input("Regex, e.g. ^lib", self.pattern.clone())
-                        .on_input(Message::PackagePatternChanged)
-                        .width(Length::Fill)
-                        .into(),
-                    button::text("Preview matches")
-                        .on_press_maybe(
-                            pattern_ready.then_some(Message::PackagePatternPreviewRequested),
-                        )
-                        .into(),
-                ])
-                .spacing(8),
-            ));
-        if let Some(matched) = &self.pattern_preview {
-            let shown: Vec<Element<'_, Message>> = matched
-                .iter()
-                .take(50)
-                .map(|name| selectable_text(name.clone()).into())
-                .collect();
-            let label = if matched.len() > 50 {
-                format!("Matches ({} — showing 50)", matched.len())
-            } else {
-                format!("Matches ({})", matched.len())
-            };
-            pattern_section = pattern_section.add(settings::item(label, column(shown).spacing(2)));
-        }
-        if let Some((op, pattern)) = &self.pending_pattern {
-            pattern_section = pattern_section.add(settings::item(
-                "Confirm",
-                column(vec![
-                    text(format!(
-                        "{op} every installed package matching \"{pattern}\"?"
-                    ))
-                    .into(),
-                    row(vec![
-                        button::destructive("Confirm")
-                            .on_press_maybe(
-                                (!self.action_busy && !self.busy)
-                                    .then_some(Message::PackagePatternConfirmed),
-                            )
-                            .into(),
-                        button::text("Cancel")
-                            .on_press(Message::PackagePatternCancelled)
-                            .into(),
-                    ])
-                    .spacing(8)
-                    .into(),
-                ])
-                .spacing(8),
-            ));
-        } else {
-            pattern_section =
-                pattern_section.add(settings::item(
-                    "Actions",
-                    row(vec![
-                        button::text("Upgrade matching")
-                            .on_press_maybe(pattern_ready.then_some(
-                                Message::PackagePatternApplyRequested(PatternOp::Upgrade),
-                            ))
-                            .into(),
-                        button::text("Remove matching")
-                            .on_press_maybe(pattern_ready.then_some(
-                                Message::PackagePatternApplyRequested(PatternOp::Remove),
-                            ))
-                            .into(),
-                    ])
-                    .spacing(8),
-                ));
-        }
-        items.push(pattern_section.into());
+        // Pattern actions — the nix schema through the shared builder:
+        // hint, input, Preview/Upgrade/Remove in one row.
+        let pattern_hint = match kind {
+            PackageKind::Apk => "Matches against installed package names, e.g. ^python",
+            PackageKind::Flatpak => "Matches against installed app ids and names, e.g. ^org",
+        };
+        items.push(crate::package_ui::pattern_section(
+            crate::package_ui::PatternSection {
+                hint: pattern_hint.to_string(),
+                regex: self.pattern.clone(),
+                on_input: Message::PackagePatternChanged,
+                preview: Message::PackagePatternPreviewRequested,
+                upgrade: Message::PackagePatternApplyRequested(PatternOp::Upgrade),
+                remove: Message::PackagePatternApplyRequested(PatternOp::Remove),
+                armed: !self.pattern.trim().is_empty() && !self.busy && !self.action_busy,
+            },
+        ));
 
         let listed = match kind {
             PackageKind::Apk => self.apk.len(),
@@ -792,16 +736,16 @@ impl PackagesState {
                         );
                         row(buttons).spacing(8).into()
                     };
-                    // Repository first, description under it (parity
-                    // with the nix/flatpak detail blocks).
+                    // Flatpak-style detail: info line first, the
+                    // repository https URL under it.
                     let mut detail: Vec<Element<'_, Message>> = Vec::with_capacity(2);
-                    if let Some(origin) = &package.origin {
-                        detail.push(selectable_text(format!("from {origin}")).into());
-                    }
                     if let Some(description) = &package.description {
                         if !description.is_empty() {
                             detail.push(selectable_text(description.clone()).into());
                         }
+                    }
+                    if let Some(origin) = &package.origin {
+                        detail.push(selectable_text(origin.clone()).into());
                     }
                     if detail.is_empty() {
                         detail.push(text("").into());
@@ -938,7 +882,7 @@ impl PackagesState {
                 (_, Some(error)) => {
                     confirm = confirm.add(settings::item(
                         "Sizes",
-                        text(format!("unavailable ({error})")),
+                        selectable_text(format!("unavailable ({error})")),
                     ));
                 }
                 _ => {}

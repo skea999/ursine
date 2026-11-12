@@ -1,6 +1,7 @@
 //! Scanners screen: SANE discovery and manual airscan setup.
 
 use cosmic::iced::Length;
+use cosmic::widget::selectable_text;
 use cosmic::widget::{
     button, column, dropdown, row, scrollable, settings, text, text_input, toggler,
 };
@@ -43,7 +44,7 @@ impl ScannersState {
         .into()];
 
         if let Some(error) = &self.error {
-            items.push(text(error.clone()).into());
+            items.push(selectable_text(error.clone()).into());
         }
         if let Some(message) = &self.message {
             items.push(text("Saved.").into());
