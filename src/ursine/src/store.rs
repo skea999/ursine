@@ -5,11 +5,7 @@
 
 use std::time::Duration;
 
-use crate::package_row::package_row;
-use cosmic::iced::Length;
-use cosmic::widget::{
-    button, column, dropdown, row, scrollable, selectable_text, settings, text, text_input,
-};
+use cosmic::widget::{button, dropdown, row, settings, text, text_input};
 use cosmic::Element;
 use ursine_api::{Action, CommandOutcome, InstalledPackage, SearchResult};
 
@@ -512,338 +508,149 @@ impl StoreState {
         !self.busy && !self.action_busy && (!action.uses_profile() || self.scope_ready())
     }
 
+    /// The GUI is ONE code path (`package_ui::view`): this adapter only
+    /// injects nix data — order and layout never live here.
     pub fn view(&self, updates_auto: bool) -> Element<'_, Message> {
-        let header = row(vec![
-            text::title2("Nix store").into(),
-            text("").width(Length::Fill).into(),
-            button::standard(if self.busy {
-                "Refreshing…"
-            } else {
-                "Refresh"
-            })
-            .on_press_maybe((!self.busy && !self.action_busy).then_some(Message::RefreshStore))
-            .into(),
-        ])
-        .spacing(12);
+        crate::package_ui::view(self.vm(updates_auto))
+    }
 
-        let mut items: Vec<Element<'_, Message>> = vec![
-            header.into(),
-            text("Search, install and maintain the target user's nix profile.").into(),
-        ];
+    /// Everything the shared view renders, as data for this manager.
+    fn vm(&self, updates_auto: bool) -> crate::package_ui::PackageVm<'_> {
+        use crate::package_ui::{
+            ConfirmVm, ListVm, PackageVm, RefreshVm, RowVm, SearchVm, SectionVm, UpgradeAllVm,
+            UpgradeVm,
+        };
 
-        items.extend(crate::package_ui::status_items(
-            self.error.as_deref(),
-            self.action_message.as_deref(),
-        ));
-        if self.action_busy {
-            let label = self
-                .action_label
-                .clone()
-                .unwrap_or_else(|| "Running profile action".into());
-            let elapsed = self
-                .action_started
-                .map_or(0, |started| started.elapsed().as_secs());
-            items.push(text(format!("{label} — {elapsed} s elapsed…")).into());
-        }
+        let enabled = self.scope_ready();
+
+        // --- pending confirmations (all stack at the top) ---
+        let mut confirms: Vec<ConfirmVm> = Vec::new();
         if let Some(pending) = &self.pending {
             let label = pending
                 .action
                 .confirmation_in(&pending.scope)
                 .unwrap_or_else(|| "Apply this action?".into());
-            let confirm = self.can_run(&pending.action)
+            let armed = self.can_run(&pending.action)
                 && (!pending.action.uses_profile()
                     || pending.scope.matches(self.target_user().as_deref()));
-            items.push(crate::package_ui::confirm_section(
-                pending.action.target_label(&pending.scope),
-                label,
-                Message::StoreActionConfirmed,
-                Message::StoreConfirmCancelled,
-                confirm,
-                false,
-            ));
+            confirms.push(ConfirmVm {
+                title: "Confirm action".to_string(),
+                rows: vec![
+                    (
+                        "Target".to_string(),
+                        pending.action.target_label(&pending.scope),
+                    ),
+                    ("Action".to_string(), label),
+                ],
+                confirm: Message::StoreActionConfirmed,
+                cancel: Message::StoreConfirmCancelled,
+                armed,
+                destructive: false,
+            });
         }
-
-        let mut scope_section = settings::section().title("Scope").add(settings::item(
-            "Target user",
-            text_input("Signed-in user", self.as_user_input.clone())
-                .on_input(Message::StoreAsUserChanged),
-        ));
-        if self.needs_load() {
-            scope_section = scope_section.add(settings::item(
-                "Profile not loaded",
-                text("Refresh to load this target before acting on it."),
-            ));
-        }
-        items.push(scope_section.into());
-        items.push(self.maintenance_view());
-        items.push(self.upgrade_all_view(updates_auto));
-        items.push(self.search_view());
-        items.push(self.repositories_view());
-        items.push(self.advanced_view());
-        items.push(self.installed_view());
-        items.push(self.generations_view());
-
-        scrollable(column(items).spacing(16).padding(24)).into()
-    }
-
-    fn search_view(&self) -> Element<'_, Message> {
-        let can_search = !self.search_busy && !self.search_query.trim().is_empty();
-        let can_act = self.scope_ready();
-        let repo_names = self.search_repo_names();
-        let repo_selected = repo_names
-            .iter()
-            .position(|name| *name == self.search_repo)
-            .unwrap_or(0);
-        let mut section = settings::section()
-            .title("Search")
-            .add(settings::item(
-                "Repository",
-                dropdown(
-                    repo_names,
-                    Some(repo_selected),
-                    Message::StoreSearchRepoChanged,
-                ),
-            ))
-            .add(settings::item(
-                "Query",
-                row(vec![
-                    text_input("Package name", self.search_query.clone())
-                        .on_input(Message::StoreSearchChanged)
-                        .on_submit(|_| Message::StoreSearchSubmitted)
-                        .into(),
-                    button::text(if self.search_busy {
-                        "Searching…"
-                    } else {
-                        "Search"
-                    })
-                    .on_press_maybe(can_search.then_some(Message::StoreSearchSubmitted))
-                    .into(),
-                ])
-                .spacing(8),
-            ));
-
-        section = section.add(settings::item(
-            "Direct install",
-            row(vec![
-                text_input("nixpkgs#hello", self.install_input.clone())
-                    .on_input(Message::StoreInstallChanged)
-                    .into(),
-                button::text("Install")
-                    .on_press_maybe((can_act && !self.install_input.trim().is_empty()).then(|| {
-                        Message::StoreActionRequested(StoreAction::Install(
-                            self.install_input.trim().to_string(),
-                        ))
-                    }))
-                    .into(),
-            ])
-            .spacing(8),
-        ));
-
-        if self.search_busy {
-            section = section.add(settings::item(
-                "Status",
-                text(format!(
-                    "Searching {}. This can take several minutes.",
-                    self.search_repo
-                )),
-            ));
-        }
-        if let Some(error) = &self.search_error {
-            section = section.add(settings::item(
-                "Search failed",
-                selectable_text(error.clone()),
-            ));
-        }
-
-        if self.search_results.is_empty() && self.search_done {
-            section = section.add(settings::item("No matches", text("No packages matched.")));
-        }
-        if !self.search_results.is_empty() {
-            let title = if self.search_truncated {
-                format!(
-                    "Search results (first {} of more — narrow the query)",
-                    self.search_results.len()
-                )
-            } else {
-                format!("Search results ({})", self.search_results.len())
-            };
-            section = section.title(title);
-            for result in &self.search_results {
-                let title = match (&result.pname, &result.version) {
-                    (Some(name), Some(version)) => format!("{name} {version}"),
-                    (Some(name), None) => name.clone(),
-                    (None, _) => result.attr.clone(),
-                };
-                let installable = result
-                    .installable
-                    .clone()
-                    .unwrap_or_else(|| result.attr.clone());
-                let install =
-                    button::text("Install")
-                        .on_press_maybe(can_act.then(|| {
-                            Message::StoreActionRequested(StoreAction::Install(installable))
-                        }))
-                        .into();
-                section = section.add(package_row(
-                    title,
-                    column(vec![
-                        text(format!("attr: {}", result.attr)).into(),
-                        result.description.clone().map_or_else(
-                            || text("no description").into(),
-                            |description| text(description).into(),
-                        ),
-                    ])
-                    .spacing(2)
-                    .into(),
-                    install,
-                ));
-            }
-        }
-
-        section.into()
-    }
-
-    fn repositories_view(&self) -> Element<'_, Message> {
-        let mut section = settings::section().title("Flake repositories");
         if let Some((name, scope)) = &self.pending_repo_remove {
             let question = if scope == "global" {
                 format!("Remove the system registry entry {name}?")
             } else {
                 format!("Remove the registry entry {name}?")
             };
-            section = section.add(settings::item(
-                "Confirm removal",
-                row(vec![
-                    text(question).into(),
-                    button::destructive("Remove")
-                        .on_press_maybe(
-                            (self.scope_ready() && !self.action_busy && !self.search_busy)
-                                .then_some(Message::StoreRepoRemoveConfirmed),
+            confirms.push(ConfirmVm {
+                title: "Confirm repository removal".to_string(),
+                rows: vec![("Consequences".to_string(), question)],
+                confirm: Message::StoreRepoRemoveConfirmed,
+                cancel: Message::StoreRepoRemoveCancelled,
+                armed: enabled && !self.action_busy && !self.search_busy,
+                destructive: true,
+            });
+        }
+
+        // --- Scope ---
+        let mut scope_items: Vec<Element<'_, Message>> = vec![settings::item(
+            "Target user",
+            text_input("Signed-in user", self.as_user_input.clone())
+                .on_input(Message::StoreAsUserChanged),
+        )
+        .into()];
+        if self.needs_load() {
+            scope_items.push(
+                settings::item(
+                    "Profile not loaded",
+                    text("Refresh to load this target before acting on it."),
+                )
+                .into(),
+            );
+        }
+        let scope = SectionVm {
+            title: "Scope".to_string(),
+            items: scope_items,
+        };
+
+        // --- Maintenance: prune, wipe history, store GC ---
+        let keep_choices = ["1", "3", "5", "10", "20"];
+        let history_choices = ["7d", "30d", "90d", "1y"];
+        let maintenance = Some(SectionVm {
+            title: "Maintenance".to_string(),
+            items: vec![
+                settings::item(
+                    "Keep last generations",
+                    row(vec![
+                        dropdown(
+                            keep_choices.to_vec(),
+                            keep_choices
+                                .iter()
+                                .position(|value| *value == self.keep_input),
+                            Message::StoreKeepPreset,
                         )
                         .into(),
-                    button::text("Cancel")
-                        .on_press(Message::StoreRepoRemoveCancelled)
+                        text_input("5", self.keep_input.clone())
+                            .on_input(Message::StoreKeepChanged)
+                            .into(),
+                        button::text("Preview prune")
+                            .on_press_maybe(enabled.then_some(Message::StorePrunePreview))
+                            .into(),
+                        button::text("Prune")
+                            .on_press_maybe(enabled.then_some(Message::StorePruneApply))
+                            .into(),
+                    ])
+                    .spacing(8),
+                )
+                .into(),
+                settings::item(
+                    "Wipe history older than",
+                    row(vec![
+                        dropdown(
+                            history_choices.to_vec(),
+                            history_choices
+                                .iter()
+                                .position(|value| *value == self.history_age),
+                            Message::StoreHistoryAgePreset,
+                        )
                         .into(),
-                ])
-                .spacing(8),
-            ));
-        }
-        // Only after the load settled: an in-flight load must not claim
-        // "only the default entry" while the rows are still coming.
-        if self.repositories.is_empty() && self.error.is_none() && !self.busy {
-            section = section.add(settings::item(
-                "Entries",
-                text("Only the default nixpkgs registry entry (nothing extra)."),
-            ));
-        }
-        for repository in &self.repositories {
-            // Every row removes (apk/flatpak parity): user/default
-            // through `nix registry remove`, global through the
-            // system registry file.
-            let action = button::destructive("Remove")
-                .on_press_maybe(
-                    (self.scope_ready() && !self.action_busy && !self.search_busy).then_some(
-                        Message::StoreRepoRemoveRequested(
-                            repository.name.clone(),
-                            repository.scope.clone(),
-                        ),
+                        text_input("30d", self.history_age.clone())
+                            .on_input(Message::StoreHistoryAgeChanged)
+                            .into(),
+                        button::text("Preview wipe")
+                            .on_press_maybe(enabled.then_some(Message::StoreWipePreview))
+                            .into(),
+                        button::text("Wipe")
+                            .on_press_maybe(enabled.then_some(Message::StoreWipeApply))
+                            .into(),
+                    ])
+                    .spacing(8),
+                )
+                .into(),
+                settings::item(
+                    "Store garbage collection (all users)",
+                    button::text("Run GC").on_press_maybe(
+                        self.can_run(&StoreAction::StoreGc)
+                            .then(|| Message::StoreActionRequested(StoreAction::StoreGc)),
                     ),
                 )
-                .into();
-            let detail = format!("{} · {}", repository.name, repository.scope);
-            section = section.add(crate::package_ui::repository_row(
-                repository.url.clone(),
-                Some(detail),
-                vec![action],
-            ));
-        }
-        section = section.add(settings::item(
-            "Add repository",
-            row(vec![
-                text_input("name", self.repo_name.clone())
-                    .on_input(Message::StoreRepoNameChanged)
-                    .into(),
-                text_input("github:owner/repo", self.repo_url.clone())
-                    .on_input(Message::StoreRepoUrlChanged)
-                    .into(),
-                button::text("Add")
-                    .on_press_maybe(
-                        (self.scope_ready()
-                            && !self.action_busy
-                            && !self.search_busy
-                            && !self.repo_name.trim().is_empty()
-                            && !self.repo_url.trim().is_empty())
-                        .then_some(Message::StoreRepoAdd),
-                    )
-                    .into(),
-            ])
-            .spacing(8),
-        ));
-        section.into()
-    }
+                .into(),
+            ],
+        });
 
-    fn installed_view(&self) -> Element<'_, Message> {
-        let enabled = self.scope_ready();
-        let mut section = settings::section().title(format!("Installed ({})", self.packages.len()));
-
-        if self.busy && self.packages.is_empty() {
-            section = section.add(settings::item("Status", text("Loading profile…")));
-        }
-        if self.packages.is_empty() && !self.busy {
-            section = section.add(settings::item(
-                "No packages",
-                text("This profile has no installed packages."),
-            ));
-        }
-
-        for package in &self.packages {
-            // Upgrade only when the last `list_nix_updates` named this
-            // element as outdated; without a check (or when current) the
-            // button is gone.
-            let mut buttons: Vec<Element<'_, Message>> = Vec::with_capacity(2);
-            let updatable = self
-                .nix_updates
-                .as_ref()
-                .is_some_and(|updates| updates.packages.iter().any(|name| name == &package.name));
-            if updatable {
-                buttons.push(
-                    button::text("Upgrade")
-                        .on_press_maybe(enabled.then(|| {
-                            Message::StoreActionRequested(StoreAction::Upgrade(
-                                package.name.clone(),
-                            ))
-                        }))
-                        .into(),
-                );
-            }
-            buttons.push(
-                button::text("Remove")
-                    .on_press_maybe(enabled.then(|| {
-                        Message::StoreActionRequested(StoreAction::Remove(package.name.clone()))
-                    }))
-                    .into(),
-            );
-            let actions = row(buttons).spacing(8);
-            section = section.add(package_row(
-                package.name.clone(),
-                package_detail(package, &self.repositories),
-                actions.into(),
-            ));
-        }
-
-        section = section.add(settings::item(
-            "Profile actions",
-            button::text("Remove all").on_press_maybe(
-                enabled.then(|| Message::StoreActionRequested(StoreAction::RemoveAll)),
-            ),
-        ));
-
-        section.into()
-    }
-
-    fn upgrade_all_view(&self, updates_auto: bool) -> Element<'_, Message> {
-        let enabled = self.scope_ready();
-        let mut section = settings::section().title("Upgrade");
+        // --- Upgrade ("Upgrade all" first, then the controls) ---
         let number: Element<'_, Message> = if self.updates_checking {
             text("Checking…").into()
         } else {
@@ -852,29 +659,127 @@ impl StoreState {
                 |updates| text::title2(updates.count.to_string()).into(),
             )
         };
-        for item in crate::package_ui::update_control_items(
-            updates_auto,
-            |value| Message::UpdateAutoChanged("nix".to_string(), value),
+        let upgrade = UpgradeVm {
+            all: Some(UpgradeAllVm {
+                label: "Upgrade all".to_string(),
+                message: Message::StoreActionRequested(StoreAction::UpgradeAll),
+                armed: enabled,
+            }),
+            manager: "nix".to_string(),
+            auto: updates_auto,
             number,
-            Message::NixUpdatesRequested,
-            enabled && !self.updates_checking,
-        ) {
-            section = section.add(item);
-        }
-        section = section.add(settings::item(
-            "Upgrade every installed package",
-            button::suggested("Upgrade all").on_press_maybe(
-                enabled.then(|| Message::StoreActionRequested(StoreAction::UpgradeAll)),
-            ),
-        ));
-        section.into()
-    }
+            refresh: Message::NixUpdatesRequested,
+            refresh_armed: enabled && !self.updates_checking,
+        };
 
-    /// Three stacked rows (title, full-width input, buttons): the old
-    /// single row squeezed the text input to zero width next to the
-    /// three buttons and the field disappeared from view.
-    fn advanced_view(&self) -> Element<'_, Message> {
-        crate::package_ui::pattern_section(crate::package_ui::PatternSection {
+        // --- Search: controls only; results render in the bottom list ---
+        let repo_names = self.search_repo_names();
+        let repo_selected = repo_names
+            .iter()
+            .position(|name| *name == self.search_repo)
+            .unwrap_or(0);
+        let can_search = !self.search_busy && !self.search_query.trim().is_empty();
+        let search = SearchVm {
+            repository: Some(
+                settings::item(
+                    "Repository",
+                    dropdown(
+                        repo_names,
+                        Some(repo_selected),
+                        Message::StoreSearchRepoChanged,
+                    ),
+                )
+                .into(),
+            ),
+            query_placeholder: "Package name".to_string(),
+            query: self.search_query.clone(),
+            on_query_input: Message::StoreSearchChanged,
+            query_submit: Some(Message::StoreSearchSubmitted),
+            query_label: if self.search_busy {
+                "Searching…"
+            } else {
+                "Search"
+            }
+            .to_string(),
+            search: Message::StoreSearchSubmitted,
+            search_armed: can_search,
+            install_placeholder: "nixpkgs#hello".to_string(),
+            install: self.install_input.clone(),
+            on_install_input: Message::StoreInstallChanged,
+            install_extras: Vec::new(),
+            install_trailing: Vec::new(),
+            install_message: Message::StoreActionRequested(StoreAction::Install(
+                self.install_input.trim().to_string(),
+            )),
+            install_armed: enabled && !self.install_input.trim().is_empty(),
+        };
+
+        // --- Flake repositories ---
+        let mut repo_items: Vec<Element<'_, Message>> = Vec::new();
+        // Only after the load settled: an in-flight load must not claim
+        // "only the default entry" while the rows are still coming.
+        if self.repositories.is_empty() && self.error.is_none() && !self.busy {
+            repo_items.push(
+                settings::item(
+                    "Entries",
+                    text("Only the default nixpkgs registry entry (nothing extra)."),
+                )
+                .into(),
+            );
+        }
+        for repository in &self.repositories {
+            // Every row removes (apk/flatpak parity): user/default
+            // through `nix registry remove`, global through the system
+            // registry file.
+            let action = button::destructive("Remove")
+                .on_press_maybe(
+                    (enabled && !self.action_busy && !self.search_busy).then_some(
+                        Message::StoreRepoRemoveRequested(
+                            repository.name.clone(),
+                            repository.scope.clone(),
+                        ),
+                    ),
+                )
+                .into();
+            let detail = format!("{} · {}", repository.name, repository.scope);
+            repo_items.push(crate::package_ui::repository_row(
+                repository.url.clone(),
+                Some(detail),
+                vec![action],
+            ));
+        }
+        repo_items.push(
+            settings::item(
+                "Add repository",
+                row(vec![
+                    text_input("name", self.repo_name.clone())
+                        .on_input(Message::StoreRepoNameChanged)
+                        .into(),
+                    text_input("github:owner/repo", self.repo_url.clone())
+                        .on_input(Message::StoreRepoUrlChanged)
+                        .into(),
+                    button::text("Add")
+                        .on_press_maybe(
+                            (enabled
+                                && !self.action_busy
+                                && !self.search_busy
+                                && !self.repo_name.trim().is_empty()
+                                && !self.repo_url.trim().is_empty())
+                            .then_some(Message::StoreRepoAdd),
+                        )
+                        .into(),
+                ])
+                .spacing(8),
+            )
+            .into(),
+        );
+        let repositories = SectionVm {
+            title: "Flake repositories".to_string(),
+            items: repo_items,
+        };
+
+        // --- Pattern (nix schema, shared builder) ---
+        let pattern = crate::package_ui::PatternSection {
             hint: "Matches against installed package names, e.g. ^python".to_string(),
             regex: self.regex.clone(),
             on_input: Message::StoreRegexChanged,
@@ -890,16 +795,137 @@ impl StoreState {
                 pattern: self.regex.trim().to_string(),
                 dry_run: false,
             }),
-            armed: self.scope_ready() && !self.regex.trim().is_empty() && !self.action_busy,
-        })
-    }
+            armed: enabled && !self.regex.trim().is_empty() && !self.action_busy,
+        };
 
-    fn generations_view(&self) -> Element<'_, Message> {
-        let enabled = self.scope_ready();
-        let mut section =
-            settings::section().title(format!("Generations ({})", self.generations.len()));
+        // --- Bottom list: search results while a search is done,
+        // otherwise the installed profile (apk pattern) ---
+        let showing_results = self.search_done;
+        let rows: Vec<RowVm<'_>> = if showing_results {
+            self.search_results
+                .iter()
+                .map(|result| RowVm {
+                    title: match (&result.pname, &result.version) {
+                        (Some(name), Some(version)) => format!("{name} {version}"),
+                        (Some(name), None) => name.clone(),
+                        (None, _) => result.attr.clone(),
+                    },
+                    // Old search rows always carried a description
+                    // line — keep the "no description" placeholder.
+                    description: Some(
+                        result
+                            .description
+                            .clone()
+                            .filter(|value| !value.is_empty())
+                            .unwrap_or_else(|| "no description".to_string()),
+                    ),
+                    repository: None,
+                    notes: vec![format!("attr: {}", result.attr)],
+                    actions: vec![button::text("Install")
+                        .on_press_maybe(enabled.then(|| {
+                            Message::StoreActionRequested(StoreAction::Install(
+                                result
+                                    .installable
+                                    .clone()
+                                    .unwrap_or_else(|| result.attr.clone()),
+                            ))
+                        }))
+                        .into()],
+                })
+                .collect()
+        } else {
+            self.packages
+                .iter()
+                .map(|package| {
+                    let (description, repository, notes) =
+                        package_detail_parts(package, &self.repositories);
+                    let mut actions: Vec<Element<'_, Message>> = Vec::with_capacity(2);
+                    // Upgrade only when the last check named this element
+                    // as outdated; without a check the button is gone.
+                    let updatable = self.nix_updates.as_ref().is_some_and(|updates| {
+                        updates.packages.iter().any(|name| name == &package.name)
+                    });
+                    if updatable {
+                        actions.push(
+                            button::text("Upgrade")
+                                .on_press_maybe(enabled.then(|| {
+                                    Message::StoreActionRequested(StoreAction::Upgrade(
+                                        package.name.clone(),
+                                    ))
+                                }))
+                                .into(),
+                        );
+                    }
+                    actions.push(
+                        button::text("Remove")
+                            .on_press_maybe(enabled.then(|| {
+                                Message::StoreActionRequested(StoreAction::Remove(
+                                    package.name.clone(),
+                                ))
+                            }))
+                            .into(),
+                    );
+                    RowVm {
+                        title: package.name.clone(),
+                        description,
+                        repository,
+                        notes,
+                        actions,
+                    }
+                })
+                .collect()
+        };
+        let empty_note = if rows.is_empty() {
+            if showing_results {
+                Some(("No matches".to_string(), "No packages matched.".to_string()))
+            } else if !self.busy {
+                Some((
+                    "No packages".to_string(),
+                    "This profile has no installed packages.".to_string(),
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let status = if !showing_results && self.busy && self.packages.is_empty() {
+            vec![("Status".to_string(), "Loading profile…".to_string())]
+        } else {
+            Vec::new()
+        };
+        let footer: Vec<Element<'_, Message>> = if showing_results {
+            Vec::new()
+        } else {
+            vec![settings::item(
+                "Profile actions",
+                button::text("Remove all").on_press_maybe(
+                    enabled.then(|| Message::StoreActionRequested(StoreAction::RemoveAll)),
+                ),
+            )
+            .into()]
+        };
+        let list = ListVm {
+            title: if showing_results {
+                if self.search_truncated {
+                    format!(
+                        "Search results (first {} of more — narrow the query)",
+                        self.search_results.len()
+                    )
+                } else {
+                    format!("Search results ({})", self.search_results.len())
+                }
+            } else {
+                format!("Installed ({})", self.packages.len())
+            },
+            status,
+            empty_note,
+            rows,
+            footer,
+        };
 
-        section = section.add(settings::item(
+        // --- Generations (nix-only slot) ---
+        let mut generation_items: Vec<Element<'_, Message>> = vec![settings::item(
             "Rollback / diff",
             row(vec![
                 text_input(
@@ -916,20 +942,14 @@ impl StoreState {
                     .into(),
             ])
             .spacing(8),
-        ));
-
+        )
+        .into()];
         if self.generations.is_empty() {
-            section = section.add(settings::item(
-                "No history",
-                text("No profile generations reported."),
-            ));
+            generation_items.push(
+                settings::item("No history", text("No profile generations reported.")).into(),
+            );
         } else {
-            // One row per generation: the NUMBER is the item label (the
-            // first thing you see, ready to copy into the input above);
-            // the daemon's `Version N (…) <- M:` header loses its prefix
-            // and the indented change lines are appended to their
-            // generation instead of getting their own "Profile history"
-            // label.
+            // One row per generation: the NUMBER is the item label.
             let mut entries: Vec<(String, String)> = Vec::new();
             for line in &self.generations {
                 if let Some(rest) = line.strip_prefix("Version ") {
@@ -946,8 +966,6 @@ impl StoreState {
                 }
             }
             for (number, body) in entries {
-                // Owned title: `settings::item` takes `Into<Cow<str>>`, so
-                // the generation number can be the label itself.
                 let title = if number.is_empty() {
                     "History".to_string()
                 } else {
@@ -958,71 +976,65 @@ impl StoreState {
                 } else {
                     body
                 };
-                section = section.add(settings::item(title, text(body)));
+                generation_items.push(settings::item(title, text(body)).into());
             }
         }
+        let generations = Some(SectionVm {
+            title: format!("Generations ({})", self.generations.len()),
+            items: generation_items,
+        });
 
-        section.into()
-    }
+        // --- one busy line (data): action > search > none ---
+        let busy = if self.action_busy {
+            let label = self
+                .action_label
+                .clone()
+                .unwrap_or_else(|| "Running profile action".into());
+            let elapsed = self
+                .action_started
+                .map_or(0, |started| started.elapsed().as_secs());
+            Some(format!("{label} — {elapsed} s elapsed…"))
+        } else if self.search_busy {
+            Some(format!(
+                "Searching {}. This can take several minutes.",
+                self.search_repo
+            ))
+        } else {
+            None
+        };
 
-    fn maintenance_view(&self) -> Element<'_, Message> {
-        let enabled = self.scope_ready();
-        let global = self.can_run(&StoreAction::StoreGc);
-        settings::section()
-            .title("Maintenance")
-            .add(settings::item(
-                "Keep last generations",
-                row(vec![
-                    dropdown(
-                        vec!["1", "3", "5", "10", "20"],
-                        ["1", "3", "5", "10", "20"]
-                            .iter()
-                            .position(|value| *value == self.keep_input),
-                        Message::StoreKeepPreset,
-                    )
-                    .into(),
-                    text_input("5", self.keep_input.clone())
-                        .on_input(Message::StoreKeepChanged)
-                        .into(),
-                    button::text("Preview prune")
-                        .on_press_maybe(enabled.then_some(Message::StorePrunePreview))
-                        .into(),
-                    button::text("Prune")
-                        .on_press_maybe(enabled.then_some(Message::StorePruneApply))
-                        .into(),
-                ])
-                .spacing(8),
-            ))
-            .add(settings::item(
-                "Wipe history older than",
-                row(vec![
-                    dropdown(
-                        vec!["7d", "30d", "90d", "1y"],
-                        ["7d", "30d", "90d", "1y"]
-                            .iter()
-                            .position(|value| *value == self.history_age),
-                        Message::StoreHistoryAgePreset,
-                    )
-                    .into(),
-                    text_input("30d", self.history_age.clone())
-                        .on_input(Message::StoreHistoryAgeChanged)
-                        .into(),
-                    button::text("Preview wipe")
-                        .on_press_maybe(enabled.then_some(Message::StoreWipePreview))
-                        .into(),
-                    button::text("Wipe")
-                        .on_press_maybe(enabled.then_some(Message::StoreWipeApply))
-                        .into(),
-                ])
-                .spacing(8),
-            ))
-            .add(settings::item(
-                "Store garbage collection (all users)",
-                button::text("Run GC").on_press_maybe(
-                    global.then(|| Message::StoreActionRequested(StoreAction::StoreGc)),
-                ),
-            ))
-            .into()
+        PackageVm {
+            title: "Nix store".to_string(),
+            refresh: RefreshVm {
+                label: if self.busy {
+                    "Refreshing…".to_string()
+                } else {
+                    "Refresh".to_string()
+                },
+                message: Message::RefreshStore,
+                armed: !self.busy && !self.action_busy,
+            },
+            subtitle: Some(
+                "Search, install and maintain the target user's nix profile.".to_string(),
+            ),
+            busy,
+            // Both errors stay visible (top status shows them together).
+            error: match (self.error.clone(), self.search_error.clone()) {
+                (Some(error), Some(search)) => Some(format!("{error}\n{search}")),
+                (error, search) => error.or(search),
+            },
+            message: self.action_message.as_deref(),
+            confirms,
+            scope,
+            maintenance,
+            upgrade,
+            search,
+            repositories,
+            pattern,
+            list,
+            permissions: None,
+            generations,
+        }
     }
 }
 
@@ -1145,20 +1157,18 @@ fn truncate(text: &str) -> String {
     clipped
 }
 
-/// Flatpak-style detail: identity line first (`attr · flake:nixpkgs`),
-/// the repository https link under it.
-fn package_detail<'a>(
-    package: &'a InstalledPackage,
-    repositories: &'a [ursine_api::NixRepository],
-) -> Element<'a, Message> {
-    let mut lines: Vec<Element<'_, Message>> = Vec::new();
-    if let Some(description) = &package.description {
-        if !description.is_empty() {
-            lines.push(selectable_text(description.clone()).into());
-        }
-    }
-    // One identity line: `attr original_url · <https link>`
-    // (empty parts dropped — flatpak/apk parity).
+/// Split a package into the shared row's detail lines: description →
+/// repository (`attr original_url · https link`) → notes. The shared
+/// view composes them identically for every manager.
+fn package_detail_parts(
+    package: &InstalledPackage,
+    repositories: &[ursine_api::NixRepository],
+) -> (Option<String>, Option<String>, Vec<String>) {
+    let description = package
+        .description
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     let mut identity: Vec<&str> = Vec::new();
     if let Some(attr) = &package.attr_path {
         identity.push(attr);
@@ -1173,16 +1183,14 @@ fn package_detail<'a>(
         }
         line.push_str(&link);
     }
-    if !line.is_empty() {
-        lines.push(selectable_text(line).into());
-    }
+    let repository = (!line.is_empty()).then_some(line);
+    let mut notes: Vec<String> = Vec::new();
     if !package.active {
-        lines.push(selectable_text("state: inactive").into());
+        notes.push("state: inactive".to_string());
+    } else if description.is_none() && repository.is_none() {
+        notes.push("state: installed".to_string());
     }
-    if lines.is_empty() {
-        lines.push(selectable_text("state: installed").into());
-    }
-    column(lines).spacing(2).into()
+    (description, repository, notes)
 }
 
 /// Best https link for the package's repository: the registry entry for

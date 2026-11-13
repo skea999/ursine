@@ -1,7 +1,7 @@
 # Tasks — Ursine
 
-**Milestone**: v0.18.4 — init hardening (2026-10-26)
-**Updated**: 2026-10-26
+**Milestone**: v0.34.0 — package-manager parity batch (2026-11-13)
+**Updated**: 2026-11-13
 **Workflow rule (binding)**: backend first, frontend immediately, same feature. No next feature until daemon + frontend reach parity.
 **UI rule (binding)**: patterns from cosmic-settings (structure), Webmin (action coverage), Cockpit (gating/status/confirmations).
 

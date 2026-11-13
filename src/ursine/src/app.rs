@@ -6148,6 +6148,12 @@ impl App {
         let epoch = self.epoch;
         self.store.busy = true;
         self.store.error = None;
+        // A refresh returns the view to the installed profile: a
+        // completed search must not keep the list pinned to results.
+        self.store.search_results.clear();
+        self.store.search_done = false;
+        self.store.search_truncated = false;
+        self.store.search_error = None;
         let token = session.token.clone();
         let repos_token = token.clone();
         let as_user = scope.as_user();

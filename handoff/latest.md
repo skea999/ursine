@@ -6,6 +6,17 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-13 — 3-line installed rows + nix registry Remove everywhere, release 0.34.0 (main, tag `v0.34.0`)
+
+**Status**: Pushed `1b99076..032fe41` (`33b839c` session + `5ca43d5` + `79141ef` + `88c557e` + `032fe41` chore(release)); CI green for `88c557e` (`43435927270`) and both release runs (`43438763702`/`43438764210` success); auto-pin `74b383d` pulled, local HEAD `74b383d`.
+
+- **nix Upgrade section**: upgradable-names list removed (user decision) — count/toggler/Refresh stay; per-package Upgrade buttons still keyed on `NixUpdates.packages` (kept in API for that + ursinectl). Stale dry-run comments fixed (store.rs, Action doc).
+- **3-line installed rows in all three managers** (user decision, hand-checked layout): title / description / repository line. apk: `@tag v3.24 main · <url>` (`ApkPackage.origin_label` — last two path segments with query stripped, tag from the existing `/etc/apk/repositories` parser); flatpak: new `description` column (verified on `remote-ls --updates` too — shared LIST_COLUMNS), line 3 = `app_id · branch · origin · <remote url>`, search description moved `origin` → `description` field; nix: `meta.description` best-effort (ONE `nix eval --impure --json --expr` per unique flake ref, names/attr segments validated before embedding, tryEval), line 3 = `attr original_url · https link`. List + evals share ONE LIST_TIMEOUT deadline (client profile timeout can never be blown). API fields serde-default for mixed versions.
+- **nix registry Remove on EVERY row** (user decision incl. default/global): `RemoveNixRepository` + optional `scope` (`user`/`default` → `nix registry remove`; `global` → direct `/etc/nix/registry.json` edit — read (metadata cap first), `drop_global_flake` (indirect same-id only, wrong-typed `flakes` = error, idempotent), uniform backup rotation, atomic write). GUI passes row scope; confirm says "system registry entry" for global; guide + man updated (parity). **atomic writer now preserves the original file mode** (stat/chmod around the rename — also fixes `/etc/apk/repositories` staying 0600 after edits); behavioral test runs the real script.
+- **Review closed** on both batches (5 nits →4 fixed: flakes diagnosis, metadata-before-read, executed mode test, CLI `scope=global` sample; blocking-read nit accepted per reviewer). Gates green each cycle; ec padding needed two fixes (string continuation, test JSON indent).
+- **Push incident (Nov13)**: keyring session hung — `git-credential-libsecret get` never returns and gh (token in keyring, not hosts.yml) hangs too; GIT_TRACE pinpointed it; user fixed auth; push then `1b99076..88c557e` OK. Symptom→first suspect: credential helpers when `git push` times out silently.
+- Release `032fe41` + tag `v0.34.0`; pin `74b383d`.
+
 ## Session 2026-11-12 (c) — nix update check fixed, unified details + shared GUI builders, release 0.33.0 (main, tag `v0.33.0`)
 
 **Status**: Pushed `b02992d..b2d497b` (`7c3d71c` feat + `b2d497b` chore(release)); CI green for `7c3d71c` (`43273451156`) and both release runs (`43276561476`/`43276561501` success); auto-pin `1b99076` pulled, local HEAD `1b99076`.

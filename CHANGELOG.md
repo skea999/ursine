@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **One GUI code path for every package manager** (user decision,
+  full fusion): a single `view()` in `package_ui.rs` renders apk,
+  flatpak and nix — section order (`SECTIONS`: Scope → Maintenance →
+  Upgrade → Search → Repositories → Pattern → Installed →
+  Permissions → Generations), row shapes (title / description /
+  repository / notes) and every confirm block are written once;
+  `StoreState`/`PackagesState` only build a `PackageVm` of data.
+  Sections a manager lacks are hidden by visibility flags, an
+  alignment test asserts that no manager can reorder the canonical
+  list, and nix's search results/status now follow the apk pattern
+  (results in the bottom list, status in the top busy line).
+
 ## [0.34.0] — 2026-11-13
 
 ### Changed
