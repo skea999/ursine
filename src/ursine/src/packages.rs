@@ -736,8 +736,8 @@ impl PackagesState {
                         );
                         row(buttons).spacing(8).into()
                     };
-                    // Flatpak-style detail: info line first, the
-                    // repository https URL under it.
+                    // Description first, then the repository line:
+                    // `[@tag] v3.24 main · <url>` (flatpak parity).
                     let mut detail: Vec<Element<'_, Message>> = Vec::with_capacity(2);
                     if let Some(description) = &package.description {
                         if !description.is_empty() {
@@ -745,7 +745,11 @@ impl PackagesState {
                         }
                     }
                     if let Some(origin) = &package.origin {
-                        detail.push(selectable_text(origin.clone()).into());
+                        let line = package
+                            .origin_label
+                            .as_ref()
+                            .map_or_else(|| origin.clone(), |label| format!("{label} · {origin}"));
+                        detail.push(selectable_text(line).into());
                     }
                     if detail.is_empty() {
                         detail.push(text("").into());
@@ -804,23 +808,33 @@ impl PackagesState {
                         );
                         row(buttons).spacing(8).into()
                     };
-                    let description = if package.origin.is_empty() {
-                        format!("{} · {}", package.app_id, package.branch)
-                    } else {
-                        format!(
-                            "{} · {} · {}",
-                            package.app_id, package.branch, package.origin
-                        )
-                    };
-                    let mut detail: Vec<Element<'_, Message>> =
-                        vec![selectable_text(description).into()];
-                    if let Some(remote) = self
-                        .flatpak_remotes
-                        .iter()
-                        .find(|remote| remote.name == package.origin)
-                    {
-                        detail.push(selectable_text(remote.url.clone()).into());
+                    // Description first, then identity + repository on
+                    // ONE line: `app_id · branch · origin · <url>`.
+                    let mut detail: Vec<Element<'_, Message>> = Vec::new();
+                    if let Some(description) = &package.description {
+                        if !description.is_empty() {
+                            detail.push(selectable_text(description.clone()).into());
+                        }
                     }
+                    let mut identity: Vec<&str> = vec![package.app_id.as_str()];
+                    if !package.branch.is_empty() {
+                        identity.push(&package.branch);
+                    }
+                    if !package.origin.is_empty() {
+                        identity.push(&package.origin);
+                    }
+                    let mut line = identity.join(" · ");
+                    if !package.origin.is_empty() {
+                        if let Some(remote) = self
+                            .flatpak_remotes
+                            .iter()
+                            .find(|remote| remote.name == package.origin)
+                        {
+                            line.push_str(" · ");
+                            line.push_str(&remote.url);
+                        }
+                    }
+                    detail.push(selectable_text(line).into());
                     let description = column(detail).spacing(2).into();
                     list = list.add(package_row(
                         format!("{} {}", package.name, package.version),

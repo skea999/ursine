@@ -21,6 +21,10 @@ pub struct InstalledPackage {
     /// Resolved installable URL (e.g. `flake:nixpkgs#hello`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// Package description (`meta.description`), best-effort: one
+    /// `nix eval` per flake reference, absent when eval is slow/fails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Store paths owned by this element.
     #[serde(default)]
     pub store_paths: Vec<String>,
@@ -135,6 +139,8 @@ mod tests {
             url: Some("flake:nixpkgs#hello".into()),
             store_paths: vec!["/nix/store/abc-hello-2.12".into()],
             active: true,
+
+            description: None,
         };
         let s = serde_json::to_string(&p).unwrap();
         assert_eq!(serde_json::from_str::<InstalledPackage>(&s).unwrap(), p);

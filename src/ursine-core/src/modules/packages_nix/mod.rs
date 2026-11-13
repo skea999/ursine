@@ -10,7 +10,7 @@ mod parse;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 use ursine_api::{
@@ -315,6 +315,154 @@ fn outdated_names(elements: &[InstalledPackage], metas: &HashMap<String, MetaLoc
     packages
 }
 
+/// Flake refs embedded in `getFlake "…"`: no quote/backslash/`$`
+/// (Nix interpolation) or control chars.
+fn nix_string_safe(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 512
+        && !value
+            .chars()
+            .any(|c| matches!(c, '"' | '\\' | '$' | '\'' | '\n' | '\r' | '\0'))
+}
+
+/// Profile element names used as eval-result keys (embedded raw).
+fn eval_key_safe(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+'))
+}
+
+/// One attr-path segment of `attrPath` (dot-joined in the profile).
+fn attr_segment_safe(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
+/// One `nix eval` expression resolving `meta.description` for every
+/// valid target of a single flake reference. Names and path segments
+/// are validated before they are embedded raw in the expression.
+fn description_expr(flake_ref: &str, targets: &[(String, Vec<String>)]) -> Option<String> {
+    if !nix_string_safe(flake_ref) {
+        return None;
+    }
+    let mut items = String::new();
+    for (name, path) in targets {
+        if !eval_key_safe(name)
+            || path.is_empty()
+            || !path.iter().all(|segment| attr_segment_safe(segment))
+        {
+            continue;
+        }
+        if !items.is_empty() {
+            items.push(' ');
+        }
+        items.push_str("{ name = \"");
+        items.push_str(name);
+        items.push_str("\"; path = [ ");
+        for segment in path {
+            items.push('"');
+            items.push_str(segment);
+            items.push_str("\" ");
+        }
+        items.push_str("]; }");
+    }
+    if items.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "let f = builtins.getFlake \"{flake_ref}\"; in builtins.listToAttrs (map (t: {{ \
+        name = t.name; value = let r = builtins.tryEval (builtins.getAttrFromPath \
+        (t.path ++ [ \"meta\" \"description\" ]) f); in if r.success then r.value else null; }}) \
+        [ {items} ])"
+    ))
+}
+
+/// `nix eval --json` object → name → description (nulls dropped).
+fn parse_descriptions(json: &str) -> HashMap<String, String> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
+        return HashMap::new();
+    };
+    let Some(object) = value.as_object() else {
+        return HashMap::new();
+    };
+    object
+        .iter()
+        .filter_map(|(name, description)| {
+            let description = description.as_str()?;
+            if description.is_empty() {
+                None
+            } else {
+                Some((name.clone(), description.to_string()))
+            }
+        })
+        .collect()
+}
+
+/// Best-effort `meta.description` lookup: group the profile by flake
+/// reference, one eval per group. Every failure leaves the list as it
+/// is — descriptions are decoration, the profile is the data.
+async fn attach_descriptions(user: &str, packages: &mut [InstalledPackage], deadline: Instant) {
+    let mut groups: HashMap<String, Vec<(usize, String, Vec<String>)>> = HashMap::new();
+    for (index, package) in packages.iter().enumerate() {
+        let (Some(original), Some(attr)) = (&package.original_url, &package.attr_path) else {
+            continue;
+        };
+        if !nix_string_safe(original) || !eval_key_safe(&package.name) {
+            continue;
+        }
+        let path: Vec<String> = attr.split('.').map(str::to_string).collect();
+        if !path.iter().all(|segment| attr_segment_safe(segment)) {
+            continue;
+        }
+        groups
+            .entry(original.clone())
+            .or_default()
+            .push((index, package.name.clone(), path));
+    }
+    for (original, targets) in groups {
+        // Leftover time only: the shared deadline caps the whole
+        // description phase, whatever the group count.
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining < Duration::from_secs(1) {
+            break;
+        }
+        let refs: Vec<(String, Vec<String>)> = targets
+            .iter()
+            .map(|(_, name, path)| (name.clone(), path.clone()))
+            .collect();
+        let Some(expr) = description_expr(&original, &refs) else {
+            continue;
+        };
+        let Ok(outcome) = exec::run_as_user_json(
+            user,
+            &[
+                ("eval", ""),
+                ("--impure", ""),
+                ("--json", ""),
+                ("--expr", expr.as_str()),
+            ],
+            remaining,
+        )
+        .await
+        else {
+            continue;
+        };
+        let descriptions = parse_descriptions(&outcome.stdout);
+        for (index, name, _) in targets {
+            if let Some(description) = descriptions.get(&name) {
+                if let Some(package) = packages.get_mut(index) {
+                    package.description = Some(description.clone());
+                }
+            }
+        }
+    }
+}
+
 fn lines(outcome: &CommandOutcome) -> serde_json::Value {
     json!({ "lines": line_list(outcome) })
 }
@@ -416,13 +564,21 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
 
     match action {
         Action::ListInstalled => {
+            // ONE budget for list + descriptions: the client's profile
+            // timeout covers the whole handler, so a slow eval can only
+            // ever eat leftover time — never push the reply over it.
+            let deadline = Instant::now() + LIST_TIMEOUT;
             let out = exec::run_as_user(
                 user,
                 &[("profile", ""), ("list", ""), ("--json", "")],
-                LIST_TIMEOUT,
+                deadline.saturating_duration_since(Instant::now()),
             )
             .await?;
-            Ok(json!(parse::parse_profile_list(&out.stdout)?))
+            let mut packages = parse::parse_profile_list(&out.stdout)?;
+            // Best-effort descriptions: one `nix eval` per flake ref.
+            // A slow or failing eval must never fail the profile list.
+            attach_descriptions(user, &mut packages, deadline).await;
+            Ok(json!(packages))
         }
         Action::Search { query, repo } => {
             exec::validate_query(query)?;
@@ -876,6 +1032,8 @@ mod tests {
             url: url.map(str::to_string),
             store_paths: Vec::new(),
             active: true,
+
+            description: None,
         };
         let elements = vec![
             element(
@@ -907,6 +1065,44 @@ mod tests {
         // metadata entry (unfetchable ref) flags nothing.
         assert_eq!(outdated_names(&elements, &metas), ["bleachbit"]);
         assert!(outdated_names(&elements, &HashMap::new()).is_empty());
+    }
+
+    #[test]
+    fn description_expr_embeds_only_validated_targets() {
+        let expr = description_expr(
+            "flake:nixpkgs",
+            &[
+                (
+                    "bleachbit".to_string(),
+                    vec![
+                        "legacyPackages".to_string(),
+                        "x86_64-linux".to_string(),
+                        "bleachbit".to_string(),
+                    ],
+                ),
+                // Invalid key (space) and segment are skipped, not embedded.
+                ("bad name".to_string(), vec!["hello".to_string()]),
+            ],
+        )
+        .expect("valid ref");
+        assert!(expr.contains("builtins.getFlake \"flake:nixpkgs\""));
+        assert!(expr.contains("\"bleachbit\""));
+        assert!(expr.contains("\"legacyPackages\""));
+        assert!(!expr.contains("bad name"));
+        // Refs unsafe inside a Nix string never build an expression.
+        assert!(
+            description_expr("evil\"${x}", &[("a".to_string(), vec!["b".to_string()])]).is_none()
+        );
+        assert!(description_expr("flake:nixpkgs", &[]).is_none());
+    }
+
+    #[test]
+    fn parse_descriptions_keeps_non_empty_strings_only() {
+        let map = parse_descriptions(r#"{"hello":"Hello!","gone":null,"empty":""}"#);
+        assert_eq!(map.get("hello").map(String::as_str), Some("Hello!"));
+        assert!(!map.contains_key("gone"));
+        assert!(!map.contains_key("empty"));
+        assert!(parse_descriptions("not json").is_empty());
     }
 
     use super::*;
@@ -1038,6 +1234,8 @@ global flake:blender-bin github:edolstra/nix-warez?dir=blender\n";
                 url: None,
                 store_paths: Vec::new(),
                 active: true,
+
+                description: None,
             },
             InstalledPackage {
                 name: "hello".into(),
@@ -1046,6 +1244,8 @@ global flake:blender-bin github:edolstra/nix-warez?dir=blender\n";
                 url: None,
                 store_paths: Vec::new(),
                 active: true,
+
+                description: None,
             },
         ];
         assert_eq!(

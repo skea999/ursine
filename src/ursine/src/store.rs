@@ -1147,23 +1147,35 @@ fn package_detail<'a>(
     package: &'a InstalledPackage,
     repositories: &'a [ursine_api::NixRepository],
 ) -> Element<'a, Message> {
-    let mut info: Vec<&str> = Vec::new();
+    let mut lines: Vec<Element<'_, Message>> = Vec::new();
+    if let Some(description) = &package.description {
+        if !description.is_empty() {
+            lines.push(selectable_text(description.clone()).into());
+        }
+    }
+    // One identity line: `attr original_url · <https link>`
+    // (empty parts dropped — flatpak/apk parity).
+    let mut identity: Vec<&str> = Vec::new();
     if let Some(attr) = &package.attr_path {
-        info.push(attr);
+        identity.push(attr);
     }
     if let Some(repository) = &package.original_url {
-        info.push(repository);
+        identity.push(repository);
     }
-    let mut lines: Vec<Element<'_, Message>> = Vec::new();
-    if !info.is_empty() {
-        lines.push(selectable_text(info.join(" · ")).into());
-    }
+    let mut line = identity.join(" ");
     if let Some(link) = package_https(package, repositories) {
-        lines.push(selectable_text(link).into());
+        if !line.is_empty() {
+            line.push_str(" · ");
+        }
+        line.push_str(&link);
+    }
+    if !line.is_empty() {
+        lines.push(selectable_text(line).into());
     }
     if !package.active {
         lines.push(selectable_text("state: inactive").into());
-    } else if lines.is_empty() {
+    }
+    if lines.is_empty() {
         lines.push(selectable_text("state: installed").into());
     }
     column(lines).spacing(2).into()
@@ -1401,6 +1413,8 @@ mod tests {
             url: None,
             store_paths: Vec::new(),
             active: true,
+
+            description: None,
         });
         state.generations.push("Version 3".into());
         state.set_target_user("bob".into());

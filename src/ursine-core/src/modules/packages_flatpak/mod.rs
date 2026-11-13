@@ -28,7 +28,7 @@ const TIMEOUT: Duration = Duration::from_mins(15);
 const MAX_ROWS: usize = 300;
 /// Shared column order for `flatpak list` / `flatpak remote-ls` rows —
 /// [`parse_list`] reads the fields positionally in exactly this order.
-const LIST_COLUMNS: &str = "application,name,version,branch,origin";
+const LIST_COLUMNS: &str = "application,name,version,branch,origin,description";
 /// Serializes permission SETs in this process (read + write of one
 /// keyfile). A concurrent external writer between our read and write is
 /// still a residual TOCTOU: flatpak has no file lock for overrides.
@@ -466,12 +466,17 @@ fn parse_list(output: &str, system: bool, kind: FlatpakRefKind) -> Vec<FlatpakPa
         ) else {
             continue;
         };
+        let description = fields.next().and_then(|value| {
+            let value = value.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        });
         rows.push(FlatpakPackage {
             app_id: app_id.to_string(),
             name: name.to_string(),
             version: version.to_string(),
             branch: branch.to_string(),
             origin: origin.to_string(),
+            description,
             system,
             kind,
         });
@@ -497,7 +502,10 @@ fn parse_search(output: &str, system: bool) -> Vec<FlatpakPackage> {
             name: name.to_string(),
             version: version.to_string(),
             branch: String::new(),
-            origin: description.to_string(),
+            // Search has no origin column; the description moves to
+            // its own field (it used to ride `origin`).
+            origin: String::new(),
+            description: (!description.is_empty()).then(|| description.to_string()),
             system,
             // Appstream search covers applications.
             kind: FlatpakRefKind::App,
@@ -686,6 +694,19 @@ mod tests {
         assert!(validate_remote_url("ftp://x").is_err());
         assert!(validate_remote_url("/plain/path").is_err());
         assert!(validate_remote_url("https://x has space").is_err());
+    }
+
+    #[test]
+    fn list_rows_carry_the_description_column() {
+        let rows = parse_list(
+            "org.mozilla.firefox\tFirefox\t128.0\tstable\tflathub\tA free web browser\n",
+            true,
+            FlatpakRefKind::App,
+        );
+        assert_eq!(rows[0].description.as_deref(), Some("A free web browser"));
+        // Old five-column output still parses (no description).
+        let legacy = parse_list("org.x\tX\t1\tstable\tflathub\n", false, FlatpakRefKind::App);
+        assert_eq!(legacy[0].description, None);
     }
 
     #[test]

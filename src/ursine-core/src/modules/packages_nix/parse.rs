@@ -42,6 +42,7 @@ pub(super) fn parse_profile_list(json: &str) -> Result<Vec<InstalledPackage>, Ap
             attr_path: e.attr_path,
             original_url: e.original_url,
             url: e.url,
+            description: None,
             store_paths: e.store_paths,
             active: e.active,
         })

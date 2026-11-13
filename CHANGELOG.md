@@ -4,6 +4,17 @@
 
 ### Changed
 
+- Installed-package rows now share one **3-line layout** in all
+  three managers (user decision): title, **description**, then the
+  repository line. apk: `@tag v3.24 main · <url>` (mask tag from
+  `/etc/apk/repositories`, path from the origin URL); flatpak:
+  `app_id · branch · origin · <remote url>` (description from a new
+  `flatpak list` column — search rows moved their description from
+  `origin` to the new `description` field); nix: `attr
+  original_url · <https link>` with `meta.description` fetched
+  best-effort (one `nix eval` per flake reference, absent when eval
+  is slow — the profile list never fails because of it).
+
 - nix **Upgrade section no longer lists the upgradable package
   names** (user decision): the count, the auto-check toggler and the
   manual Refresh stay; the per-package Upgrade buttons still appear

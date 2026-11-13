@@ -17,6 +17,10 @@ pub struct ApkPackage {
     /// (from `apk policy`; None for locally installed packages).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
+    /// Display prefix for `origin`: `[@tag] v3.24 main` (daemon-built
+    /// from `/etc/apk/repositories` + the URL path).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_label: Option<String>,
 }
 
 /// One pending APK update.
@@ -99,6 +103,9 @@ pub struct FlatpakPackage {
     pub version: String,
     pub branch: String,
     pub origin: String,
+    /// Human description (`flatpak list` description column).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub system: bool,
     #[serde(default)]
     pub kind: FlatpakRefKind,

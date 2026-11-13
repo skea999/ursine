@@ -318,12 +318,45 @@ async fn installed() -> Result<Vec<ApkPackage>, ApiError> {
     let origins = parse_policy_origins(&policy);
     // Descriptions live in the apk database (`T:` lines) — one read.
     let descriptions = read_apk_descriptions();
+    // Mask tags + display labels come from the repositories file
+    // (the same parser the repositories list action uses).
+    let repositories = repositories().unwrap_or_default();
     let mut packages = parse_installed(&versioned, &names, &protected_names()?);
     for package in &mut packages {
         package.origin = origins.get(&package.name).cloned();
         package.description = descriptions.get(&package.name).cloned();
+        package.origin_label = package.origin.as_deref().and_then(|url| {
+            let tag = repositories
+                .iter()
+                .find(|repo| repo.url == url)
+                .and_then(|repo| repo.tag.as_deref());
+            origin_label(url, tag)
+        });
     }
     Ok(packages)
+}
+
+/// Display prefix for an origin URL: the last two path segments
+/// (`v3.24 main`), prefixed with the repository's mask tag (`@edge`)
+/// when the repositories file has one for this URL.
+fn origin_label(url: &str, tag: Option<&str>) -> Option<String> {
+    let after_scheme = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let path = after_scheme.split_once('/').map_or("", |(_, rest)| rest);
+    // Never let a query/fragment ride into the display label.
+    let path = path.split(['?', '#']).next().unwrap_or(path);
+    let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+    let mut reversed = segments.iter().rev();
+    let repo = match (reversed.next(), reversed.next()) {
+        (Some(last), Some(previous)) => format!("{previous} {last}"),
+        (Some(single), None) => (*single).to_string(),
+        (None, _) => String::new(),
+    };
+    match (tag, repo.is_empty()) {
+        (Some(tag), true) => Some(format!("@{tag}")),
+        (Some(tag), false) => Some(format!("@{tag} {repo}")),
+        (None, false) => Some(repo),
+        (None, true) => None,
+    }
 }
 
 /// `/lib/apk/db/installed` → package → description (`T:` field).
@@ -425,6 +458,7 @@ fn parse_installed(versioned: &str, names: &str, protected: &[String]) -> Vec<Ap
             description: None,
             protected: protected.iter().any(|entry| entry == name),
             origin: None,
+            origin_label: None,
         });
     }
     rows
@@ -497,6 +531,7 @@ async fn search(query: &str) -> Result<Vec<ApkPackage>, ApiError> {
             description,
             protected: false,
             origin: None,
+            origin_label: None,
         });
     }
     Ok(rows)
@@ -565,6 +600,34 @@ async fn run(args: &[&str]) -> Result<String, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn origin_label_shows_repo_path_and_mask() {
+        assert_eq!(
+            origin_label("https://dl-cdn.alpinelinux.org/alpine/v3.24/main", None),
+            Some("v3.24 main".to_string())
+        );
+        assert_eq!(
+            origin_label(
+                "https://dl-cdn.alpinelinux.org/alpine/v3.24/testing",
+                Some("edge")
+            ),
+            Some("@edge v3.24 testing".to_string())
+        );
+        assert_eq!(
+            origin_label("https://example.com/repo", None),
+            Some("repo".to_string())
+        );
+        assert_eq!(origin_label("https://example.com", None), None);
+        assert_eq!(
+            origin_label("https://example.com", Some("edge")),
+            Some("@edge".to_string())
+        );
+        assert_eq!(
+            origin_label("https://mirror.example/alpine/v3.24/main?foo=1#x", None),
+            Some("v3.24 main".to_string())
+        );
+    }
 
     #[test]
     fn parses_masked_repository_lines() {

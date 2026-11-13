@@ -16,7 +16,7 @@ channels / `nix-env` are out of scope by decision (skea999).
 
 | Action | Executed as | Command shape |
 |---|---|---|
-| `nix.listInstalled` | asUser | `nix profile list --json` → `InstalledPackage[]` |
+| `nix.listInstalled` | asUser | `nix profile list --json` → `InstalledPackage[]` + best-effort `meta.description` (one `nix eval --impure --json --expr` per unique flake reference, validated names/attr segments only; eval failure/timeout leaves descriptions absent, never fails the list) |
 | `nix.install` | asUser | `nix profile add <nixpkgs#pkg\|flake#attr>` (bare name → `nixpkgs#name`) |
 | `nix.remove` | asUser | `nix profile remove <element>` |
 | `nix.removeAll` | asUser | `nix profile remove --all` |

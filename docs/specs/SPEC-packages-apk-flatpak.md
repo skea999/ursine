@@ -9,7 +9,7 @@ center as the Nix store. Both backends are capability-gated and audited.
 
 | Action | Backend |
 |---|---|
-| `list_apk` | `apk info -v` + `apk info` (name/version pairing) |
+| `list_apk` | `apk info -v` + `apk info` (name/version pairing) + `/lib/apk/db/installed` (`T:` descriptions) + ONE `apk policy <names…>` (origin URL) + `/etc/apk/repositories` (mask tag) → `description` / `origin` / `origin_label` (`@tag v3.24 main`, tag shown only when the repositories line is masked) |
 | `search_apk` | `apk search -v <query>` |
 | `refresh_apk` | `apk update` |
 | `list_apk_repositories` | parse `/etc/apk/repositories` (`[@tag] url`) |
@@ -21,7 +21,7 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `list_apk_updates` | `apk update` FIRST (the check refreshes the indexes — replaces the old maintenance "Refresh indexes" button) then `apk version -l <` → `ApkUpdate[]` |
 | `apk_remove_regex` | match installed names against the regex daemon-side (the apk CLI has none) → dry-run returns `{dry_run, would_change}`, apply runs one `apk del <names…>` job (destructive in the CLI) |
 | `apk_upgrade_regex` | same match → one `apk upgrade <names…>` job |
-| `list_flatpak` | `flatpak list --columns=... --system/--user` |
+| `list_flatpak` | `flatpak list --columns=application,name,version,branch,origin,description --system/--user` |
 | `list_flatpak_remotes` | `flatpak remotes --columns=name,url [--system/--user]` |
 | `add_flatpak_remote` | `flatpak remote-add <scope> <name> <url>` |
 | `remove_flatpak_remote` | `flatpak remote-delete <scope> <name>` |
