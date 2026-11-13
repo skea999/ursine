@@ -1670,8 +1670,24 @@ async fn apk_packages(
 pub async fn flatpak_list(
     token: SessionToken,
     system: bool,
-) -> Result<Vec<FlatpakPackage>, ApiError> {
-    flatpak_packages(token, Action::ListFlatpak { system }, MUTATE_TIMEOUT).await
+) -> Result<(Vec<FlatpakPackage>, Option<u64>), ApiError> {
+    let value = call_with_timeout(
+        token,
+        ModuleId::PackagesFlatpak,
+        Action::ListFlatpak { system },
+        None,
+        MUTATE_TIMEOUT,
+    )
+    .await?;
+    let rows = value
+        .get("packages")
+        .cloned()
+        .ok_or_else(|| ApiError::internal("daemon flatpak response has no packages"))?;
+    let packages: Vec<FlatpakPackage> = serde_json::from_value(rows)
+        .map_err(|e| ApiError::internal(format!("cannot read flatpak packages: {e}")))?;
+    // Best-effort: an old daemon simply omits the count.
+    let orphans = value.get("orphans").and_then(serde_json::Value::as_u64);
+    Ok((packages, orphans))
 }
 
 pub async fn flatpak_remotes(

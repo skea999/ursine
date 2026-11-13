@@ -18,7 +18,6 @@ mod login;
 mod logs;
 mod network;
 mod niri;
-mod package_row;
 mod package_ui;
 mod packages;
 mod printers;

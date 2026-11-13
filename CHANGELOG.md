@@ -16,6 +16,27 @@
   list, and nix's search results/status now follow the apk pattern
   (results in the bottom list, status in the top busy line).
 
+### Added
+
+- flatpak **orphan count**: the Maintenance row shows
+  `Remove orphans… (N)` from a read-only probe
+  (`flatpak uninstall --unused` always answered `n` — the plan is
+  parsed, nothing is ever removed; `orphans` in the `list_flatpak`
+  response, best-effort) and disables itself at zero.
+- flatpak search gets a **Preview** button like apk's: fetches the
+  ref info (existing `get_flatpak_info`) and shows version/sizes/
+  runtime/remote as the copyable top message — the install confirm
+  stays a separate step.
+
+### Changed
+
+- Section naming is uniform across the managers (user decision):
+  every manager now says **Repositories** (was "Remotes" /
+  "Flake repositories"), **Add repository**, and repository
+  confirmations/empty notes use the same word. nix's one-off header
+  subtitle is removed — header, status and busy lines are now shaped
+  identically everywhere.
+
 ### Removed
 
 - **Flatpak permissions editor removed everywhere** (user decision):

@@ -14,7 +14,6 @@ use cosmic::widget::{
 use cosmic::Element;
 
 use crate::app::Message;
-use crate::package_row::package_row;
 
 // ---------------------------------------------------------------------------
 // Data contract
@@ -116,8 +115,6 @@ pub struct RowVm<'a> {
 pub struct PackageVm<'a> {
     pub title: String,
     pub refresh: RefreshVm,
-    /// One line under the header (data: nix keeps its blurb, others none).
-    pub subtitle: Option<String>,
     /// One busy line (data: which activity, which wording).
     pub busy: Option<String>,
     pub error: Option<String>,
@@ -194,7 +191,6 @@ pub fn view<'a>(vm: PackageVm<'a>) -> Element<'a, Message> {
     let PackageVm {
         title,
         refresh,
-        subtitle,
         busy,
         error,
         message,
@@ -220,9 +216,6 @@ pub fn view<'a>(vm: PackageVm<'a>) -> Element<'a, Message> {
     .width(Length::Fill);
 
     let mut items: Vec<Element<'a, Message>> = vec![header.into()];
-    if let Some(subtitle) = subtitle {
-        items.push(text(subtitle).into());
-    }
     items.extend(status_items(error.as_deref(), message));
     if let Some(busy) = busy {
         items.push(text(busy).into());
@@ -411,6 +404,23 @@ fn section_block(section: SectionVm<'_>) -> Element<'_, Message> {
 
 /// One row of any list: identical detail composition everywhere
 /// (description → repository → notes), actions on the right.
+/// Title + description stacked at one left edge, action on the right.
+fn package_row<'a>(
+    title: String,
+    description: Element<'a, Message>,
+    action: Element<'a, Message>,
+) -> Element<'a, Message> {
+    row(vec![
+        column(vec![selectable_text(title).into(), description])
+            .spacing(2)
+            .width(Length::Fill)
+            .into(),
+        action,
+    ])
+    .spacing(12)
+    .into()
+}
+
 fn row_block(vm: RowVm<'_>) -> Element<'_, Message> {
     let mut lines: Vec<Element<'_, Message>> = Vec::new();
     for line in [vm.description, vm.repository].into_iter().flatten() {
@@ -550,7 +560,6 @@ mod tests {
                 message: Message::RefreshStore,
                 armed: true,
             },
-            subtitle: None,
             busy: None,
             error: None,
             message: None,

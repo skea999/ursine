@@ -550,9 +550,9 @@ impl StoreState {
         }
         if let Some((name, scope)) = &self.pending_repo_remove {
             let question = if scope == "global" {
-                format!("Remove the system registry entry {name}?")
+                format!("Remove the system repository {name}?")
             } else {
-                format!("Remove the registry entry {name}?")
+                format!("Remove the repository {name}?")
             };
             confirms.push(ConfirmVm {
                 title: "Confirm repository removal".to_string(),
@@ -722,7 +722,7 @@ impl StoreState {
             repo_items.push(
                 settings::item(
                     "Entries",
-                    text("Only the default nixpkgs registry entry (nothing extra)."),
+                    text("Only the default nixpkgs repository (nothing extra)."),
                 )
                 .into(),
             );
@@ -774,7 +774,7 @@ impl StoreState {
             .into(),
         );
         let repositories = SectionVm {
-            title: "Flake repositories".to_string(),
+            title: "Repositories".to_string(),
             items: repo_items,
         };
 
@@ -1014,9 +1014,6 @@ impl StoreState {
                 message: Message::RefreshStore,
                 armed: !self.busy && !self.action_busy,
             },
-            subtitle: Some(
-                "Search, install and maintain the target user's nix profile.".to_string(),
-            ),
             busy,
             // Both errors stay visible (top status shows them together).
             error: match (self.error.clone(), self.search_error.clone()) {

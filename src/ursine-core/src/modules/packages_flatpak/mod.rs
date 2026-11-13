@@ -30,7 +30,11 @@ const LIST_COLUMNS: &str = "application,name,version,branch,origin,description";
 pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
     match action {
         Action::ListFlatpak { system } => {
-            Ok(json!({"packages": list(*system, ctx.as_user).await?}))
+            let packages = list(*system, ctx.as_user).await?;
+            // Best-effort orphan count for the Maintenance row: a
+            // failing probe must never fail the list.
+            let orphans = unused_count(*system, ctx.as_user).await;
+            Ok(json!({"packages": packages, "orphans": orphans}))
         }
         Action::ListFlatpakRemotes { system } => {
             Ok(json!({"remotes": remotes(*system, ctx.as_user).await?}))
@@ -546,6 +550,52 @@ async fn backup_repo_config(system: bool, user: &str, copies: usize) -> Result<(
     crate::backup_configs::rotate_async(target, copies, None).await
 }
 
+/// Count unused runtimes WITHOUT removing anything:
+/// `flatpak uninstall --unused` prints the plan, then aborts at the
+/// default "N" answer (we always answer `n`; `--yes`/`--noninteractive`
+/// are never passed). Returns None when the probe cannot run — the
+/// caller shows an unknown count, never a failure.
+async fn unused_count(system: bool, user: &str) -> Option<u64> {
+    let program = flatpak_path().ok()?;
+    let args: &[&str] = if system {
+        &["uninstall", "--unused", "--system"]
+    } else {
+        &["uninstall", "--unused", "--user"]
+    };
+    let outcome = if system {
+        exec::run_root_program_tolerant(program, args, TIMEOUT, Some("n\n"))
+            .await
+            .ok()?
+    } else {
+        exec::run_as_user_argv_tolerant(user, program, args, TIMEOUT, Some("n\n"))
+            .await
+            .ok()?
+    };
+    Some(parse_unused(&outcome.stdout))
+}
+
+/// Refs listed under flatpak's "will be removed" plan header. The pin
+/// notice ("won't be removed") never matches that header.
+fn parse_unused(stdout: &str) -> u64 {
+    let mut count = 0u64;
+    let mut counting = false;
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if counting {
+            if trimmed.starts_with("app/") || trimmed.starts_with("runtime/") {
+                count += 1;
+            } else if !trimmed.is_empty() {
+                break; // the confirmation prompt or any other text
+            }
+        } else if line.contains("will be removed") {
+            counting = true;
+        } else if line.contains("Nothing unused") {
+            return 0;
+        }
+    }
+    count
+}
+
 async fn run(system: bool, user: &str, args: &[&str]) -> Result<String, ApiError> {
     let program = flatpak_path()?;
     let outcome = if system {
@@ -559,6 +609,24 @@ async fn run(system: bool, user: &str, args: &[&str]) -> Result<String, ApiError
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_unused_plan_but_never_the_pin_notice() {
+        // Real shapes: the pin notice says "won't be removed" (no
+        // "will be removed" header) and its refs must not be counted.
+        let pinned = "These runtimes in installation 'user' are pinned \
+and won't be removed; see flatpak-pin(1):\n  runtime/org.freedesktop.Platform/x86_64/25.08\nNothing unused to uninstall\n";
+        assert_eq!(parse_unused(pinned), 0);
+
+        let plan = "These runtimes will be removed:\n\
+  runtime/org.freedesktop.Platform/x86_64/26.08\n\
+  runtime/org.freedesktop.Platform.Locale/x86_64/26.08\n\
+Is that ok? [y/N] ";
+        assert_eq!(parse_unused(plan), 2);
+
+        assert_eq!(parse_unused("Nothing unused to uninstall\n"), 0);
+        assert_eq!(parse_unused(""), 0);
+    }
 
     #[test]
     fn validates_flatpak_remote_inputs() {

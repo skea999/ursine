@@ -80,6 +80,9 @@ pub struct PackagesState {
     /// Generation counter: bumped on every reload so a check started
     /// before the reload (wrong kind/scope) can never land after it.
     pub updates_seq: u64,
+    /// Unused-runtime count from the last flatpak list (None = not
+    /// probed / unknown; Some(0) = nothing to remove).
+    pub orphans: Option<u64>,
     /// Pattern-actions input (regex over installed names).
     pub pattern: String,
     /// (operation, pattern) waiting for confirmation.
@@ -125,6 +128,7 @@ impl Default for PackagesState {
             updates_seq: 0,
             pattern: String::new(),
             pending_pattern: None,
+            orphans: None,
             error: None,
             message: None,
             pending_remove: None,
@@ -167,6 +171,7 @@ impl PackagesState {
         self.pending_update = None;
         self.pending_orphans = false;
         self.pending_install = None;
+        self.orphans = None;
         self.pending_apk_repo_remove = None;
         self.pending_flatpak_remote_remove = None;
     }
@@ -289,7 +294,9 @@ impl PackagesState {
                 title: "Confirm repository removal".to_string(),
                 rows: vec![(
                     "Consequences".to_string(),
-                    format!("Remove the remote {name}? Packages from it stop receiving updates."),
+                    format!(
+                        "Remove the repository {name}? Packages from it stop receiving updates."
+                    ),
                 )],
                 confirm: Message::FlatpakRemoteRemoveConfirmed,
                 cancel: Message::FlatpakRemoteRemoveCancelled,
@@ -301,7 +308,7 @@ impl PackagesState {
             let mut rows = vec![
                 ("Application".to_string(), pending.app_id.clone()),
                 (
-                    "Remote".to_string(),
+                    "Repository".to_string(),
                     if self.install_remote.is_empty() {
                         "flathub".to_string()
                     } else {
@@ -407,15 +414,22 @@ impl PackagesState {
         };
 
         // --- Maintenance (flatpak only; apk's check refreshes indexes) ---
-        let maintenance = (kind == PackageKind::Flatpak).then(|| SectionVm {
-            title: "Maintenance".to_string(),
-            items: vec![settings::item(
-                "Remove unused runtimes",
-                button::text("Remove orphans…").on_press_maybe(
-                    (!self.action_busy).then_some(Message::PackageOrphansRequested),
-                ),
-            )
-            .into()],
+        let maintenance = (kind == PackageKind::Flatpak).then(|| {
+            let label = self.orphans.map_or_else(
+                || "Remove orphans…".to_string(),
+                |count| format!("Remove orphans… ({count})"),
+            );
+            SectionVm {
+                title: "Maintenance".to_string(),
+                items: vec![settings::item(
+                    "Remove unused runtimes",
+                    button::text(label).on_press_maybe(
+                        (!self.action_busy && self.orphans != Some(0))
+                            .then_some(Message::PackageOrphansRequested),
+                    ),
+                )
+                .into()],
+            }
         });
 
         // --- Upgrade ("Upgrade all" first, then the controls) ---
@@ -464,15 +478,19 @@ impl PackagesState {
         } else {
             Vec::new()
         };
-        let install_trailing: Vec<Element<'_, Message>> = if kind == PackageKind::Apk {
-            vec![button::text("Preview APK")
+        let install_trailing: Vec<Element<'_, Message>> = match kind {
+            PackageKind::Apk => vec![button::text("Preview APK")
                 .on_press_maybe(
                     (!self.install.trim().is_empty() && !self.action_busy)
                         .then_some(Message::ApkPreviewRequested),
                 )
-                .into()]
-        } else {
-            Vec::new()
+                .into()],
+            PackageKind::Flatpak => vec![button::text("Preview")
+                .on_press_maybe(
+                    (!self.install.trim().is_empty() && !self.action_busy)
+                        .then_some(Message::FlatpakPreviewRequested),
+                )
+                .into()],
         };
         let search = SearchVm {
             repository: None,
@@ -549,7 +567,9 @@ impl PackagesState {
             }
             PackageKind::Flatpak => {
                 if self.flatpak_remotes.is_empty() {
-                    repo_items.push(settings::item("Configured", text("No remotes.")).into());
+                    repo_items.push(
+                        settings::item("Entries", text("No repositories configured.")).into(),
+                    );
                 } else {
                     for remote in &self.flatpak_remotes {
                         let name = remote.name.clone();
@@ -567,7 +587,7 @@ impl PackagesState {
                 }
                 repo_items.push(
                     settings::item(
-                        "Add remote",
+                        "Add repository",
                         row(vec![
                             text_input("name", self.flatpak_remote_name.clone())
                                 .on_input(Message::FlatpakRemoteNameChanged)
@@ -591,11 +611,7 @@ impl PackagesState {
             }
         }
         let repositories = SectionVm {
-            title: match kind {
-                PackageKind::Apk => "Repositories",
-                PackageKind::Flatpak => "Remotes",
-            }
-            .to_string(),
+            title: "Repositories".to_string(),
             items: repo_items,
         };
 
@@ -757,7 +773,6 @@ impl PackagesState {
                 message: Message::PackageRefresh,
                 armed: !self.busy && !self.action_busy,
             },
-            subtitle: None,
             busy: if self.busy {
                 Some("Reading package state…".to_string())
             } else if self.action_busy {

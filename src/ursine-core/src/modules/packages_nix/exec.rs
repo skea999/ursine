@@ -457,6 +457,26 @@ pub async fn run_as_user_argv(
     }
 }
 
+/// Like [`run_as_user_argv`] but a non-zero exit is data, not an
+/// error (e.g. flatpak's confirm-and-abort), and `input` is piped to
+/// stdin.
+pub async fn run_as_user_argv_tolerant(
+    user: &str,
+    program: &str,
+    argv: &[&str],
+    timeout: Duration,
+    input: Option<&str>,
+) -> Result<ProcessOutcome, ApiError> {
+    let cmd = su_argv_command(user, program, argv)?;
+    let input = input.map(|text| text.as_bytes().to_vec());
+    let output = run_command(cmd, timeout, OutputPolicy::Truncate, input).await?;
+    Ok(ProcessOutcome {
+        code: output.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
 /// Like [`run_as_user_argv_bounded`] but the target user IS root.
 ///
 /// No `su`, no shell — the calling process already runs as root. Used by

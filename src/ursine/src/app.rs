@@ -363,7 +363,11 @@ pub enum Message {
         Result<Vec<ursine_api::ApkRepository>, ApiError>,
     ),
     PackagePreviewFinished(u64, Result<String, ApiError>),
-    PackageFlatpakLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
+    /// Fetch flatpak info and show it as the top message (apk-style
+    /// preview, without arming the install confirm).
+    FlatpakPreviewRequested,
+    FlatpakPreviewFinished(u64, Result<FlatpakInfo, ApiError>),
+    PackageFlatpakLoaded(u64, Result<(Vec<FlatpakPackage>, Option<u64>), ApiError>),
     PackageFlatpakUpdatesLoaded(u64, u64, Result<Vec<FlatpakPackage>, ApiError>),
     PackageFlatpakRemotesLoaded(u64, Result<Vec<ursine_api::FlatpakRemote>, ApiError>),
     PackageApkSearchLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
@@ -1322,6 +1326,41 @@ impl cosmic::Application for App {
             Message::PackageRemoveCancelled => self.packages.pending_remove = None,
             Message::ApkUpgradeRequested(package) => return self.upgrade_apk_package(package),
             Message::ApkPreviewRequested => return self.preview_apk_package(),
+            Message::FlatpakPreviewRequested => return self.preview_flatpak_package(),
+            Message::FlatpakPreviewFinished(epoch, result) => {
+                if epoch != self.epoch {
+                    return Task::none();
+                }
+                self.packages.action_busy = false;
+                match result {
+                    Ok(info) => {
+                        let mut lines = vec![format!("{} — {}", info.name, info.app_id)];
+                        if !info.version.is_empty() {
+                            lines.push(format!("Version: {}", info.version));
+                        }
+                        if !info.download_size.is_empty() {
+                            lines.push(format!("Download size: {}", info.download_size));
+                        }
+                        if !info.installed_size.is_empty() {
+                            lines.push(format!("Installed size: {}", info.installed_size));
+                        }
+                        if !info.runtime.is_empty() {
+                            lines.push(format!("Runtime: {}", info.runtime));
+                        }
+                        if !info.remote.is_empty() {
+                            lines.push(format!("Remote: {}", info.remote));
+                        }
+                        self.packages.message = Some(lines.join("\n"));
+                        self.packages.error = None;
+                    }
+                    Err(error) => {
+                        if self.handle_session_error(&error) {
+                            return Task::none();
+                        }
+                        self.packages.error = Some(friendly(&error));
+                    }
+                }
+            }
             Message::FlatpakUpgradeRequested(app_id) => {
                 return self.upgrade_flatpak_package(app_id)
             }
@@ -3001,14 +3040,15 @@ impl App {
     fn finish_flatpak(
         &mut self,
         epoch: u64,
-        result: Result<Vec<FlatpakPackage>, ApiError>,
+        result: Result<(Vec<FlatpakPackage>, Option<u64>), ApiError>,
     ) -> Task<cosmic::Action<Message>> {
         if epoch != self.epoch {
             return Task::none();
         }
         self.packages.busy = false;
         match result {
-            Ok(packages) => {
+            Ok((packages, orphans)) => {
+                self.packages.orphans = orphans;
                 self.packages.apply_flatpak(packages);
                 self.packages.searching = false;
             }
@@ -3255,6 +3295,30 @@ impl App {
         self.packages.error = None;
         Task::future(async move {
             Message::PackagePreviewFinished(epoch, client::apk_preview(token, package).await)
+        })
+        .map(cosmic::Action::App)
+    }
+
+    /// apk-style preview for flatpak: fetch the ref info and show it
+    /// as the top message (the install confirm stays a separate step).
+    fn preview_flatpak_package(&mut self) -> Task<cosmic::Action<Message>> {
+        let Some(session) = &self.session else {
+            return Task::none();
+        };
+        let app_id = self.packages.install.trim().to_string();
+        if app_id.is_empty() || self.packages.action_busy {
+            return Task::none();
+        }
+        let system = self.packages.system;
+        let remote = self.packages.selected_remote();
+        let token = session.token.clone();
+        let epoch = self.epoch;
+        self.packages.action_busy = true;
+        self.packages.message = None;
+        self.packages.error = None;
+        Task::future(async move {
+            let result = client::flatpak_info(token, app_id, remote, system).await;
+            Message::FlatpakPreviewFinished(epoch, result)
         })
         .map(cosmic::Action::App)
     }
