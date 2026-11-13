@@ -95,8 +95,9 @@ pub enum Action {
         #[serde(default)]
         dry_run: bool,
     },
-    /// Report upgradable packages via `nix profile upgrade --all
-    /// --dry-run` (unlocked flakes only; network + slow — on demand).
+    /// Report upgradable packages via `nix profile list` + one
+    /// `nix flake metadata` lock compare per flake reference
+    /// (network; on demand).
     ListNixUpdates,
     /// Profile history (generations).
     Generations,

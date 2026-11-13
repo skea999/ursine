@@ -793,8 +793,8 @@ impl StoreState {
         }
 
         for package in &self.packages {
-            // Upgrade only when the last `list_nix_updates` dry-run
-            // named this element; without a check (or when current) the
+            // Upgrade only when the last `list_nix_updates` named this
+            // element as outdated; without a check (or when current) the
             // button is gone.
             let mut buttons: Vec<Element<'_, Message>> = Vec::with_capacity(2);
             let updatable = self
@@ -856,21 +856,6 @@ impl StoreState {
             enabled && !self.updates_checking,
         ) {
             section = section.add(item);
-        }
-        if let Some(updates) = &self.nix_updates {
-            if !updates.packages.is_empty() {
-                section = section.add(settings::item(
-                    "Upgradable packages",
-                    column(
-                        updates
-                            .packages
-                            .iter()
-                            .map(|name| text(name.clone()).into())
-                            .collect::<Vec<Element<'_, Message>>>(),
-                    )
-                    .spacing(2),
-                ));
-            }
         }
         section = section.add(settings::item(
             "Upgrade every installed package",

@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- nix **Upgrade section no longer lists the upgradable package
+  names** (user decision): the count, the auto-check toggler and the
+  manual Refresh stay; the per-package Upgrade buttons still appear
+  only for elements the check reported as outdated.
+
 ## [0.33.0] — 2026-11-12
 
 ### Fixed
