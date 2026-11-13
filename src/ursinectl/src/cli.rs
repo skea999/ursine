@@ -67,8 +67,7 @@ MODULES (wire name; short alias in parentheses):
                       update_flatpak, update_flatpak_app,
                       remove_flatpak_orphans, add_flatpak_remote,
                       remove_flatpak_remote, flatpak_remove_regex,
-                      flatpak_upgrade_regex, get_flatpak_permissions,
-                      set_flatpak_permissions
+                      flatpak_upgrade_regex
   printers            list_printers, printer_jobs, add_printer,
                       add_printer_manual, remove_printer,
                       set_default_printer, set_printer_options,
@@ -345,9 +344,9 @@ pub fn is_destructive(action: &Action) -> bool {
         FormatDisk, PartitionCreate, PartitionDelete, PruneGenerations, Remove, RemoveAll,
         RemoveApk, RemoveApkRepository, RemoveFirewallPort, RemoveFirewallService, RemoveFlatpak,
         RemoveFlatpakOrphans, RemoveFlatpakRemote, RemoveNixRepository, RemovePrinter, RemoveRegex,
-        RemoveScannerDevice, RestoreSnapshot, Rollback, SetFirewallEnabled, SetFlatpakPermissions,
-        SetNetworkIpv4, SetPassword, StoreGc, ThemeApply, UnmountDisk, UpdateFlatpak,
-        UpdateFlatpakApp, UpgradeApk, UpgradeApkPackage, UpgradeRegex, WipeHistory,
+        RemoveScannerDevice, RestoreSnapshot, Rollback, SetFirewallEnabled, SetNetworkIpv4,
+        SetPassword, StoreGc, ThemeApply, UnmountDisk, UpdateFlatpak, UpdateFlatpakApp, UpgradeApk,
+        UpgradeApkPackage, UpgradeRegex, WipeHistory,
     };
     // Mode-dependent: only unloading security policy counts as destructive.
     if let Action::ApparmorSetMode { mode, .. } = action {
@@ -376,7 +375,6 @@ pub fn is_destructive(action: &Action) -> bool {
             | UpdateFlatpak { .. }
             | UpdateFlatpakApp { .. }
             | RemoveFlatpakOrphans { .. }
-            | SetFlatpakPermissions { .. }
             | SetNetworkIpv4 { .. }
             | ForgetNetwork { .. }
             | DeleteFirewallService { .. }

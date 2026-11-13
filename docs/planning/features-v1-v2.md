@@ -163,8 +163,6 @@ Implemented baseline:
 - apps/runtimes separation (rows tagged `kind`, Show dropdown);
 - update-available list (`list_flatpak_updates`, per-app Update button);
 - per-app update;
-- permissions editor (sockets, devices, filesystems, env — override
-  keyfile edits that preserve every other key/group);
 - user-scope targeting: root may run user-installation actions as any
   existing account (`as_user`, non-root own-account only).
 
@@ -357,7 +355,8 @@ Not required by the intent table but compatible:
 - snapshot hook before package updates;
 - system audit-log viewer;
 - services panel for dinit/OpenRC;
-- Flatpak permission editor (listed above as polish);
+- ~~Flatpak permission editor~~ — removed by user decision
+  (2026-11-13): no GUI, CLI or daemon code for flatpak overrides;
 - dashboard for CPU/RAM/disk.
 
 ## Explicitly out of v1/v2

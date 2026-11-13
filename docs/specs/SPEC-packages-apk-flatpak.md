@@ -29,8 +29,6 @@ center as the Nix store. Both backends are capability-gated and audited.
 - Both remote mutations rotate the installation's `repo/config` first
   (uniform slots); `apk add`/`del` rotate `/etc/apk/world` first.
 | `list_flatpak_updates` | `flatpak remote-ls <scope> --app/--runtime --updates --columns=…` |
-| `get_flatpak_permissions` | `flatpak override --show` + `flatpak info --show-permissions` |
-| `set_flatpak_permissions` | `flatpak override --show` → diff → one `flatpak override` invocation with only the changed flags (foreign keys/groups untouched); the override file rotates first |
 | `search_flatpak` | `flatpak search --columns=... --system/--user <query>` |
 | `install_flatpak` | `flatpak install -y --noninteractive <scope> <remote> <app>` (remote default `flathub`, validated) |
 | `get_flatpak_info` | `flatpak remote-info <scope> <remote> <app>` (name, version, sizes) |
@@ -55,12 +53,6 @@ center as the Nix store. Both backends are capability-gated and audited.
 - Destructive actions require GUI confirmation.
 - Capability gates: `apk` binary; `flatpak` binary.
 - Audit uses the normal module/action path; no secrets are logged.
-- Override writes: ids pass the strict charset, paths are built from
-  fixed prefixes, content is validated (tokens/filesystems/env), the
-  override file rotates through the uniform `.ursine-backup[.N]`
-  slots (`backup_configs.copies`) before the CLI rewrites it
-  (max THREE copies), and every key
-  outside the four edited lists is preserved (no `--reset`).
 
 ## GUI
 
@@ -82,23 +74,14 @@ Sidebar entries **APK packages** and **Flatpak applications**. Each panel has:
   per-package lists are gone by user decision); per-package Upgrade
   buttons live in Installed and appear only when the check says the
   package is outdated;
-- per-app Permissions editor (row button): sockets/devices/filesystems
-  add-remove lists, environment name/value rows, read-only effective
-  view from `flatpak info --show-permissions`, Apply writes the four
-  lists.
 
 The overall shell uses a GNOME Settings-style left sidebar for every logged-in
 screen.
 
 ## Testing
 
-- Unit: APK package/query validation, Flatpak id validation, scope flags;
-  override diff: current vs wanted → exact flag list (foreign groups untouched)
-  and permission-token validation in `modules/packages_flatpak/permissions.rs`.
+- Unit: APK package/query validation, Flatpak id validation, scope flags.
 - `cargo test --workspace --all-features`.
-- VM smoke: get/set permissions on a real app, verify
-  `flatpak override --show` reflects the edit and a Session Bus policy
-  (when present) survives the write — the write path cannot run in CI.
 - Manual: install/remove a harmless package on Alpine and Flatpak; verify
   capability-gated states when binaries are absent.
 

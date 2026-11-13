@@ -163,7 +163,7 @@ See `AGENTS.md` for project context and milestone history.
 
 - Design notes worth remembering: `flatpak override --reset` deletes [Session Bus Policy] — never use it for partial edits; `ref` column has no app/runtime prefix (split needs two queries); `remote-ls --updates` is the update oracle; miette-style flatpak errors come from `remote-info` human layout.
 - Dispatch `as_user` now covers packages_nix + theming + crontab + Flatpak(user scope); messages updated, contract tests still green.
-- Open: VM smoke of the permissions write path (get/set on a real app, `flatpak override --show` reflects it, Session Bus policy survives); pre-existing epoch/scope race in the package panel recorded as risk (not introduced here).
+- ~~Open: VM smoke of the permissions write path~~ — void: the permissions feature was removed entirely (user decision 2026-11-13); pre-existing epoch/scope race in the package panel recorded as risk (not introduced here).
 - Next: **Network DHCP/static IPv4, forget, VPN** (TASKS v2 required), then Firewall extras, Disks format/partition, Bluetooth pairing agent, printer live progress.
 
 ## Session 2026-11-04 — niri compatibility range + field-level validate errors (main)

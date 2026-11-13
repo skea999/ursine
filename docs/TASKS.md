@@ -27,7 +27,7 @@
 - [x] APK: operation progress/log (job log + `job_output` polling, terminal text, Close after completion).
 - [x] Flatpak: per-app update.
 - [x] Flatpak: configured remotes list.
-- [x] Flatpak: remote dropdown, app/runtime split, update-available list, permissions editor, size/progress, target user. Done 2026-11-04 in five CI-green commits (26707ae remote+sizes, 7a57d81 kind+Show, a5bcf23 updates, 48cd194 permissions editor, f1b020e as_user); progress stayed on the job-log path. VM smoke still needed for the override write path.
+- [x] Flatpak: remote dropdown, app/runtime split, update-available list, permissions editor, size/progress, target user. Done 2026-11-04 in five CI-green commits (26707ae remote+sizes, 7a57d81 kind+Show, a5bcf23 updates, 48cd194 permissions editor, f1b020e as_user); progress stayed on the job-log path. Permissions editor REMOVED by user decision 2026-11-13 — no override code remains, the old VM-smoke item is void.
 - [x] Printers: paper/duplex/color via CUPS `-o` options.
 - [x] Printers: job state/size/submitted details.
 - [x] Printers: live job progress. Done 2026-11-06 (3fddaf0): Printers screen auto-refreshes every 3s via a silent load (no busy flicker, errors persist until success, action reloads never dropped behind a tick).

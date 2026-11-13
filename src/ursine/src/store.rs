@@ -1032,7 +1032,6 @@ impl StoreState {
             repositories,
             pattern,
             list,
-            permissions: None,
             generations,
         }
     }

@@ -96,7 +96,7 @@ keeps its previous versions through ONE uniform rotation mechanism
   the value it contains; editing it requires a daemon restart (same as
   `disks_format`).
 - Direct writes: `/etc/ursine/config.toml`, niri config, APK
-  repositories, Flatpak overrides, all theming targets (incl. COSMIC
+  repositories, all theming targets (incl. COSMIC
   entries and the dconf database before `gsettings`), `airscan.conf`,
   `btrbk.conf`.
 - CLI-changed files (rotated before the CLI runs): crontab (previous

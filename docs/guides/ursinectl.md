@@ -154,22 +154,11 @@ destructive (`--yes`).
 (errors when the name exists); `remove_flatpak_remote` is destructive
 (`--yes`) and flatpak itself refuses while packages still come from
 that remote.
-`get_flatpak_permissions app_id=… system=true|false`,
-`set_flatpak_permissions app_id=… system=true|false sockets=[…]
-devices=[…] filesystems=[…] env=[…]`
-
 `list_flatpak` rows carry `kind` (`app` or `runtime`): the daemon queries
 `flatpak list --app` and `--runtime` separately because the `ref` column
 has no kind prefix. `list_flatpak_updates` answers the same row shape for
 refs whose remote has a newer commit (`flatpak remote-ls --updates`).
 `remote` defaults to `flathub` and must be a configured remote name.
-`get_flatpak_permissions` returns the four editable override lists
-(`sockets`, `devices`, `filesystems`, `env`) plus the raw effective view
-from `flatpak info --show-permissions`. `set_flatpak_permissions`
-replaces exactly those four lists and preserves every other key/group of
-the override file (Session Bus policies are never dropped); it requires
-`--yes`. `env` entries are `{name,value}` objects; an empty value unsets
-the variable in the sandbox.
 `get_flatpak_info` answers `name`, `version`, `download_size`,
 `installed_size` and `runtime` for the install confirmation; a failed
 lookup still allows the install (the job reports its own errors).
@@ -403,7 +392,7 @@ CLI prints the refused action and exits 2. The current set includes:
 `theme_apply`, `remove_printer`, `cancel_printer_jobs`,
 `remove_scanner_device`, `remove_firewall_service`, `remove_firewall_port`,
 `set_firewall_enabled` (off), `delete_firewall_service`, `forget_network`,
-`set_network_ipv4`, `set_flatpak_permissions`, `unmount_disk`,
+`set_network_ipv4`, `unmount_disk`,
 `format_disk`, `partition_create`, `partition_delete`,
 `booster_regenerate`, `apparmor_remove_unknown`, `apparmor_cleanprof`,
 `apparmor_set_mode` with `mode=disable`.

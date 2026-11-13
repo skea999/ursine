@@ -147,8 +147,8 @@ unmasks. remove_apk_repository is destructive and requires --yes.
 .B packages_flatpak
 list_flatpak, list_flatpak_remotes, list_flatpak_updates, search_flatpak,
 install_flatpak, get_flatpak_info, remove_flatpak, update_flatpak,
-update_flatpak_app, remove_flatpak_orphans, get_flatpak_permissions,
-set_flatpak_permissions, add_flatpak_remote, remove_flatpak_remote,
+update_flatpak_app, remove_flatpak_orphans, add_flatpak_remote,
+remove_flatpak_remote,
 flatpak_remove_regex, flatpak_upgrade_regex (daemon-side match over
 app ids/names; dry_run preview, one job on apply, --yes required).
 add_flatpak_remote registers a remote URL on the selected installation;
@@ -156,9 +156,7 @@ remove_flatpak_remote is destructive and requires --yes.
 install_flatpak accepts an optional remote (default flathub);
 get_flatpak_info reports name, version, download and installed size for
 the install confirmation; list_flatpak_updates reports refs whose remote
-has a newer commit; get/set_flatpak_permissions edit the override lists
-(sockets, devices, filesystems, env) and preserve all other override
-keys; set_flatpak_permissions requires --yes.
+has a newer commit.
 .TP
 .B printers
 list_printers, printer_jobs, add_printer, add_printer_manual,

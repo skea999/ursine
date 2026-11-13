@@ -64,28 +64,6 @@ pub struct FlatpakInfo {
     pub runtime: String,
 }
 
-/// One environment variable override (`[Environment] NAME=VALUE`; an
-/// empty value unsets the variable in the sandbox).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FlatpakEnvVar {
-    pub name: String,
-    pub value: String,
-}
-
-/// Editable Flatpak override state for one app.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FlatpakPermissions {
-    pub app_id: String,
-    /// Whether an override file exists for this app.
-    pub exists: bool,
-    pub sockets: Vec<String>,
-    pub devices: Vec<String>,
-    pub filesystems: Vec<String>,
-    pub env: Vec<FlatpakEnvVar>,
-    /// Raw `flatpak info --show-permissions` (effective sandbox view).
-    pub effective: String,
-}
-
 /// What a Flatpak ref is: an application or a runtime.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

@@ -206,23 +206,6 @@ pub enum Action {
         name: String,
         system: bool,
     },
-    /// Read the editable Flatpak override state plus the effective
-    /// sandbox permissions for one installed app.
-    GetFlatpakPermissions {
-        app_id: String,
-        system: bool,
-    },
-    /// Replace the four editable override lists (sockets, devices,
-    /// filesystems, env) for one app, preserving every other key/group
-    /// of the override file.
-    SetFlatpakPermissions {
-        app_id: String,
-        system: bool,
-        sockets: Vec<String>,
-        devices: Vec<String>,
-        filesystems: Vec<String>,
-        env: Vec<crate::FlatpakEnvVar>,
-    },
     /// Search the configured Flatpak remotes.
     SearchFlatpak {
         query: String,

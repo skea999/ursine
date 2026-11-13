@@ -499,9 +499,7 @@ fn flatpak_allows_as_user(action: &Action) -> Option<bool> {
         | Action::UpdateFlatpak { system }
         | Action::UpdateFlatpakApp { system, .. }
         | Action::RemoveFlatpakOrphans { system }
-        | Action::ListFlatpakUpdates { system }
-        | Action::GetFlatpakPermissions { system, .. }
-        | Action::SetFlatpakPermissions { system, .. } => Some(!system),
+        | Action::ListFlatpakUpdates { system } => Some(!system),
         // `None` keeps the legacy both-installations listing which runs
         // as root: only an explicit user scope honors a target.
         Action::ListFlatpakRemotes { system } => Some(*system == Some(false)),
@@ -800,18 +798,6 @@ mod tests {
                 system: false,
             },
             Action::RemoveFlatpakOrphans { system: false },
-            Action::GetFlatpakPermissions {
-                app_id: "org.x.Y".into(),
-                system: false,
-            },
-            Action::SetFlatpakPermissions {
-                app_id: "org.x.Y".into(),
-                system: false,
-                sockets: vec![],
-                devices: vec![],
-                filesystems: vec![],
-                env: vec![],
-            },
         ];
         for action in &actions {
             assert!(

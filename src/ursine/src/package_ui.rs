@@ -131,7 +131,6 @@ pub struct PackageVm<'a> {
     pub repositories: SectionVm<'a>,
     pub pattern: PatternSection,
     pub list: ListVm<'a>,
-    pub permissions: Option<SectionVm<'a>>,
     pub generations: Option<SectionVm<'a>>,
 }
 
@@ -148,13 +147,12 @@ pub enum SectionId {
     Repositories,
     Pattern,
     Installed,
-    Permissions,
     Generations,
 }
 
 /// Canonical section order (base = the apk view; extra slots taken
 /// from flatpak/nix). Never reorder for one manager only.
-pub const SECTIONS: [SectionId; 9] = [
+pub const SECTIONS: [SectionId; 8] = [
     SectionId::Scope,
     SectionId::Maintenance,
     SectionId::Upgrade,
@@ -162,7 +160,6 @@ pub const SECTIONS: [SectionId; 9] = [
     SectionId::Repositories,
     SectionId::Pattern,
     SectionId::Installed,
-    SectionId::Permissions,
     SectionId::Generations,
 ];
 
@@ -181,7 +178,6 @@ impl PackageVm<'_> {
                 | SectionId::Pattern
                 | SectionId::Installed => true,
                 SectionId::Maintenance => self.maintenance.is_some(),
-                SectionId::Permissions => self.permissions.is_some(),
                 SectionId::Generations => self.generations.is_some(),
             })
             .collect()
@@ -210,7 +206,6 @@ pub fn view<'a>(vm: PackageVm<'a>) -> Element<'a, Message> {
         repositories,
         pattern,
         list,
-        permissions,
         generations,
     } = vm;
 
@@ -245,7 +240,6 @@ pub fn view<'a>(vm: PackageVm<'a>) -> Element<'a, Message> {
     let mut repositories = Some(repositories);
     let mut pattern = Some(pattern);
     let mut list = Some(list);
-    let mut permissions = permissions;
     let mut generations = generations;
 
     for id in plan {
@@ -257,7 +251,6 @@ pub fn view<'a>(vm: PackageVm<'a>) -> Element<'a, Message> {
             SectionId::Repositories => repositories.take().map(section_block),
             SectionId::Pattern => pattern.take().map(pattern_section),
             SectionId::Installed => list.take().map(list_section),
-            SectionId::Permissions => permissions.take().map(section_block),
             SectionId::Generations => generations.take().map(section_block),
         };
         if let Some(section) = section {
@@ -615,10 +608,6 @@ mod tests {
                 rows: Vec::new(),
                 footer: Vec::new(),
             },
-            permissions: (kind == "flatpak").then(|| SectionVm {
-                title: "Permissions".to_string(),
-                items: Vec::new(),
-            }),
             generations: (kind == "nix").then(|| SectionVm {
                 title: "Generations".to_string(),
                 items: Vec::new(),
@@ -656,7 +645,6 @@ mod tests {
                 SectionId::Repositories,
                 SectionId::Pattern,
                 SectionId::Installed,
-                SectionId::Permissions,
             ]
         );
         assert_eq!(
