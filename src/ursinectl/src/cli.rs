@@ -758,6 +758,7 @@ mod tests {
             },
             RemoveNixRepository {
                 name: "myflake".into(),
+                scope: None,
             },
             RemoveFlatpakRemote {
                 name: "flathub".into(),

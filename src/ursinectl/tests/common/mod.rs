@@ -138,7 +138,7 @@ pub const SAMPLES: &[Sample] = &[
     Sample {
         module: ursine_api::ModuleId::PackagesNix,
         action: "remove_nix_repository",
-        pairs: &[("name", "myflake")],
+        pairs: &[("name", "myflake"), ("scope", "global")],
         destructive: true,
         dispatch: Dispatch::Gate,
     },

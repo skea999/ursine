@@ -38,6 +38,63 @@ async fn backup_registry(user: &str, copies: usize) -> Result<(), ApiError> {
     crate::backup_configs::rotate_async(target, copies, Some((uid, gid))).await
 }
 
+const GLOBAL_REGISTRY: &str = "/etc/nix/registry.json";
+
+/// Drop one entry from the SYSTEM registry. `nix registry remove`
+/// only edits the calling user's file, so the daemon edits the system
+/// file the Webmin way: read, rotate the backup, atomic replace.
+async fn remove_global_repository(name: &str, copies: usize) -> Result<(), ApiError> {
+    // Cap BEFORE reading: the limit guards allocation, not just parse.
+    let meta = std::fs::metadata(GLOBAL_REGISTRY)
+        .map_err(|e| ApiError::internal(format!("stat {GLOBAL_REGISTRY}: {e}")))?;
+    if meta.len() > 1024 * 1024 {
+        return Err(ApiError::internal(
+            "system registry file is larger than 1 MiB",
+        ));
+    }
+    let content = std::fs::read_to_string(GLOBAL_REGISTRY)
+        .map_err(|e| ApiError::internal(format!("read {GLOBAL_REGISTRY}: {e}")))?;
+    let mut value: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| ApiError::internal(format!("parse {GLOBAL_REGISTRY}: {e}")))?;
+    if !drop_global_flake(&mut value, name)? {
+        // Nothing there — removing is idempotent.
+        return Ok(());
+    }
+    let mut updated = serde_json::to_string_pretty(&value)
+        .map_err(|e| ApiError::internal(format!("encode {GLOBAL_REGISTRY}: {e}")))?;
+    updated.push('\n');
+    exec::run_as_user_atomic_write("root", GLOBAL_REGISTRY, &updated, copies).await?;
+    Ok(())
+}
+
+/// Remove one `type = indirect` flake from a parsed registry document
+/// (a same-id entry of another type is never touched). Returns whether
+/// anything was dropped. A present-but-wrong-typed `flakes` key is a
+/// diagnosed error — never a silent success.
+fn drop_global_flake(value: &mut serde_json::Value, name: &str) -> Result<bool, ApiError> {
+    let Some(raw) = value.get_mut("flakes") else {
+        return Ok(false);
+    };
+    let Some(flakes) = raw.as_array_mut() else {
+        return Err(ApiError::internal("registry file: flakes is not an array"));
+    };
+    let before = flakes.len();
+    flakes.retain(|entry| {
+        let from = entry.get("from");
+        let is_target = from
+            .and_then(|from| from.get("id"))
+            .and_then(serde_json::Value::as_str)
+            == Some(name)
+            && from
+                .and_then(|from| from.get("type"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("indirect")
+                == "indirect";
+        !is_target
+    });
+    Ok(flakes.len() != before)
+}
+
 fn repo_is_custom(flake: &str) -> bool {
     flake != "nixpkgs"
 }
@@ -627,17 +684,29 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             .await?;
             Ok(json!({"repositories": list_repositories(ctx.as_user).await?}))
         }
-        Action::RemoveNixRepository { name } => {
+        Action::RemoveNixRepository { name, scope } => {
             validate_repo_name(name)?;
-            backup_registry(ctx.as_user, crate::backup_configs::copies_from(&ctx.config)).await?;
-            let program = exec::nix_path()?;
-            exec::run_as_user_argv(
-                ctx.as_user,
-                program,
-                &["registry", "remove", name],
-                MUTATE_TIMEOUT,
-            )
-            .await?;
+            let scope = scope.as_deref().unwrap_or("user");
+            if !matches!(scope, "user" | "default" | "global") {
+                return Err(ApiError::invalid("invalid repository scope"));
+            }
+            let copies = crate::backup_configs::copies_from(&ctx.config);
+            if scope == "global" {
+                // `nix registry remove` only edits the calling user's
+                // file: the system registry is edited directly
+                // (Webmin pattern), with the uniform backup rotation.
+                remove_global_repository(name, copies).await?;
+            } else {
+                backup_registry(ctx.as_user, copies).await?;
+                let program = exec::nix_path()?;
+                exec::run_as_user_argv(
+                    ctx.as_user,
+                    program,
+                    &["registry", "remove", name],
+                    MUTATE_TIMEOUT,
+                )
+                .await?;
+            }
             Ok(json!({"repositories": list_repositories(ctx.as_user).await?}))
         }
         Action::Install { package } => {
@@ -1094,6 +1163,42 @@ mod tests {
             description_expr("evil\"${x}", &[("a".to_string(), vec!["b".to_string()])]).is_none()
         );
         assert!(description_expr("flake:nixpkgs", &[]).is_none());
+    }
+
+    #[test]
+    fn drop_global_flake_targets_only_matching_indirect_entries() {
+        let mut value = json!({
+            "version": 2,
+            "flakes": [
+                {"from": {"id": "nixpkgs", "type": "indirect"},
+                  "to": {"owner": "NixOS", "repo": "nixpkgs", "type": "github"}},
+                {"from": {"id": "ursine", "type": "indirect"},
+                  "to": {"owner": "skea999", "repo": "ursine", "type": "github"}},
+                {"from": {"id": "nixpkgs", "type": "path", "path": "/x"},
+                  "to": {"type": "path", "path": "/y"}}
+            ]
+        });
+        assert!(drop_global_flake(&mut value, "nixpkgs").unwrap());
+        let flakes = value
+            .get("flakes")
+            .and_then(serde_json::Value::as_array)
+            .expect("flakes array");
+        let ids: Vec<&str> = flakes
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .pointer("/from/id")
+                    .and_then(serde_json::Value::as_str)
+            })
+            .collect();
+        // The indirect target went; the same id under another type stayed.
+        assert_eq!(ids, ["ursine", "nixpkgs"]);
+        assert!(!drop_global_flake(&mut value, "nixpkgs").unwrap());
+        let mut no_key = json!({"version": 2});
+        assert!(!drop_global_flake(&mut no_key, "nixpkgs").unwrap());
+        // Wrong-typed flakes is diagnosed, not swallowed.
+        let mut wrong = json!({"flakes": "not an array"});
+        assert!(drop_global_flake(&mut wrong, "nixpkgs").is_err());
     }
 
     #[test]

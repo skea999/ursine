@@ -64,9 +64,13 @@ pub enum Action {
         name: String,
         url: String,
     },
-    /// Remove a user-scope registry entry (`nix registry remove`).
+    /// Remove a registry entry: `scope` `user`/`default` (absent =
+    /// user) edits the target user's registry via `nix registry
+    /// remove`; `global` edits the system registry file directly.
     RemoveNixRepository {
         name: String,
+        #[serde(default)]
+        scope: Option<String>,
     },
     /// Install a package into the target user's profile.
     Install {

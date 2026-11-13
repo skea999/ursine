@@ -688,12 +688,14 @@ fn atomic_write_script() -> String {
     script.push_str(
         r#"dir=${1%/*}
 mkdir -p -- "$dir"
+mode=$(stat -c %a "$1" 2>/dev/null || true)
 tmp=$(mktemp "$dir/.ursine-write.XXXXXX")
 trap 'rm -f -- "$tmp"' EXIT
 cat > "$tmp"
 sync
 ursine_rotate "$1" "$2" || exit 42
 mv -- "$tmp" "$1"
+if [ -n "$mode" ]; then chmod "$mode" "$1"; fi
 trap - EXIT
 "#,
     );
@@ -1131,6 +1133,56 @@ mod tests {
     /// exactly three generations (live + 3 slots = 4 versions total),
     /// `copies = 1` must keep one slot, and a rejected copies value must
     /// exit 42 without touching anything.
+    #[test]
+    fn atomic_write_script_preserves_the_original_mode() {
+        // System files (e.g. /etc/nix/registry.json) must stay
+        // world-readable after a rewrite: umask 077 would otherwise
+        // leave the mktemp mode behind. Runs the real script.
+        use std::io::Write as _;
+        use std::os::unix::fs::PermissionsExt as _;
+        use std::process::{Command, Stdio};
+
+        let dir = std::env::temp_dir().join(format!("ursine-mode-sh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = atomic_write_script();
+
+        let run = |path: &Path, content: &str| -> i32 {
+            let mut child = Command::new("/bin/sh")
+                .arg("-c")
+                .arg(&script)
+                .arg("sh")
+                .arg(path)
+                .arg("1")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .as_mut()
+                .unwrap()
+                .write_all(content.as_bytes())
+                .unwrap();
+            child.wait().unwrap().code().unwrap()
+        };
+        let mode_of =
+            |path: &Path| -> u32 { std::fs::metadata(path).unwrap().permissions().mode() & 0o777 };
+
+        // Existing 0644 file keeps 0644 through the rewrite.
+        let existing = dir.join("registry.json");
+        std::fs::write(&existing, "old\n").unwrap();
+        std::fs::set_permissions(&existing, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(run(&existing, "new\n"), 0, "rewrite");
+        assert_eq!(mode_of(&existing), 0o644);
+
+        // A brand-new file keeps the mktemp mode (umask 077 → 0600).
+        let fresh = dir.join("fresh.json");
+        assert_eq!(run(&fresh, "created\n"), 0, "create");
+        assert_eq!(mode_of(&fresh), 0o600);
+    }
+
     #[test]
     fn atomic_write_script_rotates_to_the_configured_count() {
         use std::io::Write as _;

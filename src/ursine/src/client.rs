@@ -530,12 +530,13 @@ pub async fn nix_add_repository(
 pub async fn nix_remove_repository(
     token: SessionToken,
     name: String,
+    scope: Option<String>,
     as_user: Option<String>,
 ) -> Result<Vec<ursine_api::NixRepository>, ApiError> {
     let value = call_with_timeout(
         token,
         ModuleId::PackagesNix,
-        Action::RemoveNixRepository { name },
+        Action::RemoveNixRepository { name, scope },
         as_user,
         MUTATE_TIMEOUT,
     )

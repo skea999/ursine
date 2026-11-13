@@ -4,6 +4,14 @@
 
 ### Changed
 
+- nix **Flake repositories: every row has Remove** (apk/flatpak
+  parity, user decision) — including the global/default entries.
+  `remove_nix_repository` gains an optional `scope` (`user`/`default`
+  = the target user's registry via `nix registry remove`, `global` =
+  the system `/etc/nix/registry.json` edited directly with the
+  uniform backup rotation; the atomic writer now preserves the
+  original file mode so system files stay world-readable).
+
 - Installed-package rows now share one **3-line layout** in all
   three managers (user decision): title, **description**, then the
   repository line. apk: `@tag v3.24 main · <url>` (mask tag from

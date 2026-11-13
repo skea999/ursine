@@ -343,7 +343,8 @@ pub struct StoreState {
     pub repo_name: String,
     pub repo_url: String,
     /// Repository waiting for the remove confirmation.
-    pub pending_repo_remove: Option<String>,
+    /// (name, scope) of the registry row awaiting confirmation.
+    pub pending_repo_remove: Option<(String, String)>,
     /// Bumped after every registry mutation: an in-flight list reply
     /// that predates it is stale and gets dropped.
     pub repo_seq: u64,
@@ -704,11 +705,16 @@ impl StoreState {
 
     fn repositories_view(&self) -> Element<'_, Message> {
         let mut section = settings::section().title("Flake repositories");
-        if let Some(name) = &self.pending_repo_remove {
+        if let Some((name, scope)) = &self.pending_repo_remove {
+            let question = if scope == "global" {
+                format!("Remove the system registry entry {name}?")
+            } else {
+                format!("Remove the registry entry {name}?")
+            };
             section = section.add(settings::item(
                 "Confirm removal",
                 row(vec![
-                    text(format!("Remove the registry entry {name}?")).into(),
+                    text(question).into(),
                     button::destructive("Remove")
                         .on_press_maybe(
                             (self.scope_ready() && !self.action_busy && !self.search_busy)
@@ -731,21 +737,19 @@ impl StoreState {
             ));
         }
         for repository in &self.repositories {
-            let name = repository.name.clone();
-            // `user` entries and scopeless (older nix prints no scope
-            // column) are removable through the user registry; an
-            // explicit `global` row is nix's built-in default —
-            // overriding it is what "Add repository" is for.
-            let action = if repository.scope == "user" || repository.scope == "default" {
-                button::destructive("Remove")
-                    .on_press_maybe(
-                        (self.scope_ready() && !self.action_busy && !self.search_busy)
-                            .then_some(Message::StoreRepoRemoveRequested(name.clone())),
-                    )
-                    .into()
-            } else {
-                text("built-in (override with Add)").into()
-            };
+            // Every row removes (apk/flatpak parity): user/default
+            // through `nix registry remove`, global through the
+            // system registry file.
+            let action = button::destructive("Remove")
+                .on_press_maybe(
+                    (self.scope_ready() && !self.action_busy && !self.search_busy).then_some(
+                        Message::StoreRepoRemoveRequested(
+                            repository.name.clone(),
+                            repository.scope.clone(),
+                        ),
+                    ),
+                )
+                .into();
             let detail = format!("{} · {}", repository.name, repository.scope);
             section = section.add(crate::package_ui::repository_row(
                 repository.url.clone(),

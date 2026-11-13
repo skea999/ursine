@@ -492,7 +492,7 @@ pub enum Message {
     StoreRepoNameChanged(String),
     StoreRepoUrlChanged(String),
     StoreRepoAdd,
-    StoreRepoRemoveRequested(String),
+    StoreRepoRemoveRequested(String, String),
     StoreRepoRemoveConfirmed,
     StoreRepoRemoveCancelled,
     StoreRepoFinished(
@@ -1919,8 +1919,8 @@ impl cosmic::Application for App {
                     );
                 }
             }
-            Message::StoreRepoRemoveRequested(name) => {
-                self.store.pending_repo_remove = Some(name);
+            Message::StoreRepoRemoveRequested(name, scope) => {
+                self.store.pending_repo_remove = Some((name, scope));
             }
             Message::StoreRepoRemoveConfirmed => {
                 // Keep the pending row when a search is running: the
@@ -1928,12 +1928,13 @@ impl cosmic::Application for App {
                 if self.store.action_busy || self.store.search_busy {
                     return Task::none();
                 }
-                if let Some(name) = self.store.pending_repo_remove.take() {
+                if let Some((name, scope)) = self.store.pending_repo_remove.take() {
                     return self.store_repo_action(
                         "Registry entry removed.",
                         client::nix_remove_repository(
                             self.token(),
                             name,
+                            Some(scope),
                             self.store.current_scope().as_user(),
                         ),
                     );
