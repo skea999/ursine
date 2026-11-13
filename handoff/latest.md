@@ -6,6 +6,19 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Session 2026-11-12 (c) — nix update check fixed, unified details + shared GUI builders, release 0.33.0 (main, tag `v0.33.0`)
+
+**Status**: Pushed `b02992d..b2d497b` (`7c3d71c` feat + `b2d497b` chore(release)); CI green for `7c3d71c` (`43273451156`) and both release runs (`43276561476`/`43276561501` success); auto-pin `1b99076` pulled, local HEAD `1b99076`.
+
+- **nix "Check for updates" rewritten** (user bug report, hand-tested on this VM): nix 2.31.5 has NO `profile upgrade --dry-run` (help verified) → new path = `nix profile list --json` + one `nix flake metadata <ref> --json` per unique `originalUrl`; element outdated iff its pinned narHash (percent-decoded) / rev differs from the metadata's current lock of the SAME kind; missing data = never guess. Ref rides a single-quoted VALUE after `--` (verified `nix flake metadata --json -- flake:nixpkgs` works; `&`/`?` survive, quotes/newlines skipped). Old classifier/parser deleted. Python prototype on the real profile:14/15 outdated (ursine at current pin correctly excluded).
+- **Errors copyable** everywhere: every `text(error)` in the GUI → `selectable_text` (login + all modules) — user can copy an error and paste it back.
+- **Unified details (flatpak = reference)**: info line first, repository https link under it. apk: description + FULL `apk policy` URL (tail removed backend+GUI); nix: `attr · flake:nixpkgs` + https from the registry (lookup normalizes the `flake:` prefix the registry parser strips — review finding) or element url via `flake_to_https` (tested); flatpak unchanged.
+- **nix registry rows** = apk style: title = flake URL, detail = `name · scope`, Remove/built-in unchanged.
+- **Pattern schema unified** (user: same as nix): shared `pattern_section` (hint + input + Preview/Upgrade/Remove one row) used by ALL THREE; preview result → shared `status_items` "Last action" line with nix's exact wording; destructive apply → shared `confirm_section` at top (red for apk/flatpak, nix keeps suggested — its pending block covers installs); `pattern_preview` state deleted; packages inline confirm/list removed.
+- **Shared GUI code** (user's core demand): `package_ui.rs` now owns status_items / pattern_section / confirm_section / repository_row / update_control_items — the three managers feed data, layout lives in one place.
+- Review closed (5 findings): stale SPEC-daemon-core dry-run line, dead registry lookup (`flake:` prefix), `&`-query false negative (quoted value after `--`), stale apk "tail" doc, confirm styling per manager. Gate green each cycle; static needed2 fixes (typos `unparseable`, ec padding) + one rerun after a log-interleave incident (orphaned podman from a timed-out run — kill containers before rerunning).
+- Release `b2d497b` + tag `v0.33.0`; pin `1b99076`.
+
 ## Session 2026-11-12 (b) — package-UI parity + regex + login focus, release 0.32.0 (main, tag `v0.32.0`)
 
 **Status**: Pushed `075f43f..0315a59`; CI green for `ae065d2` (`43230992841`) and both release runs (`43233852074`/`43233852955` success); auto-pin `b02992d` pulled, local HEAD `b02992d`.
