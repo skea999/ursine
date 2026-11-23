@@ -6,7 +6,7 @@
 use std::path::{Component, Path};
 
 use serde_json::json;
-use ursine_api::ApiError;
+use ursine_api::{ApiError, ErrorCode};
 
 use super::btrbk;
 
@@ -46,6 +46,15 @@ fn plan(
     }
     if snapshot_path == target_path {
         return Err(ApiError::invalid("snapshot and target must differ"));
+    }
+    // A mount point cannot be renamed, so the move-aside step would fail
+    // after rotating the backup chain. Refuse at preview time.
+    if mountinfo_has_mount_point(&target_path) {
+        return Err(ApiError::new(
+            ErrorCode::Invalid,
+            format!("restore target {} is a mount point", target_path.display()),
+        )
+        .with_fix("unmount the target before restoring, or restore it from a recovery boot"));
     }
     let backup = if target_path.exists() {
         let meta = std::fs::symlink_metadata(&target_path)
@@ -120,6 +129,46 @@ pub(super) async fn apply(
         "stdout": out.stdout,
         "stderr": out.stderr,
     }))
+}
+
+/// True when `path` is the mount point of a filesystem, read from the
+/// kernel's mount table (no D-Bus, no extra tool).
+fn mountinfo_has_mount_point(path: &Path) -> bool {
+    let Ok(content) = std::fs::read_to_string("/proc/self/mountinfo") else {
+        // No table to read: let the kernel refuse the rename instead.
+        return false;
+    };
+    mountinfo_contains(&content, &path.to_string_lossy())
+}
+
+fn mountinfo_contains(content: &str, path: &str) -> bool {
+    content.lines().any(|line| {
+        // id parent major:minor root mount-point options [optional ...] - fstype source super
+        line.split(' ')
+            .nth(4)
+            .is_some_and(|mount_point| unescape_mountinfo(mount_point) == path)
+    })
+}
+
+/// Mountinfo escapes spaces, tabs, newlines and backslashes as `\NNN`.
+fn unescape_mountinfo(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let digits: String = chars.by_ref().take(3).collect();
+        match u8::from_str_radix(&digits, 8) {
+            Ok(byte) if digits.len() == 3 => out.push(char::from(byte)),
+            _ => {
+                out.push('\\');
+                out.push_str(&digits);
+            }
+        }
+    }
+    out
 }
 
 fn validated_path<'a>(value: &'a str, label: &str) -> Result<&'a Path, ApiError> {
@@ -201,6 +250,20 @@ mod tests {
         );
         assert!(!crate::backup_configs::slot_path(&target, 2).exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mountinfo_detects_mount_points_with_escapes() {
+        let table = concat!(
+            "25 1 0:22 / / rw,relatime - btrfs /dev/vda1 rw\n",
+            "40 25 0:22 /@home /home rw,relatime - btrfs /dev/vda1 rw\n",
+            "41 25 0:22 / /space\\040dir rw - btrfs /dev/vda1 rw\n",
+        );
+        assert!(mountinfo_contains(table, "/"));
+        assert!(mountinfo_contains(table, "/home"));
+        assert!(mountinfo_contains(table, "/space dir"));
+        assert!(!mountinfo_contains(table, "/home/"));
+        assert!(!mountinfo_contains(table, "/srv"));
     }
 
     #[test]

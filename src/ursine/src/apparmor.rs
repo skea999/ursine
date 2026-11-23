@@ -64,6 +64,7 @@ pub enum ApparmorQuery {
         binary: String,
         template: Option<String>,
         policy_groups: Option<String>,
+        template_vars: Vec<String>,
     },
     EasyprofList(String),
 }
@@ -87,6 +88,8 @@ pub struct ApparmorState {
     pub easyprof_binary: String,
     pub easyprof_template: String,
     pub easyprof_groups: String,
+    /// Space-separated `@{NAME}=VALUE` declarations.
+    pub easyprof_vars: String,
     pub error: Option<String>,
     pub message: Option<String>,
 }
@@ -396,6 +399,18 @@ impl ApparmorState {
         );
         items.push(
             row(vec![
+                text("Template vars:").into(),
+                text_input("@{APPNAME}=/opt/tools", &self.easyprof_vars)
+                    .on_input(|value| Message::ApparmorEasyprofChanged("vars", value))
+                    .width(Length::Fill)
+                    .into(),
+            ])
+            .spacing(8)
+            .width(Length::Fill)
+            .into(),
+        );
+        items.push(
+            row(vec![
                 small_button(
                     "Generate",
                     (!self.action_busy && !self.busy && !self.easyprof_binary.trim().is_empty())
@@ -403,6 +418,11 @@ impl ApparmorState {
                             binary: self.easyprof_binary.trim().to_string(),
                             template: non_empty(&self.easyprof_template),
                             policy_groups: non_empty(&self.easyprof_groups),
+                            template_vars: self
+                                .easyprof_vars
+                                .split_whitespace()
+                                .map(str::to_string)
+                                .collect(),
                         })),
                 ),
                 small_button(

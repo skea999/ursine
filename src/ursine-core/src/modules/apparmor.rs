@@ -217,6 +217,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             binary,
             template,
             policy_groups,
+            template_vars,
         } => {
             let program = tool(&AA_EASYPROF, "aa-easyprof")?;
             let mut args: Vec<String> = Vec::new();
@@ -231,6 +232,11 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                 validate_policy_groups(groups)?;
                 args.push("-p".to_string());
                 args.push(groups.clone());
+            }
+            for template_var in template_vars {
+                validate_template_var(template_var)?;
+                args.push("--template-var".to_string());
+                args.push(template_var.clone());
             }
             args.push(validate_binary(binary)?);
             let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -489,6 +495,32 @@ fn validate_template(value: &str) -> Result<(), ApiError> {
 }
 
 /// Comma-separated policy group names.
+/// `aa-easyprof` declares policy variables with `--template-var=@{NAME}=VALUE`
+/// and rejects a malformed declaration; filter the same forms up front so the
+/// caller gets `Invalid`, not `Invalid policy` from the tool.
+fn validate_template_var(value: &str) -> Result<(), ApiError> {
+    let (key, val) = value
+        .split_once('=')
+        .ok_or_else(|| ApiError::invalid("template variable must be @{NAME}=VALUE"))?;
+    let name = key
+        .strip_prefix("@{")
+        .and_then(|rest| rest.strip_suffix('}'))
+        .filter(|name| {
+            !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        });
+    if name.is_none() || val.contains('=') {
+        return Err(ApiError::invalid(
+            "template variable must be @{NAME}=VALUE with NAME alphanumeric or _",
+        ));
+    }
+    if val.contains('"') || val.contains("../") {
+        return Err(ApiError::invalid(
+            "template variable value must not contain quotes or ../",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_policy_groups(value: &str) -> Result<(), ApiError> {
     if value.is_empty() || value.len() > 1024 {
         return Err(ApiError::invalid("invalid policy groups"));
@@ -861,6 +893,13 @@ mod tests {
         assert!(validate_policy_groups("networking,user-application").is_ok());
         assert!(validate_policy_groups("networking, bad").is_err());
         assert!(validate_policy_groups("").is_err());
+        assert!(validate_template_var("@{APPNAME}=scanner-app").is_ok());
+        assert!(validate_template_var("@{APP_NAME}=/opt/tools/scanner-app").is_ok());
+        assert!(validate_template_var("APPNAME=scanner-app").is_err());
+        assert!(validate_template_var("@{APP-NAME}=x").is_err());
+        assert!(validate_template_var("@{APPNAME}=a=b").is_err());
+        assert!(validate_template_var("@{APPNAME}=../etc").is_err());
+        assert!(validate_template_var("@{APPNAME}=say \"hi\"").is_err());
     }
 
     #[test]

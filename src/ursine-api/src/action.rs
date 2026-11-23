@@ -692,6 +692,9 @@ pub enum Action {
         template: Option<String>,
         #[serde(default)]
         policy_groups: Option<String>,
+        /// `@{NAME}=VALUE` declarations passed as `--template-var`.
+        #[serde(default)]
+        template_vars: Vec<String>,
     },
     /// List aa-easyprof templates or policy groups.
     ApparmorEasyprofList {

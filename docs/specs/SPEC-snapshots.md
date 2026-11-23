@@ -16,11 +16,11 @@ Expose btrbk's own functionality — nothing reimplemented. Ursine integrates bt
 | `snapshots.list` | `btrbk --format raw list snapshots` → parsed |
 | `snapshots.stats` | `btrbk --format raw stats` |
 | `snapshots.create` | `btrbk snapshot [<section>]` |
-| `snapshots.restore` | `btrfs subvolume snapshot <snapshot> <target>` — CONFIRMATION REQUIRED in GUI (destructive); preview validates paths and exact argv first. Existing target rotates into slot `<target>.ursine-backup` (the uniform chain, `backup_configs.copies` copies; the previous version shifts to `.1`, `.2`, …) before the snapshot; failure moves it back. Legacy timestamped backups from older releases are pruned to the same cap. |
+| `snapshots.restore` | `btrfs subvolume snapshot <snapshot> <target>` — CONFIRMATION REQUIRED in GUI (destructive); preview validates paths and exact argv first, and refuses a target that is a mount point (a mounted subvolume cannot be renamed; unmount it or restore from a recovery boot). Existing target rotates into slot `<target>.ursine-backup` (the uniform chain, `backup_configs.copies` copies; the previous version shifts to `.1`, `.2`, …) before the snapshot; failure moves it back. Legacy timestamped backups from older releases are pruned to the same cap. |
 | `snapshots.delete` | GUI single-snapshot dropdown + bulk delete for selected stats sources; daemon validates each path against the current btrbk list, then `btrfs subvolume delete`. Confirmation required. |
 | `snapshots.getConfig` | parsed view of `/etc/btrbk/btrbk.conf` (sources, targets, retention, timestamp/scheduler) |
 | `snapshots.setConfig` | Managed global options written as a top block, preserving sections/comments; uniform `.ursine-backup[.N]` rotation (replaces the single `.conf.bak`); validated with `btrbk --format raw list config` before atomic replace. GUI exposes dropdowns. |
-| `snapshots.initConfig` | **create** `/etc/btrbk/btrbk.conf` from scratch: conservative default for the FeralOS btrfs layout (hourly keep 24, daily keep 14), `/home` or `@` subvolume |
+| `snapshots.initConfig` | **create** `/etc/btrbk/btrbk.conf` from scratch: conservative default for the FeralOS btrfs layout (hourly keep 24, daily keep 14), `/home` or `@` subvolume. Uses an existing `/btrbk/snapshots` (or `/.snapshots`) as `snapshot_dir`, creates `/.snapshots` when neither exists, and probes the named subvolume with `btrfs subvolume show` — a layout that cannot run is refused with a typed error instead of being written |
 | `snapshots.preUpdate` | **deferred**: package install/upgrade hook not wired yet. |
 
 - `--format raw`; parser for the documented raw keys. btrbk 0.32 has no JSON output.

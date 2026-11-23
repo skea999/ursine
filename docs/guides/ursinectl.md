@@ -264,6 +264,14 @@ add it to zones with `add_firewall_service`;
 `get_btrbk_config`, `init_btrbk_config`, `set_btrbk_config settings={…}`,
 `delete_snapshot snapshot=…`, `delete_snapshots sources=[…]`
 
+`init_btrbk_config` picks the `snapshot_dir` from the machine: an existing
+`/btrbk/snapshots` (FeralOS) wins, then `/.snapshots`; `/.snapshots` is
+created when neither exists. The named subvolume (`home` when `/home`
+exists, else `@`) is probed with `btrfs subvolume show`, so a layout that
+cannot be snapshotted fails with an error instead of a written config.
+`restore_snapshot` refuses a target that is a mount point (a mounted
+subvolume cannot be renamed); unmount it or restore from a recovery boot.
+
 ### users
 
 `list_users`, `create_user name=… fullname=… admin=true|false`,

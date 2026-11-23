@@ -245,7 +245,10 @@ apparmor_remove_unknown, apparmor_profile_get, apparmor_profile_set,
 apparmor_notifications_enable, apparmor_cleanprof, apparmor_autodep,
 apparmor_features_abi, apparmor_decode, apparmor_easyprof,
 apparmor_easyprof_list. Manages AppArmor through its
-CLIs; profile paths must live under
+CLIs; \fBapparmor_easyprof\fR accepts a
+.I template_vars
+list (e.g. \fB@{APPNAME}=/opt/tools\fR) for policy groups that declare
+a variable; profile paths must live under
 .IR /etc/apparmor.d ;
 profile saves are syntax-checked before writing and rotate the
 .I backup_configs
