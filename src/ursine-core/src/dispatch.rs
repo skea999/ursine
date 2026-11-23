@@ -377,7 +377,10 @@ impl Daemon {
             module == ModuleId::PackagesFlatpak && flatpak_allows_as_user(&action).unwrap_or(false);
         let user_scoped = profile_scoped
             || flatpak_user_scope
-            || matches!(module, ModuleId::Theming | ModuleId::Crontab);
+            || matches!(
+                module,
+                ModuleId::Theming | ModuleId::Crontab | ModuleId::Niri
+            );
         // Theming writes config files, crontab edits a personal crontab and
         // Flatpak user scope writes another user's installation: a NON-root
         // caller may only ever target its own identity (the GUI never sends
@@ -391,8 +394,10 @@ impl Daemon {
                 action,
                 Action::AddNixRepository { .. } | Action::RemoveNixRepository { .. }
             );
-        let own_account_only = matches!(module, ModuleId::Theming | ModuleId::Crontab)
-            || flatpak_user_scope
+        let own_account_only = matches!(
+            module,
+            ModuleId::Theming | ModuleId::Crontab | ModuleId::Niri
+        ) || flatpak_user_scope
             || nix_registry_write;
         let foreign_own_account_target = own_account_only
             && principal.user != "root"
@@ -542,7 +547,13 @@ fn flatpak_allows_as_user(action: &Action) -> Option<bool> {
         | Action::UpdateFlatpak { system }
         | Action::UpdateFlatpakApp { system, .. }
         | Action::RemoveFlatpakOrphans { system }
-        | Action::ListFlatpakUpdates { system } => Some(!system),
+        | Action::ListFlatpakUpdates { system }
+        | Action::AddFlatpakRemote { system, .. }
+        | Action::RemoveFlatpakRemote { system, .. }
+        | Action::FlatpakRemoveRegex { system, .. }
+        | Action::FlatpakUpgradeRegex { system, .. } => Some(!system),
+        // Remotes and the regex actions carry an explicit installation: a
+        // user installation honors `as_user` like the install/lifecycle ones.
         // `None` keeps the legacy both-installations listing which runs
         // as root: only an explicit user scope honors a target.
         Action::ListFlatpakRemotes { system } => Some(*system == Some(false)),
@@ -887,6 +898,71 @@ mod tests {
                 assert!(error.message.contains("own account"), "{}", error.message);
             }
             other => panic!("want err, got {other:?}"),
+        }
+    }
+
+    /// Niri config lives in the target's home: `as_user` is honored, so the
+    /// rules pass and only the capability gate may stop us.
+    #[tokio::test]
+    async fn niri_accepts_own_target() {
+        let (_clock, d) = daemon(&tmp_dir("niri-own"));
+        let token = token(&d).await;
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(11),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::Niri,
+                action: Action::GetNiriConfig,
+                as_user: Some("skea999".into()),
+            },
+        };
+        match d.handle(call, &peer()).await.body {
+            ResponseBody::Err { error } => assert!(
+                matches!(
+                    error.code,
+                    ErrorCode::Unavailable | ErrorCode::NotImplemented
+                ),
+                "{:?}: {}",
+                error.code,
+                error.message
+            ),
+            ResponseBody::Ok { .. } => {}
+            ResponseBody::AuthOk { .. } => panic!("unexpected auth response"),
+        }
+    }
+
+    /// A user-installation remote action honors `as_user` (the CLI path).
+    #[tokio::test]
+    async fn flatpak_user_remote_accepts_own_target() {
+        let (_clock, d) = daemon(&tmp_dir("flatpak-remote-own"));
+        let token = token(&d).await;
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(12),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::PackagesFlatpak,
+                action: Action::AddFlatpakRemote {
+                    name: "flathub".into(),
+                    url: "https://dl.flathub.org/repo/".into(),
+                    system: false,
+                },
+                as_user: Some("skea999".into()),
+            },
+        };
+        match d.handle(call, &peer()).await.body {
+            ResponseBody::Err { error } => assert!(
+                matches!(
+                    error.code,
+                    ErrorCode::Unavailable | ErrorCode::NotImplemented
+                ),
+                "{:?}: {}",
+                error.code,
+                error.message
+            ),
+            ResponseBody::Ok { .. } => {}
+            ResponseBody::AuthOk { .. } => panic!("unexpected auth response"),
         }
     }
 

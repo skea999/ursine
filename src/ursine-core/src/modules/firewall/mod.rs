@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use serde_json::json;
-use ursine_api::{Action, ApiError, FirewallStatus, FirewallZone};
+use ursine_api::{Action, ApiError, ErrorCode, FirewallStatus, FirewallZone};
 
 use super::ModuleCtx;
 use crate::modules::packages_nix::exec;
@@ -302,6 +302,32 @@ async fn run(args: &[&str]) -> Result<String, ApiError> {
     exec::run_root_program(tool()?, args, TIMEOUT)
         .await
         .map(|output| output.stdout)
+        .map_err(typed_error)
+}
+
+/// firewalld reports predictable refusals as text; map the ones a client can
+/// act on instead of leaking them as `Internal`.
+fn typed_error(error: ApiError) -> ApiError {
+    if error.code != ErrorCode::Internal {
+        return error;
+    }
+    let message = &error.message;
+    if message.contains("NAME_CONFLICT") {
+        return ApiError::new(
+            ErrorCode::Conflict,
+            "a service with that name already exists",
+        )
+        .with_fix("choose another service name or delete the existing one");
+    }
+    if message.contains("BUILTIN_SERVICE") {
+        return ApiError::new(ErrorCode::Conflict, "built-in services cannot be modified")
+            .with_fix("create a custom service with a different name");
+    }
+    if message.contains("INVALID_ZONE") {
+        return ApiError::new(ErrorCode::NotFound, "firewall zone does not exist")
+            .with_fix("list the zones and retry with an existing one");
+    }
+    error
 }
 
 #[cfg(test)]
