@@ -1208,6 +1208,29 @@ async fn nix_accepts_foreign_as_user_and_validates_it() {
     assert!(!err.message.contains("as_user is only valid"), "{err:?}");
 }
 
+/// niri is user-scoped like the nix profile actions: the root CLI may
+/// retarget it and the existence check (not the `as_user` gate) answers.
+#[tokio::test]
+async fn niri_accepts_foreign_as_user_and_validates_it() {
+    let (daemon, token) = build();
+    let err = ursinectl::call(
+        &daemon,
+        &token,
+        &root_peer(),
+        ModuleId::Niri,
+        Action::SetNiriSection {
+            section: "layout".into(),
+            value: serde_json::json!({"gaps": 8}),
+        },
+        Some("someone-else".into()),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
+    assert!(err.message.contains("does not exist"), "{err:?}");
+    assert!(!err.message.contains("as_user is only valid"), "{err:?}");
+}
+
 /// Exact byte semantics of the three log cursors over a known file.
 #[tokio::test]
 async fn log_cursors_serve_exact_byte_ranges() {

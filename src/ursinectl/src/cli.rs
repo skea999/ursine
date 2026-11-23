@@ -40,8 +40,9 @@ USAGE: sudo ursinectl [--json] [--yes] [--as-user USER] [--config PATH] \\
   password/new_password MUST be key=- (never on the command line).
   Destructive actions require --yes.
   --as-user USER targets another account: the user must EXIST (typed
-  error otherwise). theming/crontab/nix accept a foreign target only
-  when running as root; theming has no root fallback — pass --as-user.
+  error otherwise). niri/theming/crontab/nix accept a foreign target only
+  when running as root; root has no desktop config of its own, so niri and
+  theming need --as-user to reach a real account.
 
 MODULES (wire name; short alias in parentheses):
   system              status, job_output

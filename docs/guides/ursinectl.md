@@ -42,7 +42,7 @@ ursinectl --version
 |--------|---------|
 | `--json` | Print the result as one compact JSON line (scripting). Without it the result is pretty-printed JSON (the contract; per-module tables are not required). |
 | `--yes`, `-y` | Confirm a destructive action (see below). Without it the CLI refuses and exits 2. |
-| `--as-user USER` | Target another account for the user-scoped modules (`packages_nix`, `theming`, `crontab`, Flatpak with `system=false`). The user must exist; see [Target users](#target-users). |
+| `--as-user USER` | Target another account for the user-scoped modules (`packages_nix`, `niri`, `theming`, `crontab`, Flatpak with `system=false`). The user must exist; see [Target users](#target-users). |
 | `--config PATH` | Configuration file (default `/etc/ursine/config.toml`). The same guards apply as in the daemon: regular file, not group/world-writable. |
 | `--help`, `-h` | Full usage, or the action list of one module (`ursinectl --help nix`). Works without root. |
 | `--version` | Print `ursinectl <version>` and exit. Works without root. |
@@ -361,10 +361,11 @@ no `su`, no suid requirement on the tool.
 
 The `--as-user` option:
 
-- Accepted only by the user-scoped modules: `packages_nix`, `theming`,
-  `crontab` and Flatpak actions on the user installation
-  (`system=false`; system-scope Flatpak rejects it). Anywhere else
-  dispatch rejects it (exit 1).
+- Accepted only by the user-scoped modules: `packages_nix`, `niri`,
+  `theming`, `crontab` and Flatpak actions on the user installation
+  (`system=false`, including the remote add/remove and the two regex
+  actions; system-scope Flatpak rejects it). Anywhere else dispatch
+  rejects it (exit 1).
 - **Root may target any existing normal-login account** (admin flow):
   `sudo ursinectl theming theme_get --as-user gab`.
 - A foreign target is validated **before** the capability gate: unknown
@@ -372,13 +373,22 @@ The `--as-user` option:
   system accounts are rejected.
 - Non-root principals (the GUI) may target only their own account.
 - `theming` has no root fallback (root is not a login user): always pass
-  `--as-user`.
+  `--as-user`. The same holds for `niri`: root has no desktop config of its
+  own, so every `--as-user`-less niri call against root only ever sees
+  `/root/.config/niri/config.kdl`.
 
 Flatpak example (another account's user installation):
 
 ```bash
 sudo ursinectl flatpak list_flatpak system=false --as-user gab
 sudo ursinectl flatpak get_flatpak_info app_id=org.mozilla.firefox system=false --as-user gab
+```
+
+Niri example (the account whose session the config belongs to):
+
+```bash
+sudo ursinectl niri get_niri_config --as-user gab
+sudo ursinectl niri set_niri_section section=layout value=@layout.json --as-user gab
 ```
 
 ## Destructive actions (`--yes`)

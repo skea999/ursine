@@ -44,7 +44,12 @@ stderr in the GUI. `ursinectl` exits 1 on `valid=false`.
 | `niri.validate` | run `niri validate` on proposed config without writing (GUI shows result before Apply) |
 | `niri.schema` | return schema version + option metadata (GUI builds forms dynamically) |
 
-- Per-user file (`~/.config/niri/config.kdl`): `asUser` applies (daemon reads/writes as target user, `su -l` or direct file IO with setuid — file IO with ownership check, simplest and safest)
+- Per-user file (`~/.config/niri/config.kdl`): all three actions (`getNiriConfig`,
+  `validateNiriConfig`, `setNiriSection`) are user-scoped, so `asUser` applies
+  (daemon reads/writes as target user, `su -l` or direct file IO with setuid —
+  file IO with ownership check, simplest and safest). Root may retarget any
+  existing normal-login account; a non-root principal may target only its own
+  account. This is what makes `ursinectl --as-user <user> niri …` work.
 
 ## Commands
 

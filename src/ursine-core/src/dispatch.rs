@@ -368,8 +368,10 @@ impl Daemon {
         };
 
         // `asUser` is meaningful for packages actions that read or mutate one
-        // profile, for theming (writes land in that user's home) and for
-        // Flatpak actions scoped to the user installation.
+        // profile, for theming (writes land in that user's home), for niri
+        // (every action reads or writes `~/.config/niri/config.kdl` through
+        // `ctx.as_user`) and for Flatpak actions scoped to the user
+        // installation.
         // Everything else (StoreGc, system, capabilities, config) acts on
         // the daemon or the whole store and must not carry a target.
         let profile_scoped = module == ModuleId::PackagesNix && uses_profile(&action);
@@ -377,9 +379,13 @@ impl Daemon {
             module == ModuleId::PackagesFlatpak && flatpak_allows_as_user(&action).unwrap_or(false);
         let user_scoped = profile_scoped
             || flatpak_user_scope
-            || matches!(module, ModuleId::Theming | ModuleId::Crontab);
-        // Theming writes config files, crontab edits a personal crontab and
-        // Flatpak user scope writes another user's installation: a NON-root
+            || matches!(
+                module,
+                ModuleId::Theming | ModuleId::Crontab | ModuleId::Niri
+            );
+        // Theming writes config files, crontab edits a personal crontab,
+        // niri edits the target's config.kdl and Flatpak user scope writes
+        // another user's installation: a NON-root
         // caller may only ever target its own identity (the GUI never sends
         // a target; the wire rule is the review-hardened boundary against a
         // wheel user editing someone else's files).
@@ -391,8 +397,10 @@ impl Daemon {
                 action,
                 Action::AddNixRepository { .. } | Action::RemoveNixRepository { .. }
             );
-        let own_account_only = matches!(module, ModuleId::Theming | ModuleId::Crontab)
-            || flatpak_user_scope
+        let own_account_only = matches!(
+            module,
+            ModuleId::Theming | ModuleId::Crontab | ModuleId::Niri
+        ) || flatpak_user_scope
             || nix_registry_write;
         let foreign_own_account_target = own_account_only
             && principal.user != "root"
@@ -401,11 +409,11 @@ impl Daemon {
                 .is_some_and(|target| target != &principal.user);
         let as_user_error = if as_user.is_some() && !user_scoped {
             Some(ApiError::invalid(
-                "as_user is only valid for user-scoped packages_nix, theming, crontab or Flatpak (user installation) actions",
+                "as_user is only valid for user-scoped packages_nix, niri, theming, crontab or Flatpak (user installation) actions",
             ))
         } else if foreign_own_account_target {
             Some(ApiError::invalid(
-                "theming, crontab, Flake registry and Flatpak user-scope actions only apply to your own account",
+                "niri, theming, crontab, Flake registry and Flatpak user-scope actions only apply to your own account",
             ))
         } else if as_user
             .as_ref()
@@ -542,7 +550,11 @@ fn flatpak_allows_as_user(action: &Action) -> Option<bool> {
         | Action::UpdateFlatpak { system }
         | Action::UpdateFlatpakApp { system, .. }
         | Action::RemoveFlatpakOrphans { system }
-        | Action::ListFlatpakUpdates { system } => Some(!system),
+        | Action::ListFlatpakUpdates { system }
+        | Action::AddFlatpakRemote { system, .. }
+        | Action::RemoveFlatpakRemote { system, .. }
+        | Action::FlatpakRemoveRegex { system, .. }
+        | Action::FlatpakUpgradeRegex { system, .. } => Some(!system),
         // `None` keeps the legacy both-installations listing which runs
         // as root: only an explicit user scope honors a target.
         Action::ListFlatpakRemotes { system } => Some(*system == Some(false)),
@@ -634,7 +646,22 @@ mod tests {
     }
 
     async fn token(daemon: &Daemon) -> SessionToken {
-        match daemon.handle(auth_request(1), &peer()).await.body {
+        token_for(daemon, "skea999").await
+    }
+
+    /// Token for an arbitrary account: the admin CLI runs as root and may
+    /// retarget user scope, so the tests need both kinds of principal.
+    async fn token_for(daemon: &Daemon, user: &str) -> SessionToken {
+        let request = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(1),
+            token: None,
+            body: RequestBody::Auth {
+                user: user.into(),
+                password: "pw1".into(),
+            },
+        };
+        match daemon.handle(request, &peer()).await.body {
             ResponseBody::AuthOk { token, .. } => token,
             other => panic!("want auth_ok, got {other:?}"),
         }
@@ -765,7 +792,7 @@ mod tests {
     }
 
     /// A non-root principal may not point Flatpak user scope at another
-    /// account (same hardened boundary as theming/crontab).
+    /// account (same hardened boundary as niri/theming/crontab).
     #[tokio::test]
     async fn flatpak_user_scope_rejects_foreign_target_for_non_root() {
         let (_clock, d) = daemon(&tmp_dir("flatpak-xuser"));
@@ -822,6 +849,118 @@ mod tests {
             }
             ResponseBody::Ok { .. } => {}
             ResponseBody::AuthOk { .. } => panic!("unexpected auth response"),
+        }
+    }
+
+    /// Flatpak remote and pattern actions obey the same scope rule as the
+    /// rest of the module: a user-installation target is honoured (and stops
+    /// only at the capability gate, no flatpak in the CI image).
+    #[tokio::test]
+    async fn flatpak_remote_and_pattern_actions_accept_user_scope_target() {
+        let (_clock, d) = daemon(&tmp_dir("flatpak-remote-own"));
+        let token = token(&d).await;
+        let actions = [
+            Action::AddFlatpakRemote {
+                name: "flathub".into(),
+                url: "https://dl.flathub.org/repo/flathub.flatpakrepo".into(),
+                system: false,
+            },
+            Action::RemoveFlatpakRemote {
+                name: "flathub".into(),
+                system: false,
+            },
+            Action::FlatpakRemoveRegex {
+                pattern: "^org\\.x\\.".into(),
+                dry_run: true,
+                system: false,
+            },
+            Action::FlatpakUpgradeRegex {
+                pattern: "^org\\.x\\.".into(),
+                dry_run: true,
+                system: false,
+            },
+        ];
+        for (index, action) in actions.into_iter().enumerate() {
+            let call = Request {
+                v: PROTOCOL_VERSION,
+                id: Some(20 + index as u64),
+                token: Some(token.clone()),
+                body: RequestBody::Call {
+                    module: ModuleId::PackagesFlatpak,
+                    action: action.clone(),
+                    as_user: Some("skea999".into()),
+                },
+            };
+            match d.handle(call, &peer()).await.body {
+                ResponseBody::Err { error } => assert!(
+                    matches!(
+                        error.code,
+                        ErrorCode::Unavailable | ErrorCode::NotImplemented
+                    ),
+                    "{action:?}: {:?}: {}",
+                    error.code,
+                    error.message
+                ),
+                ResponseBody::Ok { .. } => {}
+                ResponseBody::AuthOk { .. } => panic!("unexpected auth response"),
+            }
+        }
+    }
+
+    /// `system=true` runs as root: a target is meaningless and rejected for
+    /// the remote and pattern actions too.
+    #[tokio::test]
+    async fn flatpak_remote_and_pattern_actions_reject_system_scope_target() {
+        let (_clock, d) = daemon(&tmp_dir("flatpak-remote-sys"));
+        let token = token(&d).await;
+        let actions = [
+            Action::AddFlatpakRemote {
+                name: "flathub".into(),
+                url: "https://dl.flathub.org/repo/flathub.flatpakrepo".into(),
+                system: true,
+            },
+            Action::RemoveFlatpakRemote {
+                name: "flathub".into(),
+                system: true,
+            },
+            Action::FlatpakRemoveRegex {
+                pattern: "^org\\.x\\.".into(),
+                dry_run: true,
+                system: true,
+            },
+            Action::FlatpakUpgradeRegex {
+                pattern: "^org\\.x\\.".into(),
+                dry_run: true,
+                system: true,
+            },
+        ];
+        for (index, action) in actions.into_iter().enumerate() {
+            let call = Request {
+                v: PROTOCOL_VERSION,
+                id: Some(30 + index as u64),
+                token: Some(token.clone()),
+                body: RequestBody::Call {
+                    module: ModuleId::PackagesFlatpak,
+                    action: action.clone(),
+                    as_user: Some("skea999".into()),
+                },
+            };
+            match d.handle(call, &peer()).await.body {
+                ResponseBody::Err { error } => {
+                    assert_eq!(
+                        error.code,
+                        ErrorCode::Invalid,
+                        "{action:?}: {}",
+                        error.message
+                    );
+                    assert!(
+                        error.message.contains("user-scoped") && error.message.contains("Flatpak"),
+                        "{action:?}: {}",
+                        error.message
+                    );
+                }
+                other => panic!("want err, got {other:?}"),
+            }
         }
     }
 
@@ -890,16 +1029,116 @@ mod tests {
         }
     }
 
+    /// niri reads and writes the target's own `~/.config/niri/config.kdl`
+    /// through `ctx.as_user`: the write action accepts an own-account target
+    /// and stops only at the capability gate (no niri in the CI image).
+    #[tokio::test]
+    async fn niri_write_accepts_own_target() {
+        let (_clock, d) = daemon(&tmp_dir("niri-own"));
+        let token = token(&d).await;
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(40),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::Niri,
+                action: Action::SetNiriSection {
+                    section: "layout".into(),
+                    value: serde_json::json!({"gaps": 8}),
+                },
+                as_user: Some("skea999".into()),
+            },
+        };
+        match d.handle(call, &peer()).await.body {
+            ResponseBody::Err { error } => assert!(
+                matches!(
+                    error.code,
+                    ErrorCode::Unavailable | ErrorCode::NotImplemented
+                ),
+                "{:?}: {}",
+                error.code,
+                error.message
+            ),
+            ResponseBody::Ok { .. } => {}
+            ResponseBody::AuthOk { .. } => panic!("unexpected auth response"),
+        }
+    }
+
+    /// A non-root principal may not point the niri edit at another account:
+    /// the file would land in that user's home.
+    #[tokio::test]
+    async fn niri_write_rejects_foreign_target_for_non_root() {
+        let (_clock, d) = daemon(&tmp_dir("niri-xuser"));
+        let token = token(&d).await;
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(41),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::Niri,
+                action: Action::SetNiriSection {
+                    section: "layout".into(),
+                    value: serde_json::json!({"gaps": 8}),
+                },
+                as_user: Some("someone-else".into()),
+            },
+        };
+        match d.handle(call, &peer()).await.body {
+            ResponseBody::Err { error } => {
+                assert_eq!(error.code, ErrorCode::Invalid, "{}", error.message);
+                assert!(error.message.contains("own account"), "{}", error.message);
+            }
+            other => panic!("want err, got {other:?}"),
+        }
+    }
+
+    /// Root is the admin superuser: a foreign niri target passes the
+    /// `as_user` rules and fails only the existence check, never the gate.
+    #[tokio::test]
+    async fn niri_write_accepts_foreign_as_user_for_root() {
+        let (_clock, d) = daemon(&tmp_dir("niri-root-xuser"));
+        let token = token_for(&d, "root").await;
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(42),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::Niri,
+                action: Action::SetNiriSection {
+                    section: "layout".into(),
+                    value: serde_json::json!({"gaps": 8}),
+                },
+                as_user: Some("someone-else".into()),
+            },
+        };
+        match d.handle(call, &peer()).await.body {
+            ResponseBody::Err { error } => {
+                assert_eq!(error.code, ErrorCode::NotFound, "{}", error.message);
+                assert!(
+                    error.message.contains("does not exist"),
+                    "{}",
+                    error.message
+                );
+                assert!(
+                    !error.message.contains("as_user is only valid"),
+                    "{}",
+                    error.message
+                );
+            }
+            other => panic!("want err, got {other:?}"),
+        }
+    }
+
     /// Every Flatpak wire action declares its scope to
-    /// [`flatpak_allows_as_user`] (new variants must be added here).
+    /// [`flatpak_allows_as_user`] (new variants must be added here) and the
+    /// answer always means "a user installation honours the target".
     #[test]
     fn flatpak_actions_declare_scope() {
-        let actions = [
+        let user_scope = [
             Action::ListFlatpak { system: false },
             Action::ListFlatpakRemotes {
                 system: Some(false),
             },
-            Action::ListFlatpakRemotes { system: None },
             Action::ListFlatpakUpdates { system: false },
             Action::SearchFlatpak {
                 query: "x".into(),
@@ -919,6 +1158,25 @@ mod tests {
                 app_id: "org.x.Y".into(),
                 system: false,
             },
+            Action::AddFlatpakRemote {
+                name: "flathub".into(),
+                url: "https://dl.flathub.org/repo/flathub.flatpakrepo".into(),
+                system: false,
+            },
+            Action::RemoveFlatpakRemote {
+                name: "flathub".into(),
+                system: false,
+            },
+            Action::FlatpakRemoveRegex {
+                pattern: "^org\\.x\\.".into(),
+                dry_run: true,
+                system: false,
+            },
+            Action::FlatpakUpgradeRegex {
+                pattern: "^org\\.x\\.".into(),
+                dry_run: true,
+                system: false,
+            },
             Action::UpdateFlatpak { system: false },
             Action::UpdateFlatpakApp {
                 app_id: "org.x.Y".into(),
@@ -926,12 +1184,73 @@ mod tests {
             },
             Action::RemoveFlatpakOrphans { system: false },
         ];
-        for action in &actions {
-            assert!(
-                flatpak_allows_as_user(action).is_some(),
-                "flatpak action missing from scope map: {action:?}"
+        let system_scope = [
+            Action::ListFlatpak { system: true },
+            Action::ListFlatpakRemotes { system: Some(true) },
+            Action::ListFlatpakUpdates { system: true },
+            Action::SearchFlatpak {
+                query: "x".into(),
+                system: true,
+            },
+            Action::InstallFlatpak {
+                app_id: "org.x.Y".into(),
+                system: true,
+                remote: None,
+            },
+            Action::GetFlatpakInfo {
+                app_id: "org.x.Y".into(),
+                remote: None,
+                system: true,
+            },
+            Action::RemoveFlatpak {
+                app_id: "org.x.Y".into(),
+                system: true,
+            },
+            Action::AddFlatpakRemote {
+                name: "flathub".into(),
+                url: "https://dl.flathub.org/repo/flathub.flatpakrepo".into(),
+                system: true,
+            },
+            Action::RemoveFlatpakRemote {
+                name: "flathub".into(),
+                system: true,
+            },
+            Action::FlatpakRemoveRegex {
+                pattern: "^org\\.x\\.".into(),
+                dry_run: true,
+                system: true,
+            },
+            Action::FlatpakUpgradeRegex {
+                pattern: "^org\\.x\\.".into(),
+                dry_run: true,
+                system: true,
+            },
+            Action::UpdateFlatpak { system: true },
+            Action::UpdateFlatpakApp {
+                app_id: "org.x.Y".into(),
+                system: true,
+            },
+            Action::RemoveFlatpakOrphans { system: true },
+        ];
+        for action in &user_scope {
+            assert_eq!(
+                flatpak_allows_as_user(action),
+                Some(true),
+                "a user installation must honor the target: {action:?}"
             );
         }
+        for action in &system_scope {
+            assert_eq!(
+                flatpak_allows_as_user(action),
+                Some(false),
+                "a system installation must not carry a target: {action:?}"
+            );
+        }
+        // The legacy both-installations listing runs as root.
+        assert_eq!(
+            flatpak_allows_as_user(&Action::ListFlatpakRemotes { system: None }),
+            Some(false)
+        );
         assert_eq!(flatpak_allows_as_user(&Action::LogList), None);
     }
 
@@ -1138,6 +1457,37 @@ mod tests {
         }
         let audit = std::fs::read_to_string(d.audit.path()).unwrap();
         assert!(!audit.lines().last().unwrap().contains("\"as_user\""));
+    }
+
+    /// The rejection names every module that actually honors `as_user`, so
+    /// an operator sees the way out instead of a stale list.
+    #[tokio::test]
+    async fn as_user_rejection_names_the_user_scoped_modules() {
+        let (_clock, d) = daemon(&tmp_dir("as-user-message"));
+        let token = token(&d).await;
+        let call = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(43),
+            token: Some(token),
+            body: RequestBody::Call {
+                module: ModuleId::System,
+                action: Action::Status,
+                as_user: Some("skea999".into()),
+            },
+        };
+        match d.handle(call, &peer()).await.body {
+            ResponseBody::Err { error } => {
+                assert_eq!(error.code, ErrorCode::Invalid, "{}", error.message);
+                for module in ["packages_nix", "niri", "theming", "crontab", "Flatpak"] {
+                    assert!(
+                        error.message.contains(module),
+                        "{} missing {module}",
+                        error.message
+                    );
+                }
+            }
+            other => panic!("want err, got {other:?}"),
+        }
     }
 
     #[tokio::test]
