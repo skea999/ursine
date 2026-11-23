@@ -32,6 +32,7 @@ invoked through `sudo` (or from a root shell / a chroot as root).
 ursinectl [--json] [--yes] [--as-user USER] [--config PATH] \
           <module> <action> [key=value ...]
 
+ursinectl actions [--json]
 ursinectl --help [module]
 ursinectl --version
 ```
@@ -350,12 +351,21 @@ no `su`, no suid requirement on the tool.
 (`content=@file` reads the profile from a file), `apparmor_notifications_enable`,
 `apparmor_cleanprof name=…`, `apparmor_autodep path=…`,
 `apparmor_features_abi`, `apparmor_decode hex=…`,
-`apparmor_easyprof binary=… [template=…] [policy_groups=…]`,
-`apparmor_easyprof_list what=templates|policy_groups` (SPEC-apparmor).
+`apparmor_easyprof binary=… [template=…] [policy_groups=…]
+[template_vars=[…]]`, `apparmor_easyprof_list what=templates|policy_groups`
+(SPEC-apparmor).
 
 - `apparmor_easyprof` only PRINTS the generated profile (aa-easyprof's
   `--output-directory` is never passed — no profile file is written);
   copy the output into a profile file yourself to persist it.
+- `template_vars` declares policy variables as `@{NAME}=VALUE` (each passed
+  as `--template-var`), e.g. `template_vars=["@{APPNAME}=scanner-app"]`:
+  policy groups that write `@{APPNAME}` (`opt-application`) fail
+  verification without the declaration; malformed entries answer `invalid`.
+- Profile backups live outside `/etc/apparmor.d` (under
+  `/var/backups/ursine/apparmor`) because every AppArmor tool parses that
+  whole directory. `apparmor_cleanprof` runs `aa-cleanprof -s --no-reload`,
+  so it never waits on stdin.
 
 - All profile paths must live under `/etc/apparmor.d` (canonicalized —
   symlinks cannot escape).
@@ -392,6 +402,56 @@ sudo ursinectl flatpak list_flatpak system=false --as-user gab
 sudo ursinectl flatpak get_flatpak_info app_id=org.mozilla.firefox system=false --as-user gab
 ```
 
+Niri example (the account whose session the config belongs to):
+
+```bash
+sudo ursinectl niri get_niri_config --as-user gab
+sudo ursinectl niri set_niri_section section=layout value=@layout.json --as-user gab
+```
+
+## Action catalogue (`ursinectl actions`)
+
+`ursinectl actions` prints what the daemon accepts without running
+anything: no root, no configuration, no audit line. Every action appears
+with its module, its **effect** (`read-only` or `mutating`), its `--yes`
+gate (`no`, `always`, `by request`) and its parameters — a trailing `?`
+means the request may omit the field.
+
+```console
+$ ursinectl actions
+ACTION                         MODULE            EFFECT     DESTRUCTIVE PARAMS
+status                         system            read-only  no
+…
+install_apk                    packages_apk      mutating   no          package
+list_apk_updates               packages_apk      mutating   no
+remove_regex                   packages_nix      mutating   by request  pattern, dry_run?
+format_disk                    disks             mutating   always      device, fstype, confirm_device
+```
+
+`--json` prints the same data as one compact document, schema
+`ursine.actions/1` — the form clients should consume (the table is for
+humans and may gain columns):
+
+```json
+{"schema":"ursine.actions/1","count":143,"actions":[{"name":"install_apk","module":"packages_apk","effect":"mutating","destructive":"never","previewable":false,"params":[{"name":"package","required":true}]}]}
+```
+
+- `effect` is `read_only` when the request changes nothing on the machine
+  (reads, previews, `dry_run` runs) and `mutating` otherwise. A dry-run
+  capable action is listed as `mutating` with `previewable: true`: the
+  request-level effect is read-only only while `dry_run` is true.
+- `destructive` is the `--yes` verdict of the *variant*: `never`,
+  `always` or `request` (the payload decides). `list_apk_updates` is
+  `mutating` because it runs `apk update` (it rewrites the index files)
+  even though it never deletes anything.
+- `params[].required` is `true` when the wire rejects a request that omits
+  the field. There is no full JSON Schema yet: the catalogue carries names
+  and the required flag only, never a type or a value constraint.
+
+The classification itself lives in `ursine-api` (`Action::spec`,
+`Action::is_read_only`, `Action::is_destructive`), so the CLI, the GUI and
+any other client read one list.
+
 ## Destructive actions (`--yes`)
 
 Removing, deleting, rolling back, garbage collecting, applying
@@ -412,6 +472,13 @@ CLI prints the refused action and exits 2. The current set includes:
 `format_disk`, `partition_create`, `partition_delete`,
 `booster_regenerate`, `apparmor_remove_unknown`, `apparmor_cleanprof`,
 `apparmor_set_mode` with `mode=disable`.
+
+This list is documentation, not the implementation: the authoritative
+classification is the `destructive` column of
+[`ursinectl actions --json`](#action-catalogue-ursinectl-actions)
+(`always` = flag required, `request` = only for the real run). A new action
+is classified in `ursine-api/src/catalogue.rs`, so the CLI, the GUI and the
+catalogue cannot disagree.
 
 ## Background jobs (package progress)
 

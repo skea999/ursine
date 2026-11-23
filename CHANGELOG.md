@@ -4,6 +4,17 @@
 
 ## [0.49.0] — 2026-11-23
 
+### Added
+
+- **Action catalogue** (`ursine-api`, `ursinectl`): `ursinectl actions
+  --json` prints the stable `ursine.actions/1` document with every action's
+  wire name, module, read-only/mutating effect, `--yes` gate and parameters
+  (required or optional); `ursinectl actions` prints the same as a table.
+  `Action::spec()` is an exhaustive match, so a new action cannot ship
+  unclassified. `Action::is_read_only`/`is_destructive` live in
+  `ursine-api`, and the CLI delegates to them instead of keeping a second
+  destructive list (#1 client metadata, from PR #19).
+
 ### Fixed
 
 - **niri writes the KDL dialect it reads**: the config editor used kdl 6

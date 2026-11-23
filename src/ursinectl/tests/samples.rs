@@ -76,16 +76,22 @@ fn every_wire_action_has_exactly_one_sample() {
     assert_eq!(pairs.len(), before, "duplicate (module, action) sample");
 }
 
+/// Parse the shared sample the way the CLI would, once per test that
+/// needs the wire `Action` (keeps the sample table the single source).
+fn sample_action(s: &common::Sample) -> ursine_api::Action {
+    let pairs: Vec<(String, String)> = s
+        .pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    ursinectl::cli::build_action_with(s.action, &pairs, || Ok("x".to_string()))
+        .unwrap_or_else(|e| panic!("{}: {e}", s.action))
+}
+
 #[test]
 fn every_sample_parses_and_classifies_destructive() {
     for s in common::SAMPLES {
-        let pairs: Vec<(String, String)> = s
-            .pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        let action = ursinectl::cli::build_action_with(s.action, &pairs, || Ok("x".to_string()))
-            .unwrap_or_else(|e| panic!("{}: {e}", s.action));
+        let action = sample_action(s);
         // The tag the CLI parsed must be the tag core audits.
         assert_eq!(
             ursine_core::modules::action_name(&action),
@@ -99,5 +105,98 @@ fn every_sample_parses_and_classifies_destructive() {
             "destructive expectation for {}",
             s.action
         );
+    }
+}
+
+#[test]
+fn catalogue_covers_every_wire_action() {
+    // The printed catalogue is a client contract: a wire action that has no
+    // row would be invisible to every frontend that is not the GUI.
+    let mut catalogue: Vec<&str> = ursine_api::catalogue::ACTIONS
+        .iter()
+        .map(|spec| spec.name)
+        .collect();
+    catalogue.sort_unstable();
+    let mut registry: Vec<&str> = common::ALL_ACTIONS.to_vec();
+    registry.sort_unstable();
+    assert_eq!(
+        catalogue, registry,
+        "ursine-api catalogue and the wire action registry disagree"
+    );
+}
+
+#[test]
+fn every_catalogue_row_is_reachable_from_its_action() {
+    for s in common::SAMPLES {
+        let action = sample_action(s);
+        let spec = action.spec();
+        assert_eq!(spec.name, s.action, "wire name of {}", s.action);
+        assert_eq!(spec.module, s.module, "module of {}", s.action);
+        // The row this action resolves to is the row the catalogue prints:
+        // a variant that is not in `ACTIONS` never reaches a client.
+        let printed = ursine_api::catalogue::ACTIONS
+            .iter()
+            .find(|row| row.name == s.action)
+            .unwrap_or_else(|| panic!("{} is not in the printed catalogue", s.action));
+        assert_eq!(*printed, *spec, "printed row of {}", s.action);
+        // `required` is derived from the serde attributes: the sample proves
+        // every parameter the wire demands is really in the payload.
+        for param in spec.params {
+            if param.required {
+                assert!(
+                    s.pairs.iter().any(|(key, _)| *key == param.name),
+                    "{}: required parameter {:?} missing from the sample",
+                    s.action,
+                    param.name
+                );
+            }
+        }
+        // A read-only request never needs the destructive confirmation.
+        if action.is_read_only() {
+            assert!(
+                !action.is_destructive(),
+                "{} reads only and must not be gated",
+                s.action
+            );
+        }
+    }
+}
+
+#[test]
+fn catalogue_document_is_the_documented_shape() {
+    let doc = ursine_api::catalogue::json_document();
+    assert_eq!(doc["schema"], "ursine.actions/1");
+    assert_eq!(doc["count"], ursine_api::catalogue::ACTIONS.len());
+    let actions = doc["actions"].as_array().unwrap();
+    assert_eq!(actions.len(), ursine_api::catalogue::ACTIONS.len());
+    // Every row carries the six documented keys and nothing else.
+    for row in actions {
+        let mut keys: Vec<&str> = row
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "destructive",
+                "effect",
+                "module",
+                "name",
+                "params",
+                "previewable"
+            ],
+            "row {row}"
+        );
+        assert!(matches!(
+            row["effect"].as_str(),
+            Some("read_only" | "mutating")
+        ));
+        assert!(matches!(
+            row["destructive"].as_str(),
+            Some("never" | "always" | "request")
+        ));
     }
 }
