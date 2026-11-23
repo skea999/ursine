@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Services**: `enable`/`disable` are idempotent — a refusal that describes
+  the state already reached (`rc-update: … is not in the runlevel …`, dinit's
+  `already enabled`) answers success instead of `Internal` with the tool's
+  text.
+- **Services**: a service name the init does not know answers `not_found` with
+  a fix on both backends, for every operation. Dinit no longer reports success
+  for `disable` of a misspelt name (the boot-link test could not tell it from
+  "not enabled"), and OpenRC no longer answers success for `disable` of a name
+  it has no initscript for.
+
 ## [0.48.1] — 2026-11-23
 
 ### Fixed
