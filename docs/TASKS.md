@@ -5,6 +5,13 @@
 **Workflow rule (binding)**: backend first, frontend immediately, same feature. No next feature until daemon + frontend reach parity.
 **UI rule (binding)**: patterns from cosmic-settings (structure), Webmin (action coverage), Cockpit (gating/status/confirmations).
 
+## Release 0.49.0 — 2026-11-23
+
+- [x] Tag `v0.49.0` (`bc7f8ce`), tag CI `45230005789` green, package + flake published, nix pin `86bc581`.
+- [x] All issues #1-#18 closed (#10 in 0.48.1, the rest in 0.49.0).
+- [ ] Host acceptance run: user runs `scripts/test-host.sh` after the tag.
+- [ ] Wayle-host theming smoke (0.48.1 matugen cache); host is DMS.
+
 ## Open GitHub issues — fixed in 0.49.0 (2026-11-23)
 
 - [x] #1 list_scanners handled; firewalld doc comment; list_apk_updates

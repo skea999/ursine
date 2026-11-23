@@ -6,6 +6,15 @@
 See `state/session-state.json` for current goals, decisions, risks, and next actions.
 See `AGENTS.md` for project context and milestone history.
 
+## Release 0.49.0 — open-issue backlog + action catalogue (2026-11-23)
+
+**Status**: tag `v0.49.0` at `bc7f8ce`, tag CI `45230005789` green, release assets published (musl tarball + flake source), nix pin `86bc581`. Host update pending: user runs `scripts/test-host.sh` after the tag.
+
+- 17 issues fixed: niri KDL v1 + `xcursor-*`; `as_user` for niri and flatpak remote/regex; firewalld stand-alone `--set-default-zone` + typed refusals; OpenRC/dinit idempotency; missing-profile prune; AppArmor backups outside `/etc/apparmor.d`, `aa-cleanprof -s --no-reload`, easyprof `template_vars`; btrbk one managed block + runnable init probe; restore refuses a mount-point target; users actions accept `name=`; `url` 2.5.9 (RUSTSEC-2026-0592).
+- PR #19 (same backlog, independent) closed by its author; its action-catalogue commit `bb3df93` was cherry-picked with author credit: `ursinectl actions [--json]` (`ursine.actions/1`), `Action::spec` exhaustive, `is_read_only`/`is_destructive` in `ursine-api`.
+- Gate: local `scripts/dev.sh verify` green (static all, docs, release + installer/activation smoke); tag CI green.
+- Issue #10 was already closed in 0.48.1; all #1-#18 are now closed.
+
 ## Open item — Wayle + matugen theming (deferred 2026-11-23)
 
 - On this host (DMS/quickshell) Theming works end to end: `theme_get` returns the matugen palette, `theme_apply` reports every target written, and the daemon audit has no theming errors.
