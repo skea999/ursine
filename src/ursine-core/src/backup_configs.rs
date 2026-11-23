@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ursine_api::{ApiError, UrsineConfig};
+use ursine_api::{ApiError, ErrorCode, UrsineConfig};
 
 /// Lower/upper clamp for `backup_configs.copies`.
 pub const MIN_COPIES: usize = 1;
@@ -109,19 +109,56 @@ pub async fn rotate_async(
         .map_err(|e| ApiError::internal(format!("backup task failed: {e}")))?
 }
 
-/// Directory/file MOVE rotation for restores: the live target itself becomes
-/// slot 0 (the caller then re-creates the target from a snapshot). Returns
-/// the slot-0 path so a failed restore can move it back.
-pub fn rotate_move(target: &Path, copies: usize) -> Result<PathBuf, ApiError> {
+/// Staging sibling for a move rotation. It can never be mistaken for a slot:
+/// the legacy prune only accepts `<file>.ursine-backup-<digits>`.
+fn staging_path(target: &Path) -> PathBuf {
+    let mut name = target.as_os_str().to_os_string();
+    name.push(".ursine-backup.tmp");
+    PathBuf::from(name)
+}
+
+/// Phase one of a MOVE rotation (restores): park the live target in a staging
+/// sibling WITHOUT touching the chain, so the caller can try the mutation and
+/// then either [`commit_move`] or rename the tree back.
+///
+/// Rotating first would shift the chain — and drop the oldest backup — even
+/// when the mutation then fails. Returns the staging path the live tree now
+/// sits in.
+pub fn stage_move(target: &Path) -> Result<PathBuf, ApiError> {
     if !target.exists() {
         return Err(ApiError::internal(format!(
             "backup rotation target missing: {}",
             target.display()
         )));
     }
+    let staged = staging_path(target);
+    // A leftover staging tree is somebody's data (a restore interrupted after
+    // the move): refuse instead of deleting it.
+    if staged.exists() {
+        return Err(ApiError::new(
+            ErrorCode::Conflict,
+            format!(
+                "a previous restore left {} in place; it holds the tree that then lived in {}",
+                staged.display(),
+                target.display()
+            ),
+        )
+        .with_fix(format!(
+            "move {} away (or back to {}) before restoring again",
+            staged.display(),
+            target.display()
+        )));
+    }
+    std::fs::rename(target, &staged).map_err(|e| rotation_error(target, &e))?;
+    Ok(staged)
+}
+
+/// Phase two of a MOVE rotation: shift the chain one step older and drop the
+/// staged tree into slot 0. Only call it once the mutation succeeded.
+pub fn commit_move(target: &Path, copies: usize, staged: &Path) -> Result<PathBuf, ApiError> {
     let slot0 = slot_path(target, 0);
     rotate_common(target, copies, |_| {
-        std::fs::rename(target, &slot0).map_err(|e| rotation_error(target, &e))?;
+        std::fs::rename(staged, &slot0).map_err(|e| rotation_error(staged, &e))?;
         Ok(())
     })?;
     Ok(slot0)
@@ -373,24 +410,60 @@ mod tests {
     }
 
     #[test]
-    fn rotate_move_shifts_directories_and_returns_slot_zero() {
-        let dir = dir("move");
+    fn stage_move_keeps_the_chain_until_the_commit() {
+        let dir = dir("stage");
         let target = dir.join("tree");
-        // Two prior generations parked in the chain as directories.
+        // One generation already parked in slot 0.
         std::fs::create_dir_all(slot_path(&target, 0)).unwrap();
         std::fs::write(slot_path(&target, 0).join("v"), "older\n").unwrap();
         std::fs::create_dir_all(&target).unwrap();
         std::fs::write(target.join("v"), "live\n").unwrap();
 
-        let slot0 = rotate_move(&target, 2).unwrap();
+        let staged = stage_move(&target).unwrap();
+        assert!(!target.exists(), "live tree parked for the mutation");
+        assert_eq!(std::fs::read_to_string(staged.join("v")).unwrap(), "live\n");
+        // The chain did not move: slot 0 still holds the older tree, so a
+        // failed restore loses nothing.
+        assert_eq!(
+            std::fs::read_to_string(slot_path(&target, 0).join("v")).unwrap(),
+            "older\n"
+        );
+        std::fs::rename(&staged, &target).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(slot_path(&target, 0).join("v")).unwrap(),
+            "older\n"
+        );
+
+        // Now the successful path: the commit shifts the chain exactly once.
+        let staged = stage_move(&target).unwrap();
+        let slot0 = commit_move(&target, 2, &staged).unwrap();
         assert_eq!(slot0, slot_path(&target, 0));
-        assert!(!target.exists(), "live tree moved into slot 0");
         assert_eq!(std::fs::read_to_string(slot0.join("v")).unwrap(), "live\n");
-        // The previous slot 0 shifted to slot 1; the oldest (none) is gone.
         assert_eq!(
             std::fs::read_to_string(slot_path(&target, 1).join("v")).unwrap(),
             "older\n"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stage_move_refuses_to_overwrite_a_leftover_staging_tree() {
+        let dir = dir("stage-leftover");
+        let target = dir.join("tree");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("v"), "live\n").unwrap();
+        std::fs::create_dir_all(dir.join("tree.ursine-backup.tmp")).unwrap();
+        std::fs::write(dir.join("tree.ursine-backup.tmp").join("v"), "parked\n").unwrap();
+
+        let error = stage_move(&target).unwrap_err();
+        assert_eq!(error.code, ErrorCode::Conflict);
+        assert!(error.fix.is_some(), "the refusal says what to move away");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("tree.ursine-backup.tmp").join("v")).unwrap(),
+            "parked\n",
+            "a leftover tree is never deleted"
+        );
+        assert!(target.exists(), "the live tree is not moved either");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -448,17 +521,17 @@ mod tests {
         std::fs::write(target.join("v"), "live\n").unwrap();
         // First rotation under the new scheme: slot 0 holds the live tree,
         // allowance for legacy = copies(3) - slots(1) = 2 → oldest drops.
-        rotate_move(&target, 3).unwrap();
+        commit_move(&target, 3, &stage_move(&target).unwrap()).unwrap();
         assert!(!dir.join("home.ursine-backup-100").exists());
         assert!(dir.join("home.ursine-backup-200").exists());
         assert!(dir.join("home.ursine-backup-300").exists());
         // Chain fills up over the next restores → all legacy goes.
         std::fs::create_dir_all(&target).unwrap();
         std::fs::write(target.join("v"), "live2\n").unwrap();
-        rotate_move(&target, 3).unwrap();
+        commit_move(&target, 3, &stage_move(&target).unwrap()).unwrap();
         std::fs::create_dir_all(&target).unwrap();
         std::fs::write(target.join("v"), "live3\n").unwrap();
-        rotate_move(&target, 3).unwrap();
+        commit_move(&target, 3, &stage_move(&target).unwrap()).unwrap();
         assert!(!dir.join("home.ursine-backup-200").exists());
         assert!(!dir.join("home.ursine-backup-300").exists());
         let _ = std::fs::remove_dir_all(&dir);

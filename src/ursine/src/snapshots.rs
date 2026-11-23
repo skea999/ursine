@@ -406,7 +406,7 @@ impl SnapshotsState {
                 rows: vec![(
                     "Consequences".to_string(),
                     text_row(format!(
-                        "Restore {snapshot} to {target}? An existing target is moved to a timestamped backup path first."
+                        "Restore {snapshot} to {target}? An existing target is moved aside and only committed to the .ursine-backup slot after the restore succeeded; a target that is a mount point is refused."
                     )),
                 )],
                 confirm: Message::SnapshotRestoreConfirmed,
