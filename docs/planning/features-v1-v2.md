@@ -359,6 +359,31 @@ Not required by the intent table but compatible:
   (2026-11-13): no GUI, CLI or daemon code for flatpak overrides;
 - dashboard for CPU/RAM/disk.
 
+## Client-ergonomics backlog (v3, from issue #1)
+
+Ideas recorded 2026-11-23 when the issue was closed; each needs its own
+design and a plan line before implementation:
+
+- Ship a machine-readable schema for the `Action` enum with a release
+  (requires a schema derive across `ursine-api` and a CI artifact step;
+  generated files stay out of the repository).
+- Mark read-only and destructive actions in that metadata so a socket
+  client can gate writes without reading handlers.
+- Scoped/read-only daemon credentials for non-human clients; the audit line
+  gains an "on behalf of" field.
+- Confirmation stays a client duty: the daemon has no interactive channel,
+  so `ursinectl --yes`, the GUI dialogs and any future client own it; the
+  destructive-action list and preview binding stay in the wire types.
+- The FeralOS APKBUILD bump lives in `feralos-aports`, not this repository.
+- Power and identity actions (reboot, shutdown, hostname, timezone, users by
+  name in bulk) — a `system` module extension, no D-Bus.
+- Optional implied defaults for the remaining required yes/no flags
+  (flatpak `system`, nix `upgrade all`): current behaviour is deliberate —
+  a forgotten flag must not install system-wide or upgrade everything.
+- Unique action names across modules: the wire is already module-scoped and
+  the audit line carries `module` + `action`, so this is a breaking rename
+  with no current ambiguity.
+
 ## Explicitly out of v1/v2
 
 - OIDC, web interface → v3. (`ursinectl` CLI: was v3-thin-client; user

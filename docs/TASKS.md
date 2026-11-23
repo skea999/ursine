@@ -5,6 +5,29 @@
 **Workflow rule (binding)**: backend first, frontend immediately, same feature. No next feature until daemon + frontend reach parity.
 **UI rule (binding)**: patterns from cosmic-settings (structure), Webmin (action coverage), Cockpit (gating/status/confirmations).
 
+## Open GitHub issues — fixed in 0.49.0 (2026-11-23)
+
+- [x] #1 list_scanners handled; firewalld doc comment; list_apk_updates
+  documented; users accepted by name; remaining client-ergonomics ideas
+  recorded in `docs/planning/features-v1-v2.md` (v3).
+- [x] #2 `mkfs.ext4 -F`
+- [x] #3 `--set-default-zone` stand-alone
+- [x] #4 niri actions honor `as_user`
+- [x] #5 flatpak remote + regex scopes honor `as_user`
+- [x] #6 OpenRC disable idempotent
+- [x] #7 firewalld typed errors
+- [x] #8 niri KDL v1
+- [x] #9 niri `xcursor-size` / `xcursor-theme`
+- [x] #10 Wayle matugen cache (0.48.1)
+- [x] #11 AppArmor backups outside the parser directory
+- [x] #12 `aa-cleanprof -s --no-reload`
+- [x] #13 restore refuses a mount-point target
+- [x] #14 one btrbk managed block
+- [x] #15 dinit disable of a missing unit → NotFound
+- [x] #16 easyprof `template_vars`
+- [x] #17 btrbk init layout detection + subvolume probe
+- [x] #18 prune preview on a missing profile
+
 ## Current Sprint
 
 ### Remaining plan — source `docs/planning/features-v1-v2.md`

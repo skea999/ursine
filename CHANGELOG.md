@@ -2,6 +2,53 @@
 
 ## [Unreleased]
 
+## [0.49.0] — 2026-11-23
+
+### Fixed
+
+- **niri writes the KDL dialect it reads**: the config editor used kdl 6
+  (KDL v2) while niri 25.11 parses KDL v1, so every write produced a
+  document niri rejected. The crate is pinned to kdl 4 and the document is
+  formatted once per applied section. Cursor keys are `xcursor-size` and
+  `xcursor-theme`, as niri expects (#8, #9).
+- **Niri and Flatpak actions honor `as_user`**: the root CLI can retarget
+  both; a non-root caller stays on its own account. Flatpak remote and regex
+  actions now declare their installation scope (#4, #5).
+- **`mkfs.ext4` gets `-F`** (e2fsprogs force flag), not `-f` (#2).
+- **`--set-default-zone` is called alone**: firewalld rejects it with
+  `--permanent`, and the call already updates both runtime and permanent
+  configuration (#3). Predictable firewalld refusals (NAME_CONFLICT,
+  BUILTIN_SERVICE, INVALID_ZONE) map to typed errors with fixes (#7).
+- **Service disable is idempotent**: OpenRC "is not in the runlevel" and a
+  dinit service that is not enabled answer success; a missing dinit unit
+  answers `NotFound` instead of success (#6, #15).
+- **`prune_generations` on a missing profile** answers an empty preview
+  (and an empty apply) instead of `Invalid` (#18).
+- **AppArmor profile backups leave `/etc/apparmor.d`**: they move to
+  `/var/backups/ursine/apparmor` where the parser does not load them;
+  `aa-cleanprof` runs `-s --no-reload` so it cannot block on stdin (#11,
+  #12). `aa-easyprof` accepts `template_vars` (`--template-var
+  @{NAME}=VALUE`) with up-front validation, so policy groups that declare a
+  variable work (#16).
+- **btrbk**: `set_btrbk_config` replaces the managed marker instead of
+  stacking a new block per call (#14); `init_btrbk_config` reuses an
+  existing `/btrbk/snapshots` (or `/.snapshots`), creates `/.snapshots`
+  when neither exists, and probes the named subvolume — a layout that
+  cannot run is refused instead of written (#17).
+- **`restore_snapshot` refuses a mounted target**: a mount point cannot be
+  renamed, so the preview answers a typed error with a fix before the
+  backup chain rotates; apply re-checks (#13).
+- **`list_scanners` is handled**, the misplaced firewalld doc comment is
+  back on `ReloadFirewall`, and `list_apk_updates` documents that it runs
+  `apk update` (rewrites the index) (#1).
+
+### Changed
+
+- **User actions accept a login name**: `delete_user`, `set_password` and
+  `set_groups` take `uid` or `name` (exactly one), resolved from
+  `/etc/passwd`; `remove_files` defaults to `false`. Existing uid calls are
+  unchanged (#1).
+
 ## [0.48.1] — 2026-11-23
 
 ### Fixed
