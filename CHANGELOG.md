@@ -2,6 +2,129 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Action catalogue** (`ursine-api`, `ursinectl`): `ursinectl actions --json`
+  prints a stable machine-readable document (`ursine.actions/1`) with every
+  action's wire name, module, read-only vs mutating effect, `--yes` gate and
+  parameters. `ursinectl actions` prints the same data as a table. The
+  classification lives in `ursine-api/src/catalogue.rs`; `Action::spec()` is an
+  exhaustive match, so a new action cannot ship unclassified, and the CLI
+  prints clients a list no frontend has to hard-code.
+
+### Changed
+
+- **Read-only classification is now one list** (`ursine-api`, `ursinectl`):
+  `Action::is_read_only` / `Action::is_destructive` moved from
+  `ursinectl::cli` into `ursine-api`, and `ursinectl::cli::is_destructive`
+  delegates to it. `list_apk_updates` is classified mutating (it runs
+  `apk update`); dry-run/preview requests stay read-only and never require
+  `--yes`. No wire change.
+
+### Fixed
+
+- **Services**: `enable`/`disable` are idempotent — a refusal that describes
+  the state already reached (`rc-update: … is not in the runlevel …`, dinit's
+  `already enabled`) answers success instead of `Internal` with the tool's
+  text.
+- **Services**: a service name the init does not know answers `not_found` with
+  a fix on both backends, for every operation. Dinit no longer reports success
+  for `disable` of a misspelt name (the boot-link test could not tell it from
+  "not enabled"), and OpenRC no longer answers success for `disable` of a name
+  it has no initscript for.
+
+- **Firewall**: `set_default_firewall_zone` passes `--set-default-zone` alone
+  — it is a stand-alone option that firewalld refuses next to `--permanent`,
+  so changing the default zone failed; the follow-up reload still applies it
+  to the running daemon.
+- **Firewall**: predictable firewalld refusals (`NAME_CONFLICT`,
+  `BUILTIN_SERVICE`, `INVALID_ZONE`, `INVALID_PORT`, …) now come back as typed
+  `conflict`/`invalid` errors with a `fix` hint instead of `internal` with raw
+  tool output, so a client can react without parsing text.
+- **ursinectl**: a failed call prints `code: <Code>` before the message, then
+  the `fix:` hint; a script can branch on the wire error code.
+
+- **Niri**: `ursinectl --as-user <user> niri …` works. Dispatch classifies the
+  module as user-scoped (every action reads or writes the target's
+  `~/.config/niri/config.kdl`), so `validate_niri_config` and
+  `set_niri_section` no longer fail with `Forbidden` when the CLI runs as
+  root, and a non-root principal still targets only its own account.
+- **Flatpak**: `add_flatpak_remote`, `remove_flatpak_remote`,
+  `flatpak_remove_regex` and `flatpak_upgrade_regex` now obey the same rule as
+  the rest of the module — `system=false` honours `as_user`, `system=true`
+  rejects it — instead of refusing every target.
+
+- **niri editor**: `config.kdl` is now parsed and written as KDL v1, the
+  dialect niri 25.11 reads. Bare `true`/`false`/`null` parse as booleans and
+  null instead of failing the whole save, and string arguments are written
+  quoted, so niri no longer rejects a config ursine just edited. A file that
+  only parses as KDL v2 (written by an older ursine) is accepted and rewritten
+  in v1 on the next save.
+- **niri editor**: the `cursor` section writes niri's `xcursor-size` and
+  `xcursor-theme` nodes instead of the unknown `size`/`theme`, which `niri
+  validate` rejects. Existing `size`/`theme` nodes are still read and are
+  renamed on the next cursor save.
+
+- **Disks**: `format_disk` now runs `mkfs.ext4 -F`, the force flag e2fsprogs
+  accepts; `-f` was rejected with "unrecognized option: f". btrfs and xfs keep
+  `-f`, ntfs keeps `-F`.
+- **Nix**: `prune_generations` for a user with no profile link is the empty
+  case, not an error: the dry run answers `current: null` with an empty
+  `would_delete` and the real run succeeds deleting nothing, instead of failing
+  with "cannot read profile link". A link that exists but cannot be read still
+  fails.
+- **Scanners**: `list_scanners` answers `{"scanners": [...]}` built from
+  `scanimage -L` (the rows the config view reports under `detected`) instead of
+  "action is not valid for module scanners".
+- **APK**: `list_apk_updates` is documented as a writing call — it refreshes
+  the package index with `apk update` before comparing versions — in the
+  action's doc comment and the module spec, so a client gating writes treats it
+  as a write.
+- **API**: `reload_firewall` has its `/// Reload firewalld.` documentation
+  back; the line had been attached to `set_firewall_enabled`, whose own
+  documentation is intact again.
+
+- **Snapshots restore**: a target that is a mount point (FeralOS `/home` =
+  `@home`) is now refused by the preview and by the run with a typed
+  `conflict` error and a fix that points at a live environment or an unmount,
+  instead of promising a `btrfs subvolume snapshot` that the kernel rejects
+  with `EBUSY`. The live tree is parked beside the target and the backup chain
+  is committed only after the snapshot succeeded, so a failed restore no
+  longer shifts the older backups down and drops the oldest.
+- **Snapshots config**: `set_btrbk_config` replaces the managed
+  `# --- Ursine managed options ---` block in place, removes duplicate blocks
+  and the blank runs they left, and leaves user content (comments included)
+  untouched — calling it twice with the same settings is byte-identical
+  instead of stacking another empty block per call.
+- **Snapshots init**: `init_btrbk_config` takes the layout from the machine (a
+  `/home` subvolume or the first mounted btrfs subvolume, and an already-used
+  snapshot directory such as `/btrbk/snapshots`), creates the snapshot
+  directory it names (typed error when it cannot) and proves the written
+  config with a read-only btrbk run, so a configuration btrbk cannot read is
+  an error instead of a silent success.
+
+- **AppArmor profile backups stay out of the profile directory**: the
+  `backup_configs` slot chain for a profile (and the whole-directory copy
+  taken before cleanprof/autodep) now lives in
+  `/var/lib/ursine/backups/apparmor/etc/apparmor.d/…`, mirroring the source
+  path with the same slots and the same `copies` cap. Every AppArmor tool
+  parses the whole directory, so a rotated copy next to a profile defined it
+  twice and made unrelated profiles fail to load (`Conflicting profiles for
+  /usr/bin/true defined in two files`). Backups left in the directory by an
+  older release are reported as a `conflict` naming the files and the `mv`
+  command, never deleted.
+- **`apparmor_cleanprof` no longer ends in a Python traceback**: it runs
+  `aa-cleanprof -s` (silent), and a tool that still asks for interactive
+  input answers `unavailable` with a fix instead of `Internal` carrying the
+  traceback.
+- **`apparmor_easyprof` accepts template variables**: new optional
+  `template_vars` field (`NAME=VALUE` entries, one
+  `--template-var=@{NAME}=VALUE` argv each, validated) with a GUI input, so a
+  policy group that writes a variable (`opt-application` uses `@{APPNAME}`)
+  can be generated. `ERROR: Invalid policy` now answers `invalid` with a fix
+  naming `template_vars` (and the variable when the verification message
+  names it) instead of `Internal`.
+
 ### Fixed
 
 - **Services**: `enable`/`disable` are idempotent — a refusal that describes
