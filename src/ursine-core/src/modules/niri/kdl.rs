@@ -215,7 +215,7 @@ pub(super) fn apply_section(
                         doc,
                         animation,
                         "duration-ms",
-                        KdlValue::Integer(i128::from(value)),
+                        KdlValue::Base10(i64::from(value)),
                     );
                     applied = true;
                 }
@@ -370,6 +370,9 @@ pub(super) fn apply_section(
             "no recognized values for niri section {section}"
         )));
     }
+    // kdl v1 only formats the document on demand; without this the caller
+    // serializes unformatted nodes (`apply_keybinds` pushes raw ones).
+    doc.fmt();
     Ok(())
 }
 
@@ -421,7 +424,7 @@ fn integer(doc: &KdlDocument, path: &[&str]) -> Option<u32> {
     node.entries()
         .first()?
         .value()
-        .as_integer()
+        .as_i64()
         .and_then(|v| u32::try_from(v).ok())
 }
 
@@ -575,11 +578,9 @@ fn apply_keybinds(doc: &mut KdlDocument, binds: &[JsonValue]) -> Result<(), ApiE
             for arg in action.args {
                 action_node.push(KdlValue::String(arg));
             }
-            action_node.autoformat();
             actions.nodes_mut().push(action_node);
         }
         node.set_children(actions);
-        node.autoformat();
         binds_node.nodes_mut().push(node);
     }
     Ok(())
@@ -720,7 +721,7 @@ fn apply_gestures(
                             children.nodes_mut().push(KdlNode::new(node_name));
                         }
                         if let Some(node) = children.get_mut(node_name) {
-                            set_arg(node, KdlValue::Integer(i128::from(value)));
+                            set_arg(node, KdlValue::Base10(i64::from(value)));
                         }
                     }
                 }
@@ -774,7 +775,6 @@ fn apply_spawn(doc: &mut KdlDocument, commands: &[JsonValue]) -> Result<(), ApiE
         for arg in command {
             node.push(KdlValue::String(arg));
         }
-        node.autoformat();
         doc.nodes_mut().push(node);
     }
     Ok(())
@@ -850,7 +850,6 @@ fn apply_environment(doc: &mut KdlDocument, vars: &[JsonValue]) -> Result<(), Ap
         }
         if let Some(node) = environment.get_mut(&name) {
             set_arg(node, KdlValue::String(value));
-            node.autoformat();
         }
     }
     Ok(())
@@ -876,10 +875,10 @@ fn outputs(doc: &KdlDocument) -> Vec<NiriOutput> {
                     .and_then(|children| children.get("scale"))
                     .and_then(|node| node.entries().first())
                     .and_then(|entry| match entry.value() {
-                        KdlValue::Float(value) => {
+                        KdlValue::Base10Float(value) => {
                             u32::try_from((value * 100.0).round() as i64).ok()
                         }
-                        KdlValue::Integer(value) => u32::try_from(*value).ok(),
+                        KdlValue::Base10(value) => u32::try_from(*value).ok(),
                         _ => None,
                     }),
                 position: output_position(node),
@@ -935,7 +934,6 @@ fn apply_output(doc: &mut KdlDocument, value: &JsonValue) -> Result<(), ApiError
     let Some(node) = doc.nodes_mut().get_mut(index) else {
         return Err(ApiError::internal("output node index disappeared"));
     };
-    node.autoformat();
     let children = node.ensure_children();
     if let Some(mode) = object.get("mode") {
         let mode = mode
@@ -966,7 +964,11 @@ fn apply_output(doc: &mut KdlDocument, value: &JsonValue) -> Result<(), ApiError
             .and_then(|value| u32::try_from(value).ok())
             .filter(|value| (25..=400).contains(value))
             .ok_or_else(|| ApiError::invalid("output scale must be 25..400 percent"))?;
-        set_child(children, "scale", KdlValue::Float(f64::from(scale) / 100.0));
+        set_child(
+            children,
+            "scale",
+            KdlValue::Base10Float(f64::from(scale) / 100.0),
+        );
     }
     if let Some(transform) = object.get("transform") {
         let transform = transform
@@ -1007,8 +1009,8 @@ fn apply_output(doc: &mut KdlDocument, value: &JsonValue) -> Result<(), ApiError
 fn animations_slowdown(doc: &KdlDocument) -> Option<String> {
     let node = child_node(doc, "animations", "slowdown")?;
     match node.entries().first()?.value() {
-        KdlValue::Float(value) => Some(value.to_string()),
-        KdlValue::Integer(value) => Some(value.to_string()),
+        KdlValue::Base10Float(value) => Some(value.to_string()),
+        KdlValue::Base10(value) => Some(value.to_string()),
         _ => None,
     }
 }
@@ -1048,7 +1050,7 @@ fn set_animation_float(doc: &mut KdlDocument, section: &str, key: &str, value: f
         children.nodes_mut().push(KdlNode::new(key));
     }
     if let Some(node) = children.get_mut(key) {
-        set_arg(node, KdlValue::Float(value));
+        set_arg(node, KdlValue::Base10Float(value));
     }
 }
 
@@ -1061,13 +1063,13 @@ fn output_position(node: &KdlNode) -> Option<NiriPosition> {
             "x" => {
                 x = entry
                     .value()
-                    .as_integer()
+                    .as_i64()
                     .and_then(|value| i32::try_from(value).ok());
             }
             "y" => {
                 y = entry
                     .value()
-                    .as_integer()
+                    .as_i64()
                     .and_then(|value| i32::try_from(value).ok());
             }
             _ => {}
@@ -1090,9 +1092,8 @@ fn set_position(doc: &mut KdlDocument, x: i32, y: i32) {
     }
     if let Some(node) = doc.get_mut("position") {
         node.entries_mut().clear();
-        node.push(KdlEntry::new_prop("x", KdlValue::Integer(i128::from(x))));
-        node.push(KdlEntry::new_prop("y", KdlValue::Integer(i128::from(y))));
-        node.autoformat();
+        node.push(KdlEntry::new_prop("x", KdlValue::Base10(i64::from(x))));
+        node.push(KdlEntry::new_prop("y", KdlValue::Base10(i64::from(y))));
     }
 }
 
@@ -1130,7 +1131,7 @@ fn integer_child(doc: &KdlDocument, name: &str) -> Option<u32> {
         .entries()
         .first()?
         .value()
-        .as_integer()
+        .as_i64()
         .and_then(|value| u32::try_from(value).ok())
 }
 
@@ -1202,8 +1203,8 @@ fn speed(doc: &KdlDocument, path: &[&str]) -> Option<i32> {
         _ => None,
     }?;
     match node.entries().first()?.value() {
-        KdlValue::Float(value) => Some((value * 100.0).round() as i32),
-        KdlValue::Integer(value) => i32::try_from(*value).ok(),
+        KdlValue::Base10Float(value) => Some((value * 100.0).round() as i32),
+        KdlValue::Base10(value) => i32::try_from(*value).ok(),
         _ => None,
     }
 }
@@ -1226,7 +1227,7 @@ fn profile<'a>(value: &'a JsonValue, label: &str) -> Result<&'a str, ApiError> {
 fn set_nested_speed(doc: &mut KdlDocument, section: &str, parent: &str, key: &str, value: i32) {
     set_arg(
         ensure_nested_child(doc, section, parent, key),
-        KdlValue::Float(f64::from(value) / 100.0),
+        KdlValue::Base10Float(f64::from(value) / 100.0),
     );
 }
 
@@ -1240,7 +1241,7 @@ fn set_nested_string(doc: &mut KdlDocument, section: &str, parent: &str, key: &s
 fn set_nested_integer(doc: &mut KdlDocument, section: &str, parent: &str, key: &str, value: u32) {
     set_arg(
         ensure_nested_child(doc, section, parent, key),
-        KdlValue::Integer(i128::from(value)),
+        KdlValue::Base10(i64::from(value)),
     );
 }
 
@@ -1257,7 +1258,7 @@ fn set_strut(doc: &mut KdlDocument, key: &str, value: u32) {
         children.nodes_mut().push(KdlNode::new(key));
     }
     if let Some(node) = children.get_mut(key) {
-        set_arg(node, KdlValue::Integer(i128::from(value)));
+        set_arg(node, KdlValue::Base10(i64::from(value)));
     }
 }
 
@@ -1327,12 +1328,8 @@ fn ensure_nested_child<'a>(
 }
 
 fn set_arg(node: &mut KdlNode, value: KdlValue) {
-    let repr = value.to_string();
     if let Some(entry) = node.entries_mut().first_mut() {
         *entry.value_mut() = value;
-        if let Some(format) = entry.format_mut() {
-            format.value_repr = repr;
-        }
     } else {
         node.push(value);
     }
@@ -1341,7 +1338,7 @@ fn set_arg(node: &mut KdlNode, value: KdlValue) {
 fn set_integer(doc: &mut KdlDocument, section: &str, key: &str, value: u32) {
     set_arg(
         ensure_child(doc, section, key),
-        KdlValue::Integer(i128::from(value)),
+        KdlValue::Base10(i64::from(value)),
     );
 }
 
@@ -1420,18 +1417,31 @@ spawn-at-startup "foo"
     fn parses_keyboard_layout_and_misc() {
         let sample = r#"input {
     keyboard {
-        xkb { layout "it" }
+        xkb {
+            layout "it"
+        }
         repeat-delay 600
         repeat-rate 25
     }
 }
 layout {
-    border { width 4 }
-    focus-ring { width 2 }
-    struts { left 8; right 8; top 4; bottom 4; }
+    border {
+        width 4
+    }
+    focus-ring {
+        width 2
+    }
+    struts {
+        left 8
+        right 8
+        top 4
+        bottom 4
+    }
 }
 screenshot-path "~/Pictures/%Y.png"
-hotkey-overlay { skip-at-startup; }
+hotkey-overlay {
+    skip-at-startup
+}
 "#;
         let doc: KdlDocument = sample.parse().unwrap();
         let values = parse_values(&doc);
@@ -1475,7 +1485,8 @@ hotkey-overlay { skip-at-startup; }
         )
         .unwrap();
         let output = doc.to_string();
-        assert!(output.contains("output DP-2"));
+        // kdl v1 always quotes string values.
+        assert!(output.contains("output \"DP-2\""));
         assert!(output.contains("mode \"2560x1440@144.000\""));
         assert!(output.contains("scale 1.25"));
         assert!(output.contains("position x=1920 y=0"));
@@ -1502,7 +1513,7 @@ hotkey-overlay { skip-at-startup; }
         let output = doc.to_string();
         assert!(!output.contains("FOO"));
         assert!(output.contains("KEEP \"2\""));
-        assert!(output.contains("NEW x"));
+        assert!(output.contains("NEW \"x\""));
     }
 
     #[test]
@@ -1526,9 +1537,19 @@ hotkey-overlay { skip-at-startup; }
     #[test]
     fn parses_pointer_settings() {
         let mut doc: KdlDocument = r#"input {
-    keyboard { track-layout "window"; numlock; }
-    touchpad { accel-speed 0.25; accel-profile "flat"; }
-    mouse { accel-speed -0.5; accel-profile "adaptive"; natural-scroll; }
+    keyboard {
+        track-layout "window"
+        numlock
+    }
+    touchpad {
+        accel-speed 0.25
+        accel-profile "flat"
+    }
+    mouse {
+        accel-speed -0.5
+        accel-profile "adaptive"
+        natural-scroll
+    }
 }
 "#
         .parse()
