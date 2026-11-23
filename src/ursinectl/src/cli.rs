@@ -554,7 +554,7 @@ mod tests {
                 dry_run: false,
             },
             Action::ListApk,
-            Action::ListApkUpdates,
+            Action::ListApkUpdates { refresh: false },
             Action::SetFirewallEnabled { enabled: false },
             Action::ApparmorSetMode {
                 path: "/etc/apparmor.d/local/usr.bin.niri".into(),

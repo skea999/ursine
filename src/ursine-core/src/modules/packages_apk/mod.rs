@@ -88,7 +88,10 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         }
         Action::UpgradeApkPackage { package } => {
             validate_package(package)?;
-            start_job(ctx, "upgrade_apk_package", &["add", package], true)
+            // The installed check runs inline so an absent package is an
+            // answer, not an install: the action upgrades, it never adds.
+            let args = upgrade_plan(package, is_installed(package).await?)?;
+            start_job(ctx, "upgrade_apk_package", &args, false)
         }
         Action::RemoveApk { package } => {
             validate_package(package)?;
@@ -101,13 +104,14 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             start_regex_job(ctx, pattern, *dry_run, "upgrade", "upgrade_regex", false).await
         }
         Action::UpgradeApk => start_job(ctx, "upgrade_apk", &["upgrade"], false),
-        Action::ListApkUpdates => {
-            // The check refreshes the indexes first: `apk version -l <`
-            // compares against the INDEXES, so without a fetch it never
-            // sees new packages (this replaces the old maintenance
-            // "Refresh indexes" button — one control, one job).
-            run(&["update"]).await?;
-            Ok(json!({"updates": updates().await?}))
+        Action::ListApkUpdates { refresh } => {
+            // A poll must not write: `apk update` rewrites the index cache
+            // and needs the network, so it runs only when the caller asks
+            // for a fresh index. Without it the diff is answered from the
+            // cache the last refresh (or repository change) left behind —
+            // the automatic check stays read-only, the explicit "Check for
+            // updates" button passes `refresh = true`.
+            Ok(json!({"updates": updates(*refresh).await?}))
         }
         _ => Err(ApiError::invalid(
             "action is not valid for module packages_apk",
@@ -513,15 +517,75 @@ fn parse_installed(versioned: &str, names: &str, protected: &[String]) -> Vec<Ap
     rows
 }
 
-async fn updates() -> Result<Vec<ApkUpdate>, ApiError> {
-    // `<` (the installed-vs-index separator) is outside the strict atom
-    // charset the generic runner enforces — this FIXED argument rides
-    // the quoted-value guard instead (no shell, nothing interpolates it).
+/// The installed-versus-index diff, after the optional index refresh.
+///
+/// Both steps run through the quoted-value runner: the `<` separator is
+/// outside the strict atom charset the generic runner enforces (no shell is
+/// involved, nothing interpolates the argument).
+async fn updates(refresh: bool) -> Result<Vec<ApkUpdate>, ApiError> {
     let program = apk_path()?;
-    let output = exec::run_root_program_value(program, &["version", "-l", "<"], TIMEOUT)
-        .await?
-        .stdout;
+    let mut output = String::new();
+    for args in update_check_args(refresh) {
+        output = exec::run_root_program_value(program, args, TIMEOUT)
+            .await?
+            .stdout;
+    }
     Ok(parse_updates(&output))
+}
+
+/// The argv of one update check, in order: the index refresh only when the
+/// caller asked for it, then the installed-versus-index diff.
+///
+/// Pure so both entries of #3 are assertable without an `apk` binary: a poll
+/// (`refresh = false`) must produce exactly one step and never `update`.
+fn update_check_args(refresh: bool) -> Vec<&'static [&'static str]> {
+    let mut steps: Vec<&'static [&'static str]> = Vec::new();
+    if refresh {
+        steps.push(&["update"]);
+    }
+    steps.push(&["version", "-l", "<"]);
+    steps
+}
+
+/// What an `upgrade_apk_package` request runs, or the answer it gives.
+///
+/// `apk add --upgrade <pkg>` is deliberately not used: `add` re-solves the
+/// whole world file, so an installed package the world does not name is
+/// removed as a side effect (observed: nine packages gone after an unrelated
+/// `apk add`). `apk upgrade <pkg>` upgrades exactly the named installed
+/// package in place and never removes another one; it is also the verb the
+/// regex upgrade action already uses.
+fn upgrade_plan(package: &str, installed: bool) -> Result<Vec<&str>, ApiError> {
+    if !installed {
+        return Err(ApiError::new(
+            ursine_api::ErrorCode::NotFound,
+            format!("apk package {package} is not installed"),
+        )
+        .with_fix(format!(
+            "install it with install_apk package={package}, or look up the name with search_apk"
+        )));
+    }
+    Ok(vec!["upgrade", package])
+}
+
+/// Whether `apk info -e <pkg>` reports the package installed. apk exits 1 for
+/// "not installed", which is an answer; any other failure is the tool itself
+/// and is surfaced instead of being read as "absent".
+async fn is_installed(package: &str) -> Result<bool, ApiError> {
+    let program = apk_path()?;
+    let outcome =
+        exec::run_root_program_tolerant(program, &["info", "-e", package], TIMEOUT, None).await?;
+    match outcome.code {
+        0 => Ok(true),
+        1 => Ok(false),
+        code => Err(ApiError::unavailable(
+            format!(
+                "apk info -e {package} exited with {code}: {}",
+                outcome.stderr.trim()
+            ),
+            "retry once; if apk keeps failing, run `apk update` on the machine and check the repositories",
+        )),
+    }
 }
 
 fn parse_updates(output: &str) -> Vec<ApkUpdate> {
@@ -814,6 +878,38 @@ mod tests {
         assert_eq!(updates[0].available, "25.11-r3");
         assert_eq!(updates[1].name, "apk-tools");
         assert_eq!(updates[1].available, "3.0.1-r0");
+    }
+
+    #[test]
+    fn update_check_refreshes_only_on_request() {
+        // ISSUES.md #3: a poll of the read must not write the index cache.
+        let cached = update_check_args(false);
+        assert_eq!(cached, vec![&["version", "-l", "<"][..]]);
+        assert!(!cached.iter().any(|args| args.contains(&"update")));
+        let refreshed = update_check_args(true);
+        assert_eq!(
+            refreshed,
+            vec![&["update"][..], &["version", "-l", "<"][..]]
+        );
+    }
+
+    #[test]
+    fn upgrade_plan_upgrades_installed_and_answers_not_found() {
+        // ISSUES.md #30: `apk add` keeps the installed version and re-solves
+        // the world file; the upgrade verb upgrades that one package.
+        assert_eq!(upgrade_plan("niri", true).unwrap(), ["upgrade", "niri"]);
+        assert!(!upgrade_plan("niri", true).unwrap().contains(&"add"));
+        // An absent package is an answer, not an install.
+        let absent = upgrade_plan("tree", false).unwrap_err();
+        assert_eq!(absent.code, ursine_api::ErrorCode::NotFound);
+        assert!(absent.message.contains("tree"), "{}", absent.message);
+        assert!(
+            absent
+                .fix
+                .as_deref()
+                .is_some_and(|fix| fix.contains("install_apk")),
+            "{absent:?}"
+        );
     }
 
     #[test]

@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`upgrade_apk_package` upgrades**: the handler runs `apk upgrade
+  <package>` instead of `apk add <package>`, which kept the installed
+  version and re-solved the world file (an unrelated `apk add` on the
+  reporter's machine dropped nine packages it did not name); a package
+  that is not installed now answers `not_found` with a `fix` naming
+  `install_apk` instead of being installed (#30).
+
+### Changed
+
+- **`list_apk_updates` no longer writes by default**: the new optional
+  `refresh` field (`false` when omitted) makes the check a cached-index
+  read — no `apk update`, no network, no index rewrite — and only
+  `refresh=true` refreshes first. The catalogue row is `read-only` and
+  reports the `refresh=true` request as `mutating`; the GUI's "Check for
+  updates" button sends `refresh=true` while the automatic check lists
+  the cache (#3).
+
 ## [0.49.0] — 2026-11-23
 
 ### Added

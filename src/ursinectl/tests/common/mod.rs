@@ -313,7 +313,8 @@ pub const SAMPLES: &[Sample] = &[
         action: "upgrade_apk_package",
         pairs: &[("package", "ursine-no-such-pkg-xyz")],
         destructive: true,
-        dispatch: Dispatch::Ok,
+        // An absent package is answered, not installed (#30).
+        dispatch: Dispatch::Code(ursine_api::ErrorCode::NotFound),
     },
     // -- packages.flatpak (absent → gate) --
     Sample {

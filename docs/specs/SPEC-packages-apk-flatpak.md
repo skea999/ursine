@@ -17,7 +17,8 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `install_apk` | `apk add <package>` (progress via job log) |
 | `remove_apk` | `apk del <package>` |
 | `upgrade_apk` | `apk upgrade` (progress via job log) |
-| `list_apk_updates` | `apk update` FIRST (the check refreshes the indexes — replaces the old maintenance "Refresh indexes" button) then `apk version -l <` → `ApkUpdate[]` |
+| `upgrade_apk_package` | `apk info -e <package>` first: absent answers `not_found` with a `fix`; installed runs `apk upgrade <package>` (never `apk add`, which re-solves the world file and can drop packages it does not name) |
+| `list_apk_updates` | `apk version -l <` → `ApkUpdate[]`; runs `apk update` FIRST only when `refresh=true` (that request rewrites the index cache and is mutating, the default read answers from the cache) |
 | `apk_remove_regex` | match installed names against the regex daemon-side (the apk CLI has none) → dry-run returns `{dry_run, would_change}`, apply runs one `apk del <names…>` job (destructive in the CLI) |
 | `apk_upgrade_regex` | same match → one `apk upgrade <names…>` job |
 | `list_flatpak` | `flatpak list --columns=application,name,version,branch,origin,description --system/--user` + best-effort orphan count (`flatpak uninstall --unused --system/--user` answered `n` — read-only plan parse; `orphans` field may be null) |
@@ -68,7 +69,9 @@ Sidebar entries **APK packages** and **Flatpak applications**. Each panel has:
 - search and direct-install fields (Flatpak: remote dropdown next to the
   install entry, sizes shown in the install confirmation);
 - installed/search rows with install/remove actions;
-- refresh/update controls with confirmations;
+- refresh/update controls with confirmations; the manual "Check for
+  updates" sends `list_apk_updates refresh=true` (fresh index), the
+  automatic check lists the cached index and writes nothing;
 - Upgrade section shows only the update COUNT for both managers (the
   per-package lists are gone by user decision); per-package Upgrade
   buttons live in Installed and appear only when the check says the

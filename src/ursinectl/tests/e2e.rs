@@ -444,7 +444,8 @@ fn apk_update_check_refreshes_indexes_and_lists() {
     // update + version — so a single other apk op can collide).
     let mut last = None;
     for _ in 0..20 {
-        let attempt = run(&["apk", "list_apk_updates", "--json"]);
+        // `refresh = true` is the request that runs `apk update` first.
+        let attempt = run(&["apk", "list_apk_updates", "refresh=true", "--json"]);
         if !stderr(&attempt).contains("Unable to lock database") {
             last = Some(attempt);
             break;
