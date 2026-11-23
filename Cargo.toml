@@ -46,7 +46,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 getrandom = "0.2"
 pwhash = "1"
-kdl = "6"
+kdl = { version = "6", features = ["v1"] }
 regex = "1"
 
 [workspace.lints.rust]

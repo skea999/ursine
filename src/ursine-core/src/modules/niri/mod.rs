@@ -10,7 +10,6 @@ mod validate_errors;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use ::kdl::KdlDocument;
 use serde_json::json;
 use ursine_api::{Action, ApiError, NiriConfigView, NiriValues};
 
@@ -60,11 +59,10 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             let _guard = NIRI_MUTATION.lock().await;
             let path = config_path(ctx)?;
             let current = read_raw(ctx.as_user, &path).await?.1;
-            let mut doc: KdlDocument = current
-                .parse()
+            let mut doc = kdl::parse_document(&current)
                 .map_err(|_| ApiError::invalid("niri config could not be parsed"))?;
             kdl::apply_section(&mut doc, section, value)?;
-            let updated = doc.to_string();
+            let updated = kdl::to_config_string(&doc);
             if updated.len() > MAX_CONFIG {
                 return Err(ApiError::invalid("niri config would exceed the size limit"));
             }
@@ -87,8 +85,7 @@ async fn read_view(ctx: &ModuleCtx<'_>) -> Result<NiriConfigView, ApiError> {
     let path = config_path(ctx)?;
     let (exists, content) = read_raw(ctx.as_user, &path).await?;
     let values = if exists {
-        content
-            .parse::<KdlDocument>()
+        kdl::parse_document(&content)
             .map_or_else(|_| NiriValues::default(), |doc| kdl::parse_values(&doc))
     } else {
         NiriValues::default()

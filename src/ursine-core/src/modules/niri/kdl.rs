@@ -1,14 +1,64 @@
 //! Minimal schema-driven niri config editing for managed sections.
 //!
-//! Unknown nodes and formatting are preserved by parsing with the `kdl`
-//! document API and serializing the same document.
+//! niri 25.11 parses `config.kdl` as KDL v1: booleans and `null` are bare
+//! (`true`, not `#true`) and bare words in argument position are identifiers,
+//! so every string argument must be quoted. Documents are therefore parsed
+//! with the crate's v1 parser and serialized back to v1 spelling, which keeps
+//! unknown nodes, comments and the user's formatting intact. A file that only
+//! parses as KDL v2 (previous ursine versions wrote `#true`) is still accepted
+//! and is rewritten in v1 on the next save.
 
-use kdl::{KdlDocument, KdlEntry, KdlNode, KdlValue};
+use kdl::{KdlDocument, KdlEntry, KdlError, KdlNode, KdlValue};
 use serde_json::Value as JsonValue;
 use ursine_api::{
     ApiError, NiriBindAction, NiriEdgeGesture, NiriEnvVar, NiriGestures, NiriKeybind, NiriOutput,
     NiriPosition, NiriSpawn, NiriStruts, NiriValues,
 };
+
+/// Parses niri's config dialect (KDL v1) and falls back to KDL v2 so a file
+/// written by an older ursine (`#true`, `#null`) is still editable. The v1
+/// error is the one reported when both fail, because that is the dialect niri
+/// itself reads.
+pub(super) fn parse_document(text: &str) -> Result<KdlDocument, KdlError> {
+    KdlDocument::parse_v1(text).or_else(|v1| KdlDocument::parse_v2(text).map_err(|_| v1))
+}
+
+/// Serializes a document in the dialect niri reads: bare `true`/`false`/`null`
+/// and quoted string arguments. Serializing a clone keeps the in-memory tree
+/// in the v2 shape the crate's editing API expects.
+pub(super) fn to_config_string(doc: &KdlDocument) -> String {
+    let mut doc = doc.clone();
+    doc.ensure_v1();
+    unescape_slashes(&doc.to_string())
+}
+
+/// Drops the `\/` escape `ensure_v1` leaves in string arguments. KDL v1 does
+/// not need it (niri itself writes plain `/`), and its parser accepts both
+/// spellings; unescaping keeps a save from rewriting every path in the file.
+fn unescape_slashes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(char) = chars.next() {
+        if char != '\\' {
+            out.push(char);
+            continue;
+        }
+        match chars.peek() {
+            Some('/') => {
+                chars.next();
+                out.push('/');
+            }
+            Some(_) => {
+                out.push('\\');
+                if let Some(escaped) = chars.next() {
+                    out.push(escaped);
+                }
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
+}
 
 pub(super) fn parse_values(doc: &KdlDocument) -> NiriValues {
     NiriValues {
@@ -27,8 +77,10 @@ pub(super) fn parse_values(doc: &KdlDocument) -> NiriValues {
         mouse_accel_speed: speed(doc, &["input", "mouse", "accel-speed"]),
         mouse_accel_profile: string(doc, &["input", "mouse", "accel-profile"]),
         mouse_natural_scroll: flag(doc, &["input", "mouse", "natural-scroll"]),
-        cursor_size: integer(doc, &["cursor", "size"]),
-        cursor_theme: string(doc, &["cursor", "theme"]),
+        cursor_size: integer(doc, &["cursor", "xcursor-size"])
+            .or_else(|| integer(doc, &["cursor", "size"])),
+        cursor_theme: string(doc, &["cursor", "xcursor-theme"])
+            .or_else(|| string(doc, &["cursor", "theme"])),
         keyboard_layout: string(doc, &["input", "keyboard", "xkb", "layout"]),
         keyboard_repeat_delay: integer(doc, &["input", "keyboard", "repeat-delay"]),
         keyboard_repeat_rate: integer(doc, &["input", "keyboard", "repeat-rate"]),
@@ -296,13 +348,17 @@ pub(super) fn apply_section(
         }
         "cursor" => {
             reject_unknown(object, &["size", "theme"])?;
+            // niri 25.11 names these `xcursor-size` / `xcursor-theme`; a file
+            // written by an older ursine carries the legacy `size` / `theme`
+            // nodes, which niri rejects, so migrate them on every save.
+            migrate_cursor_keys(doc);
             if let Some(size) = object.get("size") {
                 let size = size
                     .as_u64()
                     .and_then(|v| u32::try_from(v).ok())
                     .filter(|v| (8..=128).contains(v))
                     .ok_or_else(|| ApiError::invalid("cursor size must be 8..128"))?;
-                set_integer(doc, "cursor", "size", size);
+                set_integer(doc, "cursor", "xcursor-size", size);
                 applied = true;
             }
             if let Some(theme) = object.get("theme") {
@@ -313,7 +369,7 @@ pub(super) fn apply_section(
                 if theme.len() > 128 || theme.chars().any(char::is_control) {
                     return Err(ApiError::invalid("invalid cursor theme"));
                 }
-                set_string(doc, "cursor", "theme", theme);
+                set_string(doc, "cursor", "xcursor-theme", theme);
                 applied = true;
             }
         }
@@ -407,6 +463,8 @@ fn nested_child<'a>(
 fn integer(doc: &KdlDocument, path: &[&str]) -> Option<u32> {
     let node = match path {
         ["layout", "gaps"] => child_node(doc, "layout", "gaps"),
+        ["cursor", "xcursor-size"] => child_node(doc, "cursor", "xcursor-size"),
+        // Legacy spelling written by ursine before 25.11 was targeted.
         ["cursor", "size"] => child_node(doc, "cursor", "size"),
         ["layout", "border", "width"] => nested_child(doc, "layout", "border", "width"),
         ["layout", "focus-ring", "width"] => nested_child(doc, "layout", "focus-ring", "width"),
@@ -425,8 +483,33 @@ fn integer(doc: &KdlDocument, path: &[&str]) -> Option<u32> {
         .and_then(|v| u32::try_from(v).ok())
 }
 
+/// Renames the pre-25.11 cursor keys to niri's `xcursor-size` /
+/// `xcursor-theme`, dropping the legacy node so a section ursine wrote earlier
+/// does not leave an unknown node behind.
+fn migrate_cursor_keys(doc: &mut KdlDocument) {
+    for (legacy, current) in [("size", "xcursor-size"), ("theme", "xcursor-theme")] {
+        let value = child_node(doc, "cursor", legacy)
+            .and_then(|node| node.entries().first())
+            .map(|entry| entry.value().clone());
+        let Some(value) = value else { continue };
+        if child_node(doc, "cursor", current).is_none() {
+            set_arg(ensure_child(doc, "cursor", current), value);
+        }
+        if let Some(children) = doc
+            .get_mut("cursor")
+            .and_then(|node| node.children_mut().as_mut())
+        {
+            children
+                .nodes_mut()
+                .retain(|node| node.name().value() != legacy);
+        }
+    }
+}
+
 fn string(doc: &KdlDocument, path: &[&str]) -> Option<String> {
     let node = match path {
+        ["cursor", "xcursor-theme"] => child_node(doc, "cursor", "xcursor-theme"),
+        // Legacy spelling written by ursine before 25.11 was targeted.
         ["cursor", "theme"] => child_node(doc, "cursor", "theme"),
         ["screenshot-path"] => node(doc, "screenshot-path"),
         ["input", "keyboard", "xkb", "layout"] => node(doc, "input")?
@@ -1399,9 +1482,39 @@ input {
 spawn-at-startup "foo"
 "#;
 
+    /// Stock niri 25.11 shape: bare booleans, `null`, quoted strings, an
+    /// `include`, comments and a keybind with properties.
+    const STOCK: &str = r#"include "~/.config/niri/extra.kdl"
+input {
+    keyboard {
+        xkb {
+            layout "us"
+        }
+        repeat-delay 600
+        repeat-rate 25
+        numlock true
+    }
+    touchpad {
+        tap
+        natural-scroll false
+        accel-profile "flat"
+    }
+}
+// keep this comment
+binds {
+    Super+Alt+S allow-when-locked=true hotkey-overlay-title=null {
+        spawn "niri" "msg" "action" "screenshot-screen"
+    }
+}
+cursor {
+    xcursor-theme "Adwaita"
+    xcursor-size 24
+}
+"#;
+
     #[test]
     fn parses_and_roundtrips_unknown_nodes() {
-        let mut doc: KdlDocument = SAMPLE.parse().unwrap();
+        let mut doc = parse_document(SAMPLE).unwrap();
         let values = parse_values(&doc);
         assert_eq!(values.layout_gaps, Some(16));
         assert_eq!(values.animations_off, Some(true));
@@ -1410,10 +1523,149 @@ spawn-at-startup "foo"
         assert_eq!(values.touchpad_natural_scroll, None);
 
         apply_section(&mut doc, "layout", &serde_json::json!({"gaps": 24})).unwrap();
-        let output = doc.to_string();
+        let output = to_config_string(&doc);
         assert!(output.contains("gaps 24"));
         assert!(output.contains("spawn-at-startup"));
         assert!(output.contains("user comment"));
+    }
+
+    #[test]
+    fn parses_a_stock_config_with_bare_booleans_and_null() {
+        let doc = parse_document(STOCK).unwrap();
+        let values = parse_values(&doc);
+        assert_eq!(values.keyboard_numlock, Some(true));
+        assert_eq!(values.touchpad_natural_scroll, Some(false));
+        assert_eq!(values.touchpad_tap, Some(true));
+        assert_eq!(values.touchpad_accel_profile.as_deref(), Some("flat"));
+        assert_eq!(values.keyboard_layout.as_deref(), Some("us"));
+        assert_eq!(values.cursor_size, Some(24));
+        assert_eq!(values.cursor_theme.as_deref(), Some("Adwaita"));
+
+        let bind = doc
+            .get("binds")
+            .and_then(|binds| binds.children())
+            .and_then(|binds| binds.get("Super+Alt+S"))
+            .expect("bind node");
+        assert_eq!(
+            bind.get("allow-when-locked").and_then(KdlValue::as_bool),
+            Some(true),
+            "bare `true` in property position is a KDL boolean, not a string"
+        );
+        assert!(
+            bind.get("hotkey-overlay-title")
+                .is_some_and(KdlValue::is_null),
+            "bare `null` in property position is KDL null, not a string"
+        );
+    }
+
+    #[test]
+    fn writing_a_stock_config_keeps_the_v1_dialect() {
+        let mut doc = parse_document(STOCK).unwrap();
+        apply_section(&mut doc, "layout", &serde_json::json!({"gaps": 8})).unwrap();
+        let output = to_config_string(&doc);
+        assert!(output.contains("allow-when-locked=true"));
+        assert!(output.contains("hotkey-overlay-title=null"));
+        assert!(output.contains("numlock true"));
+        assert!(output.contains("accel-profile \"flat\""));
+        assert!(output.contains("include \"~/.config/niri/extra.kdl\""));
+        assert!(output.contains("keep this comment"));
+        assert!(!output.contains("\\/"), "v2 slash escapes: {output}");
+        assert!(
+            !output.contains("#true") && !output.contains("#null"),
+            "KDL v2 keywords are rejected by niri: {output}"
+        );
+        let reparsed = parse_document(&output).unwrap();
+        assert_eq!(parse_values(&reparsed).layout_gaps, Some(8));
+        assert_eq!(parse_values(&reparsed).keyboard_numlock, Some(true));
+    }
+
+    #[test]
+    fn string_arguments_are_written_quoted() {
+        let mut doc = KdlDocument::new();
+        apply_section(
+            &mut doc,
+            "input.mouse",
+            &serde_json::json!({"accel_profile": "flat"}),
+        )
+        .unwrap();
+        let output = to_config_string(&doc);
+        assert!(output.contains("accel-profile \"flat\""), "{output}");
+    }
+
+    #[test]
+    fn writes_path_arguments_quoted_without_v2_slash_escapes() {
+        let mut doc = parse_document(SAMPLE).unwrap();
+        apply_section(
+            &mut doc,
+            "screenshot",
+            &serde_json::json!({"path": "~/Pictures/%Y.png"}),
+        )
+        .unwrap();
+        let output = to_config_string(&doc);
+        assert!(
+            output.contains(r#"screenshot-path "~/Pictures/%Y.png""#),
+            "{output}"
+        );
+        assert!(!output.contains("\\/"), "{output}");
+    }
+
+    #[test]
+    fn parses_a_v2_written_file_and_rewrites_it_as_v1() {
+        let mut doc = parse_document("input {\n    touchpad {\n        tap #true\n    }\n}\n")
+            .expect("v2 fallback keeps a file written by an older ursine editable");
+        apply_section(&mut doc, "layout", &serde_json::json!({"gaps": 4})).unwrap();
+        let output = to_config_string(&doc);
+        assert!(output.contains("tap true"), "{output}");
+        assert!(!output.contains("#true"), "{output}");
+    }
+
+    #[test]
+    fn cursor_writes_the_xcursor_keys_niri_accepts() {
+        let mut doc = KdlDocument::new();
+        apply_section(
+            &mut doc,
+            "cursor",
+            &serde_json::json!({"size": 32, "theme": "Adwaita"}),
+        )
+        .unwrap();
+        let output = to_config_string(&doc);
+        assert!(output.contains("xcursor-size 32"), "{output}");
+        assert!(output.contains("xcursor-theme \"Adwaita\""), "{output}");
+        assert!(
+            !output.lines().any(|line| line.trim() == "size 32"),
+            "{output}"
+        );
+    }
+
+    #[test]
+    fn cursor_reads_legacy_keys_and_migrates_them_on_write() {
+        let mut doc = parse_document("cursor {\n    size 24\n    theme \"Old\"\n}\n").unwrap();
+        let values = parse_values(&doc);
+        assert_eq!(values.cursor_size, Some(24));
+        assert_eq!(values.cursor_theme.as_deref(), Some("Old"));
+
+        apply_section(&mut doc, "cursor", &serde_json::json!({"size": 24})).unwrap();
+        let output = to_config_string(&doc);
+        assert!(output.contains("xcursor-size 24"), "{output}");
+        assert!(output.contains("xcursor-theme \"Old\""), "{output}");
+        assert!(
+            !output.lines().any(|line| line.trim() == "size 24"),
+            "legacy node must be renamed, not duplicated: {output}"
+        );
+        assert!(
+            !output.lines().any(|line| line.trim() == "theme \"Old\""),
+            "legacy node must be renamed, not duplicated: {output}"
+        );
+    }
+
+    #[test]
+    fn applying_a_section_twice_is_stable() {
+        let mut once = parse_document(SAMPLE).unwrap();
+        apply_section(&mut once, "layout", &serde_json::json!({"gaps": 24})).unwrap();
+        let first = to_config_string(&once);
+        let mut twice = parse_document(&first).unwrap();
+        apply_section(&mut twice, "layout", &serde_json::json!({"gaps": 24})).unwrap();
+        assert_eq!(to_config_string(&twice), first);
     }
 
     #[test]
@@ -1433,7 +1685,7 @@ layout {
 screenshot-path "~/Pictures/%Y.png"
 hotkey-overlay { skip-at-startup; }
 "#;
-        let doc: KdlDocument = sample.parse().unwrap();
+        let doc = parse_document(sample).unwrap();
         let values = parse_values(&doc);
         assert_eq!(values.keyboard_layout.as_deref(), Some("it"));
         assert_eq!(values.keyboard_repeat_delay, Some(600));
@@ -1448,15 +1700,16 @@ hotkey-overlay { skip-at-startup; }
 
     #[test]
     fn parses_and_updates_outputs() {
-        let mut doc: KdlDocument = r#"output "eDP-1" {
+        let mut doc = parse_document(
+            r#"output "eDP-1" {
     mode "1920x1080@60.000"
     scale 1.5
     position x=0 y=0
     transform "normal"
     variable-refresh-rate
 }
-"#
-        .parse()
+"#,
+        )
         .unwrap();
         let values = parse_values(&doc);
         assert_eq!(values.outputs.len(), 1);
@@ -1474,22 +1727,23 @@ hotkey-overlay { skip-at-startup; }
             &serde_json::json!({"outputs": [{"name": "DP-2", "mode": "2560x1440@144.000", "scale": 125, "position_x": 1920, "position_y": 0, "transform": "90"}]}),
         )
         .unwrap();
-        let output = doc.to_string();
-        assert!(output.contains("output DP-2"));
-        assert!(output.contains("mode \"2560x1440@144.000\""));
-        assert!(output.contains("scale 1.25"));
-        assert!(output.contains("position x=1920 y=0"));
-        assert!(output.contains("transform \"90\""));
+        let output = to_config_string(&doc);
+        assert!(output.contains("output \"DP-2\""), "{output}");
+        assert!(output.contains("mode \"2560x1440@144.000\""), "{output}");
+        assert!(output.contains("scale 1.25"), "{output}");
+        assert!(output.contains("position x=1920 y=0"), "{output}");
+        assert!(output.contains("transform \"90\""), "{output}");
     }
 
     #[test]
     fn parses_and_updates_environment() {
-        let mut doc: KdlDocument = r#"environment {
+        let mut doc = parse_document(
+            r#"environment {
     FOO "bar"
     KEEP "1"
 }
-"#
-        .parse()
+"#,
+        )
         .unwrap();
         let values = parse_values(&doc);
         assert_eq!(values.environment.len(), 2);
@@ -1499,15 +1753,15 @@ hotkey-overlay { skip-at-startup; }
             &serde_json::json!({"vars": [{"name": "KEEP", "value": "2"}, {"name": "NEW", "value": "x"}]}),
         )
         .unwrap();
-        let output = doc.to_string();
-        assert!(!output.contains("FOO"));
-        assert!(output.contains("KEEP \"2\""));
-        assert!(output.contains("NEW x"));
+        let output = to_config_string(&doc);
+        assert!(!output.contains("FOO"), "{output}");
+        assert!(output.contains("KEEP \"2\""), "{output}");
+        assert!(output.contains("NEW \"x\""), "{output}");
     }
 
     #[test]
     fn parses_and_updates_spawn() {
-        let mut doc: KdlDocument = "spawn-at-startup \"foo\" \"bar\"\n".parse().unwrap();
+        let mut doc = parse_document("spawn-at-startup \"foo\" \"bar\"\n").unwrap();
         let values = parse_values(&doc);
         assert_eq!(values.spawn_at_startup.len(), 1);
         assert_eq!(values.spawn_at_startup[0].command, vec!["foo", "bar"]);
@@ -1517,21 +1771,22 @@ hotkey-overlay { skip-at-startup; }
             &serde_json::json!({"commands": [["sh", "-c", "echo hi"]]}),
         )
         .unwrap();
-        let output = doc.to_string();
-        assert!(output.contains("spawn-at-startup"));
-        assert!(output.contains("echo hi"));
-        assert!(!output.contains("\"foo\""));
+        let output = to_config_string(&doc);
+        assert!(output.contains("spawn-at-startup"), "{output}");
+        assert!(output.contains("\"echo hi\""), "{output}");
+        assert!(!output.contains("\"foo\""), "{output}");
     }
 
     #[test]
     fn parses_pointer_settings() {
-        let mut doc: KdlDocument = r#"input {
+        let mut doc = parse_document(
+            r#"input {
     keyboard { track-layout "window"; numlock; }
     touchpad { accel-speed 0.25; accel-profile "flat"; }
     mouse { accel-speed -0.5; accel-profile "adaptive"; natural-scroll; }
 }
-"#
-        .parse()
+"#,
+        )
         .unwrap();
         let values = parse_values(&doc);
         assert_eq!(values.keyboard_track_layout.as_deref(), Some("window"));
@@ -1546,13 +1801,14 @@ hotkey-overlay { skip-at-startup; }
             &serde_json::json!({"accel_speed": 10, "natural_scroll": false}),
         )
         .unwrap();
-        let output = doc.to_string();
-        assert!(output.contains("accel-speed 0.1"));
+        let output = to_config_string(&doc);
+        assert!(output.contains("accel-speed 0.1"), "{output}");
     }
 
     #[test]
     fn parses_and_updates_keybinds_and_gestures() {
-        let mut doc: KdlDocument = r#"binds {
+        let mut doc = parse_document(
+            r#"binds {
     Mod+Return { spawn "foot"; }
     Mod+Q { close-window; }
 }
@@ -1560,8 +1816,8 @@ gestures {
     hot-corners { top-right; bottom-right; }
     dnd-edge-view-scroll { trigger-width 30; delay-ms 100; max-speed 1500; }
 }
-"#
-        .parse()
+"#,
+        )
         .unwrap();
         let values = parse_values(&doc);
         assert_eq!(values.keybinds.len(), 2);
@@ -1582,10 +1838,10 @@ gestures {
             &serde_json::json!({"hot_corners": ["top-left"], "hot_corners_off": false}),
         )
         .unwrap();
-        let output = doc.to_string();
-        assert!(output.contains("Mod+T"));
-        assert!(output.contains("top-left"));
-        assert!(!output.contains("bottom-right"));
+        let output = to_config_string(&doc);
+        assert!(output.contains("Mod+T"), "{output}");
+        assert!(output.contains("top-left"), "{output}");
+        assert!(!output.contains("bottom-right"), "{output}");
     }
 
     #[test]

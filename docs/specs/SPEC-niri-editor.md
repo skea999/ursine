@@ -12,11 +12,42 @@ A schema-driven settings GUI for the niri Wayland compositor — the user SELECT
 - **Sections (v1 forms)**: input (keyboard: layouts, repeat; touchpad: tap, natural scroll, dwt), pointer speed, outputs (mode, scale, position, VRR, transform), layout (gaps, struts, border/focus-ring: width+colors, preset widths/heights), animations (on/off, durations, curves from schema), keybinds (capture widget: press combo → recorded binding + action dropdown), gestures, environment variables (add/remove list), spawn-at-startup (add/remove list), cursor (size, theme), screenshot path prefix, hotkey overlay toggle
 - **Live validation**: `niri validate --config <tmp>` on every change batch; errors mapped back to the offending form field
 
+## Config dialect (KDL v1)
+
+niri 25.11 parses `config.kdl` as **KDL v1**, so the file dialect is part of
+this module's contract and not an implementation detail:
+
+- booleans and null are bare (`true`, `false`, `null`); the KDL v2 spellings
+  `#true`, `#false`, `#null` are rejected by niri, so serializing them is a bug
+- a bare word in argument position is an *identifier*, which niri rejects
+  (`identifiers cannot be used as arguments`); every string argument must be
+  quoted (`accel-profile "flat"`, `screenshot-path "~/Pictures/%Y.png"`)
+
+`kdl.rs` therefore parses with the crate's v1 parser (`kdl` feature `v1`) and
+serializes back to v1 spelling: a clone of the document is put through
+`ensure_v1()` (bare booleans/null, quoted strings) and the v2-only `\/` escape
+it leaves in string arguments is removed. A file that only parses as KDL v2 —
+what ursine wrote before this fix — is still accepted (v2 fallback) and is
+rewritten in v1 on the next save, so no manual migration is needed. Unknown
+nodes, comments and the user's layout inside untouched sections are preserved
+as before; the writer is idempotent, so applying the same section twice yields
+byte-identical content.
+
+`cursor` keys: niri 25.11 names them `xcursor-size` and `xcursor-theme`;
+`size` and `theme` are unknown nodes and fail `niri validate`. ursine writes
+`xcursor-*`, still *reads* the legacy `size`/`theme` nodes (an existing
+ursine-written file stays understood) and renames them on the next cursor save.
+The rename of `xcursor-theme` was verified against a real `niri validate`
+(host build 26.04, which rejects `theme` and accepts `xcursor-theme`); the
+25.11 binary was not available offline, and `xcursor-size` is the spelling
+reported in the issue.
+
 ## Implementation status (0.7.0 baseline)
 
 The daemon and GUI currently manage: layout gaps, border/focus-ring widths,
 struts, animations off, touchpad tap/natural-scroll/dwt, keyboard layout and
-repeat, cursor size/theme, outputs (scale/transform/VRR), environment variables, startup commands,
+repeat, cursor size/theme (`xcursor-size`/`xcursor-theme` on disk), outputs
+(scale/transform/VRR), environment variables, startup commands,
 keyboard track-layout/numlock, touchpad/mouse acceleration, mouse natural
 scroll, keybinds with capture, hot-corner and edge-scroll gestures, screenshot path,
 and hotkey overlay. The KDL round-trip,
