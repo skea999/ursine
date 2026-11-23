@@ -125,10 +125,26 @@ pub fn response_exit_code(value: &serde_json::Value) -> u8 {
     u8::from(value.get("valid").and_then(serde_json::Value::as_bool) == Some(false))
 }
 
+/// Stderr block for a failed call.
+///
+/// The wire code comes first so a script can branch on it without parsing
+/// `--json`, then the message and the daemon's `fix` hint when there is one.
+pub fn render_error(error: &ursine_api::ApiError) -> String {
+    let mut out = format!("code: {:?}\nerror: {}\n", error.code, error.message);
+    if let Some(fix) = &error.fix {
+        out.push_str("fix: ");
+        out.push_str(fix);
+        out.push('\n');
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::response_exit_code;
+    use super::{render_error, response_exit_code};
+
     use serde_json::json;
+    use ursine_api::{ApiError, ErrorCode};
 
     #[test]
     fn valid_false_exits_one() {
@@ -146,5 +162,31 @@ mod tests {
         assert_eq!(response_exit_code(&json!({"valid": true})), 0);
         assert_eq!(response_exit_code(&json!({"exists": true})), 0);
         assert_eq!(response_exit_code(&json!({"valid": "false"})), 0);
+    }
+
+    #[test]
+    fn error_output_starts_with_the_wire_code() {
+        let error = ApiError::new(
+            ErrorCode::Conflict,
+            "NAME_CONFLICT: new_service(): 'minecraft'",
+        )
+        .with_fix("choose another name");
+        assert_eq!(
+            render_error(&error),
+            concat!(
+                "code: Conflict\n",
+                "error: NAME_CONFLICT: new_service(): 'minecraft'\n",
+                "fix: choose another name\n",
+            )
+        );
+    }
+
+    #[test]
+    fn error_output_omits_the_fix_line_without_a_hint() {
+        let error = ApiError::internal("command failed: boom");
+        assert_eq!(
+            render_error(&error),
+            "code: Internal\nerror: command failed: boom\n"
+        );
     }
 }

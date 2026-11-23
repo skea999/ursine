@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use serde_json::json;
-use ursine_api::{Action, ApiError, FirewallStatus, FirewallZone};
+use ursine_api::{Action, ApiError, ErrorCode, FirewallStatus, FirewallZone};
 
 use super::ModuleCtx;
 use crate::modules::packages_nix::exec;
@@ -33,7 +33,8 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         Action::SetDefaultFirewallZone { zone } => {
             validate_zone(zone)?;
             backup().await?;
-            run(&[&format!("--set-default-zone={zone}"), "--permanent"]).await?;
+            let argv = set_default_zone_argv(zone);
+            run(&argv.iter().map(String::as_str).collect::<Vec<&str>>()).await?;
             run(&["--reload"]).await?;
             Ok(json!(read_status().await?))
         }
@@ -296,10 +297,103 @@ fn tool() -> Result<&'static str, ApiError> {
         .ok_or_else(|| ApiError::unavailable("firewalld is not installed", "apk add firewalld"))
 }
 
+/// `--set-default-zone` is a stand-alone option: it updates the runtime and
+/// the permanent configuration in one call and firewalld refuses every
+/// companion option (issue #3). The handler follows it with `--reload` so the
+/// running daemon sees the new default zone.
+fn set_default_zone_argv(zone: &str) -> Vec<String> {
+    vec![format!("--set-default-zone={zone}")]
+}
+
+/// Refusals firewalld prints as `Error: MARKER: details`, each with the wire
+/// code a client branches on and the hint a user can act on (issue #7).
+const REFUSALS: &[(&str, ErrorCode, &str)] = &[
+    (
+        "NAME_CONFLICT",
+        ErrorCode::Conflict,
+        "choose another name: `firewall-cmd --get-services` and `--get-zones` list what exists",
+    ),
+    (
+        "BUILTIN_SERVICE",
+        ErrorCode::Conflict,
+        "built-in services cannot be changed; create a custom service under /etc/firewalld/services",
+    ),
+    (
+        "INVALID_ZONE",
+        ErrorCode::Invalid,
+        "use one of the zones `firewall-cmd --get-zones` prints",
+    ),
+    (
+        "ZONE_ALREADY_EXISTS",
+        ErrorCode::Conflict,
+        "choose another zone name; `firewall-cmd --get-zones` lists the existing zones",
+    ),
+    (
+        "ALREADY_ENABLED",
+        ErrorCode::Conflict,
+        "the rule is already in that zone; list the zone before adding it again",
+    ),
+    (
+        "NOT_ENABLED",
+        ErrorCode::Conflict,
+        "add the rule to that zone before removing it",
+    ),
+    (
+        "INVALID_SERVICE",
+        ErrorCode::Invalid,
+        "use a service name from `firewall-cmd --get-services`",
+    ),
+    (
+        "INVALID_PORT",
+        ErrorCode::Invalid,
+        "use number/protocol with a port number between 1 and 65535",
+    ),
+    (
+        "INVALID_PROTOCOL",
+        ErrorCode::Invalid,
+        "use one of tcp, udp, sctp or dccp",
+    ),
+];
+
+/// Turn a known firewalld refusal into a typed error with a fix hint.
+///
+/// An unrecognised text returns `None` so the caller keeps the raw
+/// `command failed: …` internal error: guessing a code from an unknown
+/// message would be worse than surfacing the tool's own words.
+fn map_firewall_stderr(stderr: &str) -> Option<ApiError> {
+    for line in stderr
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let Some((_, code, fix)) = REFUSALS.iter().find(|(marker, _, _)| line.contains(marker))
+        else {
+            continue;
+        };
+        // `Error: ` is the tool's prefix, not part of the refusal.
+        let message = line.strip_prefix("Error: ").unwrap_or(line);
+        return Some(ApiError::new(*code, message).with_fix(*fix));
+    }
+    None
+}
+
 async fn run(args: &[&str]) -> Result<String, ApiError> {
-    exec::run_root_program(tool()?, args, TIMEOUT)
-        .await
-        .map(|output| output.stdout)
+    let outcome = exec::run_root_program_tolerant(tool()?, args, TIMEOUT, None).await?;
+    if outcome.code == 0 {
+        return Ok(outcome.stdout);
+    }
+    // A predictable refusal becomes a typed error; the fallback keeps the
+    // historical shape for everything else (firewall-cmd writes its errors
+    // to stderr, stdout is the empty-stderr fallback).
+    let details = if outcome.stderr.trim().is_empty() {
+        outcome.stdout.trim()
+    } else {
+        outcome.stderr.trim()
+    };
+    if let Some(error) = map_firewall_stderr(details) {
+        return Err(error);
+    }
+    Err(ApiError::internal(format!("command failed: {details}")))
 }
 
 #[cfg(test)]
@@ -348,5 +442,61 @@ mod tests {
         assert!(validate_port("8080/tcp").is_ok());
         assert!(validate_port("0/tcp").is_err());
         assert!(validate_port("8080").is_err());
+    }
+
+    #[test]
+    fn set_default_zone_argv_is_the_stand_alone_option_alone() {
+        // The option rewrites runtime and permanent config itself; any
+        // companion flag is refused with "Can't use stand-alone options
+        // with other options" (issue #3).
+        let argv = set_default_zone_argv("work");
+        assert_eq!(argv, ["--set-default-zone=work"]);
+        assert_eq!(argv.len(), 1);
+        assert!(!argv.iter().any(|arg| arg == "--permanent"));
+    }
+
+    #[test]
+    fn maps_known_firewalld_refusals_to_typed_errors() {
+        let cases = [
+            (
+                "Error: NAME_CONFLICT: new_service(): 'minecraft'",
+                ErrorCode::Conflict,
+            ),
+            (
+                "Error: BUILTIN_SERVICE: 'minecraft' is built-in service",
+                ErrorCode::Conflict,
+            ),
+            ("Error: INVALID_ZONE: 'bad zone'", ErrorCode::Invalid),
+            ("Error: ZONE_ALREADY_EXISTS: 'mine'", ErrorCode::Conflict),
+            (
+                "Error: ALREADY_ENABLED: 'ssh' already in 'public'",
+                ErrorCode::Conflict,
+            ),
+            (
+                "Error: NOT_ENABLED: 'ssh' not in 'public'",
+                ErrorCode::Conflict,
+            ),
+            ("Error: INVALID_SERVICE: 'nope'", ErrorCode::Invalid),
+            ("Error: INVALID_PORT: 'nope'", ErrorCode::Invalid),
+            ("Error: INVALID_PROTOCOL: 'icmp'", ErrorCode::Invalid),
+        ];
+        for (stderr, code) in cases {
+            let error = map_firewall_stderr(stderr).unwrap_or_else(|| panic!("{stderr}"));
+            assert_eq!(error.code, code, "{stderr}");
+            assert!(
+                error.fix.as_deref().is_some_and(|fix| !fix.is_empty()),
+                "{stderr}"
+            );
+            // The tool's own `Error: ` prefix is not part of the message.
+            assert!(!error.message.starts_with("Error: "), "{stderr}");
+        }
+    }
+
+    #[test]
+    fn unknown_firewalld_stderr_stays_untyped() {
+        // No guessing: an unrecognised refusal keeps the raw internal error.
+        assert!(map_firewall_stderr("Error: SOMETHING_NEW: unexpected").is_none());
+        assert!(map_firewall_stderr("not running").is_none());
+        assert!(map_firewall_stderr("").is_none());
     }
 }

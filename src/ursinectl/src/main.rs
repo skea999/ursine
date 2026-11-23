@@ -128,10 +128,7 @@ async fn run_call(module: ModuleId, action: ursine_api::Action, opts: cli::RunOp
             ExitCode::from(ursinectl::response_exit_code(&value))
         }
         Err(error) => {
-            eprintln!("error: {}", error.message);
-            if let Some(fix) = error.fix {
-                eprintln!("fix: {fix}");
-            }
+            eprint!("{}", ursinectl::render_error(&error));
             ExitCode::FAILURE
         }
     }

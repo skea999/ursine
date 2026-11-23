@@ -10,7 +10,7 @@ Manage firewalld zones, services and ports from the GUI without editing
 | Action | Backend |
 |---|---|
 | `get_firewall` | `firewall-cmd --state`, zones, default zone, services, ports |
-| `set_default_firewall_zone` | `--set-default-zone`, permanent + reload |
+| `set_default_firewall_zone` | stand-alone `--set-default-zone` + reload |
 | `add_firewall_service` | `--add-service`, permanent + reload |
 | `remove_firewall_service` | `--remove-service`, permanent + reload |
 | `add_firewall_port` | `--add-port`, permanent + reload |
@@ -26,6 +26,27 @@ Manage firewalld zones, services and ports from the GUI without editing
 - Service: `[A-Za-z0-9_-]`.
 - Port: `number/tcp|udp|sctp|dccp`, number 1..65535.
 - Root command; absolute `firewall-cmd`; argv only; no shell.
+- `--set-default-zone` is a stand-alone option: it writes the runtime and the
+  permanent configuration in one call, so it is passed alone (only the
+  follow-up `--reload` makes it visible to the running daemon).
+
+## Errors
+
+A predictable refusal of the underlying tool is a typed `ApiError` with an
+actionable `fix` hint; unrecognised stderr stays `internal` with the raw
+`command failed: …` text.
+
+| firewalld stderr marker | code |
+|---|---|
+| `NAME_CONFLICT` | `conflict` |
+| `BUILTIN_SERVICE` | `conflict` |
+| `ZONE_ALREADY_EXISTS` | `conflict` |
+| `ALREADY_ENABLED` | `conflict` |
+| `NOT_ENABLED` | `conflict` |
+| `INVALID_ZONE` | `invalid` |
+| `INVALID_SERVICE` | `invalid` |
+| `INVALID_PORT` | `invalid` |
+| `INVALID_PROTOCOL` | `invalid` |
 
 ## GUI
 

@@ -278,8 +278,10 @@ job's exit code. CLI job logs live under
 Success (including a background mutation that exited 0).
 .TP
 .B 1
-Action/API error: capability gate, validation, job failure. The message
-goes to stderr with a
+Action/API error: capability gate, validation, job failure. Stderr starts
+with a
+.B code:
+line (the wire error code), then the message, with a
 .B fix:
 hint when available.
 .TP

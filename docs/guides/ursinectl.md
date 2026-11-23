@@ -425,7 +425,7 @@ CLI jobs live under `/run/ursine/cli-jobs` (never the daemon's
 | Code | Meaning |
 |------|---------|
 | `0` | Success (a background mutation finished with exit code 0). |
-| `1` | Action/API error (capability unavailable, validation, job failure) or `validate_niri_config` answering `valid=false`. The message goes to stderr, with a `fix:` hint when the daemon provides one. |
+| `1` | Action/API error (capability unavailable, validation, job failure) or `validate_niri_config` answering `valid=false`. Stderr starts with `code: <Code>` (the wire error code, so a script can branch on it), then the message, with a `fix:` hint when the daemon provides one. |
 | `2` | Usage error: bad arguments, unknown module/action/field, missing `--yes`, or the root gate. |
 
 ## Chroot usage
