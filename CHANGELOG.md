@@ -56,6 +56,19 @@
   `enable` with an existing boot link is a no-op, `disable` leaves a running
   unit running (#17).
 
+- **`diff_closures` runs the command nix accepts**: with a generation it
+  passed `--to N`, a flag that belongs to `nix profile rollback`, so every
+  call with a generation ended in `Internal`. The plain command runs now and
+  the requested generation is selected from the printed blocks (`Version M ->
+  N:`); a generation that is no step in the profile's history answers
+  `Invalid` instead of an empty diff. The argv is a pure builder, so the flag
+  cannot come back (#37).
+- **`prune_generations` reads the profile link through one helper**: the
+  second read used to answer `Invalid` when the link disappeared between the
+  preview and the apply, while the first read already answered the empty
+  plan. Both reads now share `profile_link_generation`, so a missing link is
+  an empty preview/apply and only an unusable link stays an error (#29).
+
 ## [0.49.0] — 2026-11-23
 
 ### Added
