@@ -21,6 +21,14 @@
   updates" button sends `refresh=true` while the automatic check lists
   the cache (#3).
 
+- **scanners edit `airscan.conf` in place**: `set_scanner_device`,
+  `remove_scanner_device` and `set_scanner_discovery` rewrite only the line
+  they own and keep every comment, the `[blacklist]` section, the other
+  `[options]` keys and the section order byte-for-byte; a row and the
+  `discovery` key are added only when missing, and an ambiguous file (a
+  section twice, two rows for one device, two `discovery` keys) is refused
+  with `conflict` and a fix instead of being rewritten (#34).
+
 ## [0.49.0] — 2026-11-23
 
 ### Added

@@ -19,6 +19,14 @@ SANE **setup**, not image acquisition. Manage the airscan backend in
 - Module switch: `scanners`.
 - Manual fields: name, address (`http://`/`https://`), protocol `WSD`/`eSCL`.
 - Config file fixed at `/etc/sane.d/airscan.conf`.
+- The three mutating actions edit the file in place: only the line they own
+  changes (the `[devices]` row for that name, the `discovery` key in
+  `[options]`), every other line, comment and section stays byte-for-byte.
+  `[devices]` and `[options]` are created only when absent, and a new key is
+  appended after the last line of its section.
+- A file the editor cannot change safely is refused with `conflict` and a
+  `fix`: two `[devices]` or two `[options]` sections, two rows for the same
+  device name, two `discovery` keys, or content that is not UTF-8 text.
 - Backup before write; atomic replacement.
 - No scan, no resolution/mode/source, no image output.
 
