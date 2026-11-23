@@ -76,16 +76,22 @@ fn every_wire_action_has_exactly_one_sample() {
     assert_eq!(pairs.len(), before, "duplicate (module, action) sample");
 }
 
+/// Build the action one sample row describes: every test that walks the
+/// catalogue needs the same parse, so the six lines live here once.
+fn action_of(s: &common::Sample) -> ursine_api::Action {
+    let pairs: Vec<(String, String)> = s
+        .pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    ursinectl::cli::build_action_with(s.action, &pairs, || Ok("x".to_string()))
+        .unwrap_or_else(|e| panic!("{}: {e}", s.action))
+}
+
 #[test]
 fn every_sample_parses_and_classifies_destructive() {
     for s in common::SAMPLES {
-        let pairs: Vec<(String, String)> = s
-            .pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        let action = ursinectl::cli::build_action_with(s.action, &pairs, || Ok("x".to_string()))
-            .unwrap_or_else(|e| panic!("{}: {e}", s.action));
+        let action = action_of(s);
         // The tag the CLI parsed must be the tag core audits.
         assert_eq!(
             ursine_core::modules::action_name(&action),
@@ -122,13 +128,7 @@ fn catalogue_covers_every_wire_action() {
 #[test]
 fn every_catalogue_row_is_reachable_from_its_action() {
     for s in common::SAMPLES {
-        let pairs: Vec<(String, String)> = s
-            .pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        let action = ursinectl::cli::build_action_with(s.action, &pairs, || Ok("x".to_string()))
-            .unwrap_or_else(|e| panic!("{}: {e}", s.action));
+        let action = action_of(s);
         let spec = action.spec();
         assert_eq!(spec.name, s.action, "wire name of {}", s.action);
         assert_eq!(spec.module, s.module, "module of {}", s.action);

@@ -288,15 +288,22 @@ mod tests {
 27 25 8:1 /nix /nix rw,relatime shared:3 - btrfs /dev/vda2 rw,ssd,subvol=@nix
 ";
 
-    #[test]
-    fn plan_targets_the_uniform_slot_and_never_conflicts_with_it() {
-        let dir = std::env::temp_dir().join(format!("ursine-restore-plan-{}", std::process::id()));
+    /// Temp root with an empty snapshot and target directory: every test below
+    /// works on the same shape, so the six-line fixture lives here once.
+    fn fixture(tag: &str) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("ursine-restore-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let snap = dir.join("snap");
         let target = dir.join("home");
         std::fs::create_dir_all(&snap).unwrap();
         std::fs::create_dir_all(&target).unwrap();
+        (dir, snap, target)
+    }
+
+    #[test]
+    fn plan_targets_the_uniform_slot_and_never_conflicts_with_it() {
+        let (dir, snap, target) = fixture("plan");
         // A slot 0 from the previous restore must NOT conflict: rotation
         // shifts it older instead of refusing to run.
         std::fs::create_dir_all(crate::backup_configs::slot_path(&target, 0)).unwrap();
@@ -347,13 +354,7 @@ mod tests {
 
     #[test]
     fn preview_refuses_a_mounted_target_instead_of_a_command() {
-        let dir = std::env::temp_dir().join(format!("ursine-restore-mount-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let snap = dir.join("snap");
-        let target = dir.join("home");
-        std::fs::create_dir_all(&snap).unwrap();
-        std::fs::create_dir_all(&target).unwrap();
+        let (dir, snap, target) = fixture("mount");
         let error = preview_with(
             &snap.display().to_string(),
             &target.display().to_string(),
@@ -369,13 +370,7 @@ mod tests {
 
     #[test]
     fn preview_dry_run_prints_the_command_for_a_plain_directory() {
-        let dir = std::env::temp_dir().join(format!("ursine-restore-dry-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let snap = dir.join("snap");
-        let target = dir.join("home");
-        std::fs::create_dir_all(&snap).unwrap();
-        std::fs::create_dir_all(&target).unwrap();
+        let (dir, snap, target) = fixture("dry");
         let view = preview_with(
             &snap.display().to_string(),
             &target.display().to_string(),
