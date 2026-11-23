@@ -330,7 +330,11 @@ no `su`, no suid requirement on the tool.
   one job over the matched set (`--yes` required).
 - `flatpak_remove_regex pattern=… [dry_run=true] [system=true|false]`,
   `flatpak_upgrade_regex pattern=… [dry_run=true] [system=true|false]` —
-  same contract against Flatpak app ids/names.
+  same contract against Flatpak ref ids/names. The pattern matches
+  applications AND runtimes (`Platform` selects the freedesktop runtime),
+  and the dry-run adds `matches`: one row per ref with `app_id`, `name`,
+  `branch` and `kind`, so a runtime and an id installed on several branches
+  stay distinguishable. `would_change` still carries the bare ids.
 
 ### booster
 

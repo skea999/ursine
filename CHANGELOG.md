@@ -29,6 +29,12 @@
   section twice, two rows for one device, two `discovery` keys) is refused
   with `conflict` and a fix instead of being rewritten (#34).
 
+- **Flatpak pattern previews name the kinds they match**: `flatpak_remove_regex`
+  and `flatpak_upgrade_regex` answer `matches` — one row per matched ref with
+  `app_id`, `name`, `branch` and `kind` — next to the existing `would_change`
+  ids, so a runtime selected by a short pattern and an id installed on several
+  branches are told apart; both actions document that runtimes match (#36).
+
 ## [0.49.0] — 2026-11-23
 
 ### Added

@@ -265,14 +265,24 @@ pub enum Action {
         #[serde(default)]
         dry_run: bool,
     },
-    /// Preview/apply removing installed Flatpaks matching a regex.
+    /// Preview/apply removing the installed Flatpak refs that match a regex.
+    ///
+    /// The pattern is tested against the ref id and its display name, over
+    /// applications AND runtimes — a pattern such as `Platform` selects
+    /// runtimes. The dry run answers `would_change` (the ids) plus `matches`
+    /// (one row per ref with `app_id`, `name`, `branch` and `kind`, so a
+    /// runtime and an id installed on several branches stay visible).
     FlatpakRemoveRegex {
         pattern: String,
         #[serde(default)]
         dry_run: bool,
         system: bool,
     },
-    /// Preview/apply updating installed Flatpaks matching a regex.
+    /// Preview/apply updating the installed Flatpak refs that match a regex.
+    ///
+    /// Same matching and same dry-run answer as [`Action::FlatpakRemoveRegex`]:
+    /// applications and runtimes both match, and the preview names each ref's
+    /// `kind` and `branch`.
     FlatpakUpgradeRegex {
         pattern: String,
         #[serde(default)]

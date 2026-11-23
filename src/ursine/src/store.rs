@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use cosmic::widget::{button, dropdown, row, settings, text, text_input};
 use cosmic::Element;
-use ursine_api::{Action, CommandOutcome, InstalledPackage, SearchResult};
+use ursine_api::{
+    Action, CommandOutcome, FlatpakPatternMatch, FlatpakRefKind, InstalledPackage, SearchResult,
+};
 
 use crate::app::Message;
 use crate::client::{GC_TIMEOUT, MUTATE_TIMEOUT, PROFILE_TIMEOUT, PRUNE_TIMEOUT};
@@ -1281,22 +1283,57 @@ pub fn summarize(action: &StoreAction, value: &serde_json::Value) -> String {
     }
 }
 
-fn regex_preview_summary(value: &serde_json::Value) -> String {
+/// One line per matched package for the pattern previews. Flatpak answers
+/// `matches` (one row per ref, with kind and branch); apk and nix answer only
+/// `would_change` (ids), so the bare-id path stays as the fallback.
+pub fn regex_preview_summary(value: &serde_json::Value) -> String {
+    if let Some(rows) = value.get("matches").and_then(serde_json::Value::as_array) {
+        let labels = rows
+            .iter()
+            .filter_map(flatpak_match_label)
+            .collect::<Vec<_>>();
+        // An unreadable row must not hide the ids we can still read.
+        if !labels.is_empty() || rows.is_empty() {
+            return matched_summary(&labels);
+        }
+    }
     let names = value
         .get("would_change")
         .and_then(|names| names.as_array())
         .map(|names| {
             names
                 .iter()
-                .filter_map(|name| name.as_str())
+                .filter_map(|name| name.as_str().map(str::to_string))
                 .collect::<Vec<_>>()
-                .join(", ")
         })
         .unwrap_or_default();
-    if names.is_empty() {
+    matched_summary(&names)
+}
+
+fn matched_summary(labels: &[String]) -> String {
+    if labels.is_empty() {
         "No installed package matches.".into()
     } else {
-        format!("Matching packages: {names}.")
+        format!("Matching packages: {}.", labels.join(", "))
+    }
+}
+
+/// `org.gnome.Platform (runtime, 48)` — the id alone does not say whether the
+/// ref is a runtime nor which branch it is on.
+fn flatpak_match_label(row: &serde_json::Value) -> Option<String> {
+    let row = serde_json::from_value::<FlatpakPatternMatch>(row.clone()).ok()?;
+    Some(format!(
+        "{} ({}, {})",
+        row.app_id,
+        kind_label(row.kind),
+        row.branch
+    ))
+}
+
+const fn kind_label(kind: FlatpakRefKind) -> &'static str {
+    match kind {
+        FlatpakRefKind::App => "application",
+        FlatpakRefKind::Runtime => "runtime",
     }
 }
 
@@ -1463,6 +1500,31 @@ mod tests {
         let empty = serde_json::json!({"dry_run": true, "would_change": []});
         assert_eq!(
             regex_preview_summary(&empty),
+            "No installed package matches."
+        );
+    }
+
+    #[test]
+    fn regex_preview_summary_names_the_flatpak_kind_and_branch() {
+        // Flatpak answers rows: without them two branches of one id and a
+        // runtime behind an application pattern would read the same.
+        let row = |app_id: &str, name: &str, branch: &str, kind: &str| serde_json::json!({"app_id": app_id, "name": name, "branch": branch, "kind": kind});
+        let value = serde_json::json!({
+            "dry_run": true,
+            "would_change": ["org.gnome.Platform"],
+            "matches": [
+                row("org.mozilla.firefox", "Firefox", "stable", "app"),
+                row("org.gnome.Platform", "GNOME Application Platform", "48", "runtime"),
+            ],
+        });
+        assert_eq!(
+            regex_preview_summary(&value),
+            "Matching packages: org.mozilla.firefox (application, stable), \
+org.gnome.Platform (runtime, 48)."
+        );
+        let none = serde_json::json!({"dry_run": true, "would_change": [], "matches": []});
+        assert_eq!(
+            regex_preview_summary(&none),
             "No installed package matches."
         );
     }

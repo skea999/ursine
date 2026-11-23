@@ -94,9 +94,45 @@ pub struct FlatpakPackage {
     pub kind: FlatpakRefKind,
 }
 
+/// One ref matched by a Flatpak pattern action (`flatpak_remove_regex` or
+/// `flatpak_upgrade_regex`).
+///
+/// A preview answers rows rather than bare ids because the id alone is
+/// ambiguous: the same id is installed once per branch, and a short pattern
+/// such as `Platform` selects runtimes as well as applications.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlatpakPatternMatch {
+    /// Ref id exactly as `flatpak list` prints it (`application` column).
+    pub app_id: String,
+    /// Display name (`flatpak list` name column) — patterns match it too.
+    pub name: String,
+    /// Branch the ref is installed on (`stable`, `25.08`, …).
+    pub branch: String,
+    /// Whether the ref is an application or a runtime.
+    #[serde(default)]
+    pub kind: FlatpakRefKind,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flatpak_pattern_match_keeps_the_kind_on_the_wire() {
+        let row = FlatpakPatternMatch {
+            app_id: "org.gnome.Platform".to_string(),
+            name: "GNOME Application Platform".to_string(),
+            branch: "48".to_string(),
+            kind: FlatpakRefKind::Runtime,
+        };
+        let value = serde_json::to_value(&row).unwrap();
+        assert_eq!(value["kind"], "runtime");
+        assert_eq!(value["branch"], "48");
+        assert_eq!(
+            serde_json::from_value::<FlatpakPatternMatch>(value).unwrap(),
+            row
+        );
+    }
 
     #[test]
     fn flatpak_row_without_kind_deserializes_as_app() {
