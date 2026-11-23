@@ -182,6 +182,9 @@ pub enum Action {
     /// Upgrade every installed APK package.
     UpgradeApk,
     /// Installed APK packages with a newer version in the repositories.
+    ///
+    /// Not read-only: the handler runs `apk update` first, which rewrites
+    /// the package index. That is required for an accurate answer.
     ListApkUpdates,
     /// Upgrade one installed APK package.
     UpgradeApkPackage {

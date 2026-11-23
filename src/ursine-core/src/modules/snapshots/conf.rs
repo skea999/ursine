@@ -104,33 +104,7 @@ pub(super) async fn set(
         default_config()
     };
     let managed = render_managed(settings)?;
-    let mut body = String::new();
-    // Drop managed global keys before the first section; keep everything else.
-    let mut in_section = false;
-    for line in current.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("volume ")
-            || trimmed.starts_with("subvolume ")
-            || trimmed.starts_with("target ")
-        {
-            in_section = true;
-        }
-        let marker = trimmed == MANAGED_MARKER;
-        if !in_section
-            && (marker || managed_key(trimmed.split_whitespace().next().unwrap_or("")).is_some())
-        {
-            continue;
-        }
-        // The block separator belongs to the managed block.
-        if marker {
-            continue;
-        }
-        body.push_str(line);
-        body.push('\n');
-    }
-    // Drop the blank lines the removed block left behind.
-    let body = body.trim_start_matches('\n');
-    let updated = format!("{managed}\n{body}");
+    let updated = merge_managed(&current, &managed);
 
     // Validate with btrbk before replacing the live file.
     let temp = path.with_file_name(format!(
@@ -218,6 +192,34 @@ fn render_managed(settings: &BtrbkSettings) -> Result<String, ApiError> {
     }
     out.push_str("# --- end Ursine managed options ---\n");
     Ok(out)
+}
+
+/// Put the managed block on top and drop the previous one plus the managed
+/// global keys, so repeated calls replace the block instead of stacking it.
+fn merge_managed(current: &str, managed: &str) -> String {
+    let mut body = String::new();
+    let mut in_section = false;
+    for line in current.lines() {
+        let trimmed = line.trim_start();
+        let marker = trimmed == MANAGED_MARKER;
+        if marker {
+            continue;
+        }
+        if trimmed.starts_with("volume ")
+            || trimmed.starts_with("subvolume ")
+            || trimmed.starts_with("target ")
+        {
+            in_section = true;
+        }
+        if !in_section && managed_key(trimmed.split_whitespace().next().unwrap_or("")).is_some() {
+            continue;
+        }
+        body.push_str(line);
+        body.push('\n');
+    }
+    // Drop the blank lines the removed block left behind.
+    let body = body.trim_start_matches('\n');
+    format!("{managed}\n{body}")
 }
 
 fn validate_value(key: &str, value: &str) -> Result<(), ApiError> {
@@ -398,6 +400,21 @@ mod tests {
         assert!(render_managed(&valid_settings)
             .unwrap()
             .contains("snapshot_preserve 24h 14d"));
+    }
+
+    #[test]
+    fn merge_managed_replaces_the_block_instead_of_stacking() {
+        let settings = BtrbkSettings {
+            timestamp_format: Some("long".into()),
+            ..BtrbkSettings::default()
+        };
+        let managed = render_managed(&settings).unwrap();
+        let first = merge_managed("# keep\n", &managed);
+        assert_eq!(first.matches(MANAGED_MARKER).count(), 1);
+        let second = merge_managed(&first, &managed);
+        assert_eq!(second.matches(MANAGED_MARKER).count(), 1);
+        assert_eq!(second.matches("timestamp_format long").count(), 1);
+        assert!(second.contains("# keep"));
     }
 
     #[test]
