@@ -183,10 +183,16 @@ pub enum Action {
     UpgradeApk,
     /// Installed APK packages with a newer version in the repositories.
     ///
-    /// Not read-only: the handler runs `apk update` first, which rewrites
-    /// the package index. That is required for an accurate answer.
-    ListApkUpdates,
-    /// Upgrade one installed APK package.
+    /// Read-only by default: the diff is answered from the cached index, so
+    /// polling the action writes nothing and needs no network. `refresh =
+    /// true` runs `apk update` first (that request rewrites the index cache),
+    /// which is what the explicit "Check for updates" control sends.
+    ListApkUpdates {
+        #[serde(default)]
+        refresh: bool,
+    },
+    /// Upgrade one installed APK package (`apk upgrade <package>`; a package
+    /// that is not installed answers `not_found`).
     UpgradeApkPackage {
         package: String,
     },
@@ -745,6 +751,23 @@ mod tests {
         assert_eq!(apk["action"], "install_apk");
         let flatpak = serde_json::to_value(Action::ListFlatpak { system: true }).unwrap();
         assert_eq!(flatpak["action"], "list_flatpak");
+    }
+
+    #[test]
+    fn list_apk_updates_refresh_is_optional_and_off_by_default() {
+        // Old clients send the tag alone: the field must default to the
+        // cached-index read, never to a write.
+        let cached: Action =
+            serde_json::from_value(serde_json::json!({ "action": "list_apk_updates" })).unwrap();
+        assert_eq!(cached, Action::ListApkUpdates { refresh: false });
+        assert!(cached.is_read_only());
+        let refreshed: Action = serde_json::from_value(serde_json::json!({
+            "action": "list_apk_updates",
+            "refresh": true,
+        }))
+        .unwrap();
+        assert_eq!(refreshed, Action::ListApkUpdates { refresh: true });
+        assert!(refreshed.is_mutating());
     }
 
     #[test]

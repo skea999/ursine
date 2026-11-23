@@ -3121,10 +3121,13 @@ impl App {
                 self.packages.updates_checking = true;
                 tasks.push(
                     Task::future(async move {
+                        // The automatic check lists against the cached index:
+                        // an app start must not write the index cache (or
+                        // need the network); the button refreshes.
                         Message::PackageApkUpdatesLoaded(
                             epoch,
                             seq,
-                            client::apk_updates(updates_token).await,
+                            client::apk_updates(updates_token, false).await,
                         )
                     })
                     .map(cosmic::Action::App),
@@ -6310,7 +6313,9 @@ impl App {
         let seq = self.packages.updates_seq;
         match kind {
             PackageKind::Apk => Task::future(async move {
-                Message::PackageApkUpdatesLoaded(epoch, seq, client::apk_updates(token).await)
+                // The explicit control refreshes the index: a stale cache is
+                // exactly what this button exists to fix.
+                Message::PackageApkUpdatesLoaded(epoch, seq, client::apk_updates(token, true).await)
             })
             .map(cosmic::Action::App),
             PackageKind::Flatpak => Task::future(async move {

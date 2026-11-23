@@ -399,13 +399,14 @@ const UPGRADE_APK: ActionSpec = row(
     Gate::Always,
     &[],
 );
-// runs `apk update`, which rewrites the index files: not a read
+// the cached index keeps the default a read; `refresh = true` runs
+// `apk update`, which rewrites the index files, and is mutating
 const LIST_APK_UPDATES: ActionSpec = row(
     "list_apk_updates",
     ModuleId::PackagesApk,
-    Effect::Mutating,
+    Effect::ReadOnly,
     Gate::Never,
-    &[],
+    &[param("refresh", false)],
 );
 const UPGRADE_APK_PACKAGE: ActionSpec = row(
     "upgrade_apk_package",
@@ -1502,7 +1503,7 @@ impl Action {
             Self::PreviewApkInstall { .. } => &PREVIEW_APK_INSTALL,
             Self::RemoveApk { .. } => &REMOVE_APK,
             Self::UpgradeApk => &UPGRADE_APK,
-            Self::ListApkUpdates => &LIST_APK_UPDATES,
+            Self::ListApkUpdates { .. } => &LIST_APK_UPDATES,
             Self::UpgradeApkPackage { .. } => &UPGRADE_APK_PACKAGE,
             Self::ListFlatpak { .. } => &LIST_FLATPAK,
             Self::ListFlatpakRemotes { .. } => &LIST_FLATPAK_REMOTES,
@@ -1632,10 +1633,20 @@ impl Action {
     /// Effect of THIS request: a dry run or preview changes nothing, so it is
     /// read-only even when the variant mutates.
     pub fn effect(&self) -> Effect {
+        // The inverse of `dry_run`: `list_apk_updates` refreshes the index
+        // only when the caller asks, and that one payload writes the cache.
+        if self.refreshes_index() {
+            return Effect::Mutating;
+        }
         match (self.spec().effect, self.dry_run()) {
             (Effect::Mutating, Some(true)) => Effect::ReadOnly,
             (effect, _) => effect,
         }
+    }
+
+    /// Whether this request refreshes a cached package index on purpose.
+    fn refreshes_index(&self) -> bool {
+        matches!(self, Self::ListApkUpdates { refresh: true })
     }
 
     /// Whether the request only reads (previews included).
@@ -1784,12 +1795,17 @@ mod tests {
     }
 
     #[test]
-    fn list_apk_updates_is_mutating() {
-        // It runs `apk update` (rewrites the index files) before the diff, so
-        // it is not a read: clients refreshing on a timer must know.
-        assert_eq!(Action::ListApkUpdates.spec().effect, Effect::Mutating);
-        assert!(Action::ListApkUpdates.is_mutating());
-        assert!(!Action::ListApkUpdates.is_destructive());
+    fn list_apk_updates_only_writes_when_asked_to_refresh() {
+        // The cached-index diff is a read; `refresh = true` runs `apk update`
+        // (rewrites the index files), so that request must be visible as
+        // mutating to clients polling on a timer.
+        let cached = Action::ListApkUpdates { refresh: false };
+        assert_eq!(cached.spec().effect, Effect::ReadOnly);
+        assert!(cached.is_read_only());
+        assert!(!cached.is_destructive());
+        let refreshed = Action::ListApkUpdates { refresh: true };
+        assert!(refreshed.is_mutating());
+        assert!(!refreshed.is_destructive());
     }
 
     #[test]

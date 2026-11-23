@@ -1638,11 +1638,17 @@ pub async fn apk_repositories(
         .map_err(|e| ApiError::internal(format!("cannot read apk repositories: {e}")))
 }
 
-pub async fn apk_updates(token: SessionToken) -> Result<Vec<ApkUpdate>, ApiError> {
+/// Installed packages with a newer version in the repositories.
+///
+/// `refresh = false` answers from the cached index (no write, no network):
+/// that is what an automatic or timed check sends. `refresh = true` runs
+/// `apk update` first, which rewrites the index cache — the explicit
+/// "Check for updates" control sends it.
+pub async fn apk_updates(token: SessionToken, refresh: bool) -> Result<Vec<ApkUpdate>, ApiError> {
     let value = call_with_timeout(
         token,
         ModuleId::PackagesApk,
-        Action::ListApkUpdates,
+        Action::ListApkUpdates { refresh },
         None,
         MUTATE_TIMEOUT,
     )

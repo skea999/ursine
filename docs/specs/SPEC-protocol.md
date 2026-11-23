@@ -97,10 +97,13 @@ is in `ACTIONS`.
 ```
 
 Rules for adding an action: classify it in `catalogue.rs` (the match is
-exhaustive, so this is forced), keep `list_apk_updates` mutating (it runs
-`apk update`), keep dry-run/preview variants read-only, and never mark a
-read-only action as gated. The catalogue is metadata only: it changes no
-wire field and no dispatch.
+exhaustive, so this is forced), keep a read-only action ungated, keep
+dry-run/preview variants read-only, and never mark a read-only action as
+gated. A payload may override the nominal effect the same way `dry_run`
+does: `list_apk_updates` is `read-only` (cached index) and its
+`refresh=true` request is `mutating`, because that request runs
+`apk update`. The catalogue is metadata only: it changes no wire field
+and no dispatch.
 
 Parameters are names plus `required` (`true` when the wire rejects a
 request without the field: not an `Option`, no `serde(default)`). A full

@@ -135,7 +135,14 @@ call may only target the caller's own account.
 `remove_apk_repository url=…`,
 `install_apk package=…`,
 `preview_apk_install package=…`, `remove_apk package=…`, `upgrade_apk`,
-`list_apk_updates`, `upgrade_apk_package package=…`
+`list_apk_updates [refresh=true]`, `upgrade_apk_package package=…`
+
+`list_apk_updates` answers from the cached index by default: it writes
+nothing and needs no network, so a client may poll it. `refresh=true`
+runs `apk update` first — that request rewrites the index cache and is
+reported as mutating by the catalogue. `upgrade_apk_package` runs
+`apk upgrade <package>` and answers `not_found` (with a `fix`) when the
+package is not installed.
 
 `add_apk_repository` writes an `apk-repositories(5)` line and runs
 `apk update`. A `tag` masks the repository (`@edge <url>`): apk
@@ -423,7 +430,7 @@ ACTION                         MODULE            EFFECT     DESTRUCTIVE PARAMS
 status                         system            read-only  no
 …
 install_apk                    packages_apk      mutating   no          package
-list_apk_updates               packages_apk      mutating   no
+list_apk_updates               packages_apk      read-only  no          refresh?
 remove_regex                   packages_nix      mutating   by request  pattern, dry_run?
 format_disk                    disks             mutating   always      device, fstype, confirm_device
 ```
@@ -442,8 +449,9 @@ humans and may gain columns):
   request-level effect is read-only only while `dry_run` is true.
 - `destructive` is the `--yes` verdict of the *variant*: `never`,
   `always` or `request` (the payload decides). `list_apk_updates` is
-  `mutating` because it runs `apk update` (it rewrites the index files)
-  even though it never deletes anything.
+  `read-only` because the cached-index diff writes nothing; the request
+  carrying `refresh=true` runs `apk update` and reports `mutating`, just
+  like a `dry_run=true` request reports `read-only`.
 - `params[].required` is `true` when the wire rejects a request that omits
   the field. There is no full JSON Schema yet: the catalogue carries names
   and the required flag only, never a type or a value constraint.

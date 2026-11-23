@@ -187,7 +187,7 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::PreviewApkInstall { .. } => "preview_apk_install",
         Action::RemoveApk { .. } => "remove_apk",
         Action::UpgradeApk => "upgrade_apk",
-        Action::ListApkUpdates => "list_apk_updates",
+        Action::ListApkUpdates { .. } => "list_apk_updates",
         Action::UpgradeApkPackage { .. } => "upgrade_apk_package",
         Action::ListFlatpak { .. } => "list_flatpak",
         Action::ListFlatpakRemotes { .. } => "list_flatpak_remotes",
