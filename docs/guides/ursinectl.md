@@ -275,9 +275,12 @@ subvolume cannot be renamed); unmount it or restore from a recovery boot.
 ### users
 
 `list_users`, `create_user name=… fullname=… admin=true|false`,
-`delete_user uid=… remove_files=true|false`,
-`set_password uid=… new_password=-`, `list_groups`,
-`set_groups uid=… groups=[…]`
+`delete_user uid=…|name=… [remove_files=true|false]`,
+`set_password uid=…|name=… new_password=-`, `list_groups`,
+`set_groups uid=…|name=… groups=[…]`
+
+`uid` and `name` are alternatives: exactly one of the two, so a client
+that knows the login name does not need a `list_users` round trip.
 
 ### niri
 

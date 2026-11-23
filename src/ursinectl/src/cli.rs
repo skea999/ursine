@@ -432,6 +432,37 @@ mod tests {
     }
 
     #[test]
+    fn user_actions_accept_a_name() {
+        let Cmd::Run(opts) = parse(&args(&[
+            "users",
+            "set_password",
+            "name=alice",
+            "new_password=-",
+        ]))
+        .unwrap() else {
+            panic!("want run");
+        };
+        let action = build_action_with(&opts.action, &opts.pairs, || Ok("secret".into())).unwrap();
+        assert_eq!(
+            action,
+            Action::SetPassword {
+                uid: None,
+                name: Some("alice".into()),
+                new_password: "secret".into(),
+            }
+        );
+        // uid and name are alternatives; both is refused by the handler,
+        // but the wire type accepts the pair (the CLI must not guess).
+        assert!(parse(&args(&[
+            "users",
+            "delete_user",
+            "name=alice",
+            "remove_files=true"
+        ]))
+        .is_ok());
+    }
+
+    #[test]
     fn aliases_resolve() {
         let Cmd::Run(opts) = parse(&args(&["nix", "search", "query=x"])).unwrap() else {
             panic!("want run");
@@ -715,12 +746,14 @@ mod tests {
             },
             DeleteSnapshots { sources: vec![] },
             DeleteUser {
-                uid: 1000,
+                uid: Some(1000),
                 remove_files: false,
+                name: None,
             },
             SetPassword {
-                uid: 1000,
+                uid: Some(1000),
                 new_password: String::new(),
+                name: None,
             },
             CrontabSet {
                 content: String::new(),

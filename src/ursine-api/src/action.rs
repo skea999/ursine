@@ -551,20 +551,36 @@ pub enum Action {
     },
     /// Delete a user (confirmation enforced by the frontend).
     DeleteUser {
-        uid: u32,
+        /// Numeric id; pass this or `name`, not both.
+        #[serde(default)]
+        uid: Option<u32>,
+        #[serde(default)]
         remove_files: bool,
+        /// Login name; resolves the uid in one call.
+        #[serde(default)]
+        name: Option<String>,
     },
     /// Set a user's password (value never logged or audited).
     SetPassword {
-        uid: u32,
+        /// Numeric id; pass this or `name`, not both.
+        #[serde(default)]
+        uid: Option<u32>,
         new_password: String,
+        /// Login name; resolves the uid in one call.
+        #[serde(default)]
+        name: Option<String>,
     },
     /// List system groups.
     ListGroups,
     /// Replace a user's supplementary groups.
     SetGroups {
-        uid: u32,
+        /// Numeric id; pass this or `name`, not both.
+        #[serde(default)]
+        uid: Option<u32>,
         groups: Vec<String>,
+        /// Login name; resolves the uid in one call.
+        #[serde(default)]
+        name: Option<String>,
     },
 
     // -- niri --

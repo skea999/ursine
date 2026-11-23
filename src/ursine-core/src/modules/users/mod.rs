@@ -48,14 +48,24 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             }
             Ok(json!({"created": name}))
         }
-        Action::DeleteUser { uid, remove_files } => {
-            reject_system_uid(*uid)?;
+        Action::DeleteUser {
+            uid,
+            remove_files,
+            name,
+        } => {
+            let uid = resolve_uid(*uid, name.as_deref())?;
+            reject_system_uid(uid)?;
             backup_accounts().await?;
-            accounts::delete(*uid, *remove_files).await?;
+            accounts::delete(uid, *remove_files).await?;
             Ok(json!({"deleted": uid}))
         }
-        Action::SetPassword { uid, new_password } => {
-            reject_system_uid(*uid)?;
+        Action::SetPassword {
+            uid,
+            new_password,
+            name,
+        } => {
+            let uid = resolve_uid(*uid, name.as_deref())?;
+            reject_system_uid(uid)?;
             groups::validate_password(new_password)?;
             let password = new_password.clone();
             let hashed = tokio::task::spawn_blocking(move || {
@@ -71,20 +81,22 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             .map_err(|_| ApiError::internal("password hashing task failed"))?
             .map_err(|_| ApiError::internal("password hashing failed"))?;
             backup_accounts().await?;
-            accounts::set_password(*uid, &hashed).await?;
+            accounts::set_password(uid, &hashed).await?;
             Ok(json!({"password_set": uid}))
         }
         Action::ListGroups => Ok(json!({"groups": groups::list_groups()?})),
         Action::SetGroups {
             uid,
             groups: new_groups,
+            name,
         } => {
-            reject_system_uid(*uid)?;
+            let uid = resolve_uid(*uid, name.as_deref())?;
+            reject_system_uid(uid)?;
             let user = tokio::task::spawn_blocking(accounts::list)
                 .await
                 .map_err(|e| ApiError::internal(format!("users task failed: {e}")))??
                 .into_iter()
-                .find(|user| user.uid == *uid)
+                .find(|user| user.uid == uid)
                 .ok_or_else(|| ApiError::new(ursine_api::ErrorCode::NotFound, "user not found"))?;
             if user.name == ctx.as_user
                 && groups::memberships(&user.name)?
@@ -102,6 +114,21 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             Ok(json!({"groups_set": uid}))
         }
         _ => Err(ApiError::invalid("action is not valid for module users")),
+    }
+}
+
+/// Accept either form the API documents: a numeric uid or a login name.
+/// Exactly one is required; passing both is a client bug.
+fn resolve_uid(uid: Option<u32>, name: Option<&str>) -> Result<u32, ApiError> {
+    match (uid, name) {
+        (Some(uid), None) => Ok(uid),
+        (None, Some(name)) => {
+            groups::validate_username(name)?;
+            accounts::uid_for_name(name)?
+                .ok_or_else(|| ApiError::new(ursine_api::ErrorCode::NotFound, "user not found"))
+        }
+        (Some(_), Some(_)) => Err(ApiError::invalid("pass either uid or name, not both")),
+        (None, None) => Err(ApiError::invalid("uid or name is required")),
     }
 }
 
@@ -124,5 +151,13 @@ mod tests {
         assert!(reject_system_uid(0).is_err());
         assert!(reject_system_uid(999).is_err());
         assert!(reject_system_uid(1000).is_ok());
+    }
+
+    #[test]
+    fn uid_resolution_accepts_one_form_only() {
+        assert_eq!(resolve_uid(Some(1000), None).unwrap(), 1000);
+        assert!(resolve_uid(Some(1000), Some("alice")).is_err());
+        assert!(resolve_uid(None, None).is_err());
+        assert!(resolve_uid(None, Some("../evil")).is_err());
     }
 }

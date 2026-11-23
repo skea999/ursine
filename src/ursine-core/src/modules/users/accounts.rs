@@ -52,6 +52,22 @@ fn read_passwd() -> Result<String, ApiError> {
         .map_err(|e| ApiError::internal(format!("read /etc/passwd: {e}")))
 }
 
+/// Resolve a login name to its uid from `/etc/passwd`.
+pub(super) fn uid_for_name(name: &str) -> Result<Option<u32>, ApiError> {
+    let raw = read_passwd()?;
+    Ok(uid_from_passwd(&raw, name))
+}
+
+fn uid_from_passwd(raw: &str, name: &str) -> Option<u32> {
+    raw.lines().find_map(|line| {
+        let mut fields = line.split(':');
+        let login = fields.next()?;
+        let _password = fields.next()?;
+        let uid: u32 = fields.next()?.parse().ok()?;
+        (login == name).then_some(uid)
+    })
+}
+
 /// Normal login users (uid 1000..60000) straight from `/etc/passwd`.
 pub(super) fn list() -> Result<Vec<User>, ApiError> {
     let raw = read_passwd()?;
@@ -178,4 +194,17 @@ async fn run(program: &str, args: &[&str]) -> Result<(), ApiError> {
     )
     .await
     .map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uid_lookup_matches_the_login_name() {
+        let raw = "root:x:0:0:root:/root:/bin/sh\nalice:x:1000:1000:Alice:/home/alice:/bin/sh\n";
+        assert_eq!(uid_from_passwd(raw, "alice"), Some(1000));
+        assert_eq!(uid_from_passwd(raw, "root"), Some(0));
+        assert_eq!(uid_from_passwd(raw, "bob"), None);
+    }
 }

@@ -1474,7 +1474,11 @@ pub async fn delete_user(
     call_with_timeout(
         token,
         ModuleId::Users,
-        Action::DeleteUser { uid, remove_files },
+        Action::DeleteUser {
+            uid: Some(uid),
+            remove_files,
+            name: None,
+        },
         None,
         MUTATE_TIMEOUT,
     )
@@ -1489,7 +1493,11 @@ pub async fn set_password(
     call_with_timeout(
         token,
         ModuleId::Users,
-        Action::SetPassword { uid, new_password },
+        Action::SetPassword {
+            uid: Some(uid),
+            new_password,
+            name: None,
+        },
         None,
         MUTATE_TIMEOUT,
     )
@@ -1504,7 +1512,11 @@ pub async fn set_groups(
     call_with_timeout(
         token,
         ModuleId::Users,
-        Action::SetGroups { uid, groups },
+        Action::SetGroups {
+            uid: Some(uid),
+            groups,
+            name: None,
+        },
         None,
         MUTATE_TIMEOUT,
     )
