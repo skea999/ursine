@@ -45,7 +45,10 @@ mutations 900s, store gc 3600s, child killed on timeout.
 GC notes: `storeGc` runs as root and only removes paths unreachable from any
 GC root (profile generations are roots — that is why prune exists). The active
 generation is never deleted; `pruneGenerations` computes the plan first, so the
-GUI can preview it before running. Verified against nix 2.31.5: `history` emits
+GUI can preview it before running. A user with no profile link at all (nothing
+installed through nix yet) is the empty case, not an error: the dry run answers
+`current: null` with an empty `would_delete` and the real run succeeds deleting
+nothing, while a link that exists but cannot be read still fails. Verified against nix 2.31.5: `history` emits
 ANSI escapes and has no `(current)` marker; `--delete-generations +N` needs root.
 
 - Repositories mirror the FeralOS model: the installer adds the `nixos-26.05` channel as root and pins `nixpkgs` in `/etc/nix/registry.json` plus the install user's registry. Ursine lists exactly those configured entries per scope — `System` = system registry + root channels, `User` = the target user's — and never the builtin registry defaults (a user cannot restore one, so it is not offered for removal).

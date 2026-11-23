@@ -9,7 +9,7 @@ SANE **setup**, not image acquisition. Manage the airscan backend in
 
 | Action | Backend |
 |---|---|
-| `list_scanners` | `scanimage -L` as the target user |
+| `list_scanners` | `scanimage -L` as the target user → `{scanners: Scanner[]}` (read-only discovery; the rows the config view repeats under `detected`) |
 | `get_scanner_config` | read `/etc/sane.d/airscan.conf` + `scanimage -L` |
 | `set_scanner_device` | add/update `[devices]` entry |
 | `remove_scanner_device` | remove `[devices]` entry |

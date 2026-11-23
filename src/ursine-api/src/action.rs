@@ -134,6 +134,11 @@ pub enum Action {
     /// Garbage-collect the whole nix store (unreachable paths only).
     StoreGc,
     /// Prune profile generations, keeping the last `keep` (`dry_run` = no changes).
+    ///
+    /// A user with no nix profile at all is not an error: the dry run answers
+    /// an empty `would_delete` (with `current: null`) and the real run
+    /// succeeds deleting nothing. Only a link that exists and cannot be read
+    /// fails.
     PruneGenerations {
         keep: u32,
         dry_run: bool,
@@ -182,6 +187,12 @@ pub enum Action {
     /// Upgrade every installed APK package.
     UpgradeApk,
     /// Installed APK packages with a newer version in the repositories.
+    ///
+    /// Not read-only: the compare runs against the INDEXES, so the check
+    /// refreshes them with `apk update` first, which rewrites the cached
+    /// package index on disk. A client gating writes must treat this call as
+    /// a write; what it never changes is `/etc/apk/world` or installed
+    /// packages.
     ListApkUpdates,
     /// Upgrade one installed APK package.
     UpgradeApkPackage {
@@ -484,7 +495,6 @@ pub enum Action {
         zone: String,
         port: String,
     },
-    /// Reload firewalld.
     /// Toggle filtering on the default zone: `enabled=false` sets the
     /// target to `ACCEPT` (traffic passes), `enabled=true` restores
     /// `REJECT`. firewalld has no global on/off switch, so the toggle
@@ -503,6 +513,7 @@ pub enum Action {
     DeleteFirewallService {
         service: String,
     },
+    /// Reload firewalld so pending permanent changes take effect.
     ReloadFirewall,
 
     // -- snapshots (btrbk) --

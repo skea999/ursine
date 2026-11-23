@@ -19,6 +19,9 @@ const TIMEOUT: Duration = Duration::from_secs(120);
 
 pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
     match action {
+        // Discovery only: SPEC-scanners keys `list_scanners` on `scanimage -L`
+        // and keeps the config work in `get_scanner_config`.
+        Action::ListScanners => Ok(scanner_list(&detect(ctx.as_user).await?)),
         Action::GetScannerConfig => Ok(json!(read_view(ctx).await?)),
         Action::SetScannerDevice {
             name,
@@ -82,6 +85,12 @@ async fn detect(user: &str) -> Result<Vec<Scanner>, ApiError> {
     let program = tool(&SCANIMAGE, "scanimage")?;
     let output = exec::run_as_user_argv(user, program, &["-L"], TIMEOUT).await?;
     Ok(parse_devices(&output.stdout))
+}
+
+/// Reply of `list_scanners`: the devices `scanimage -L` reported, in the same
+/// row shape the config view carries under `detected`.
+fn scanner_list(detected: &[Scanner]) -> serde_json::Value {
+    json!({ "scanners": detected })
 }
 
 fn parse_devices(output: &str) -> Vec<Scanner> {
@@ -263,6 +272,20 @@ mod tests {
         let text = render_config(&config);
         assert!(text.contains("\"Office\" = https://scanner.local/eSCL, eSCL"));
         assert!(text.contains("discovery = disable"));
+    }
+
+    #[test]
+    fn list_reply_wraps_the_detected_devices() {
+        // Same rows `parse_devices` builds from `scanimage -L`, wrapped the
+        // way the other list actions wrap theirs.
+        let detected =
+            parse_devices("device `airscan:e0:Brother MFC-1910W' is a Brother MFC-1910W eSCL\n");
+        assert_eq!(
+            scanner_list(&detected),
+            json!({"scanners": [{"id": "airscan:e0:Brother MFC-1910W", "description": "Brother MFC-1910W eSCL"}]})
+        );
+        // No SANE device found is an empty list, never an error.
+        assert_eq!(scanner_list(&[]), json!({"scanners": []}));
     }
 
     #[test]

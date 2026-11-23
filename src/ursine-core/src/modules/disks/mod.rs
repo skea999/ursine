@@ -692,10 +692,14 @@ fn mkfs_program(fstype: &str) -> Result<String, ApiError> {
 
 /// Force flag per mkfs tool (destructive by design: the confirm gate
 /// already matched the exact device).
+///
+/// e2fsprogs spells force `-F` and rejects `-f` ("unrecognized option: f"),
+/// mkntfs `-F` is force as well (`-f` there means quick format), while
+/// btrfs-progs and xfsprogs take `-f`.
 fn mkfs_args(fstype: &str) -> Vec<String> {
     match fstype {
-        "ext4" | "btrfs" | "xfs" => vec!["-f".to_string()],
-        "ntfs" => vec!["-F".to_string()],
+        "ext4" | "ntfs" => vec!["-F".to_string()],
+        "btrfs" | "xfs" => vec!["-f".to_string()],
         _ => Vec::new(),
     }
 }
@@ -823,10 +827,24 @@ mod tests {
         assert!(confirm_device_matches("/dev/sda1", "/dev/sda1").is_ok());
         assert!(confirm_device_matches("/dev/sda1", "/dev/sda").is_err());
         assert!(confirm_device_matches("../dev", "../dev").is_err());
-        assert_eq!(mkfs_args("ext4"), ["-f"]);
-        assert_eq!(mkfs_args("xfs"), ["-f"]);
-        assert!(mkfs_args("vfat").is_empty());
-        assert_eq!(mkfs_args("ntfs"), ["-F"]);
         assert!(mkfs_program("swap").is_err());
+    }
+
+    #[test]
+    fn mkfs_flags_follow_each_tool_spelling() {
+        // e2fsprogs: `-F` is force, `-f` is rejected (observed on Alpine:
+        // `mkfs.ext4 -f` -> "unrecognized option: f").
+        assert_eq!(mkfs_args("ext4"), ["-F"]);
+        // btrfs-progs and xfsprogs: `-f` is force.
+        assert_eq!(mkfs_args("btrfs"), ["-f"]);
+        assert_eq!(mkfs_args("xfs"), ["-f"]);
+        // mkntfs: `-F` is force.
+        assert_eq!(mkfs_args("ntfs"), ["-F"]);
+        // No force flag exists on these tools: never pass one.
+        assert!(mkfs_args("vfat").is_empty());
+        assert!(mkfs_args("exfat").is_empty());
+        assert!(mkfs_args("f2fs").is_empty());
+        // Unknown types never invent an argument.
+        assert!(mkfs_args("swap").is_empty());
     }
 }

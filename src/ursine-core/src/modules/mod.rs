@@ -468,6 +468,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_scanners_is_dispatched_to_the_scanners_handler() {
+        let (caps, cfg, _path) = ctx_with(AllMissing);
+        let env = test_env("ctx");
+        let ctx = env.ctx(&caps, &cfg);
+        // The SANE gate runs before the handler arm in `handle`, so calling
+        // the module handler directly is the only way to see the arm: a
+        // missing arm answers "action is not valid for module scanners".
+        let result = scanners::handle(&Action::ListScanners, &ctx).await;
+        assert!(
+            !matches!(&result, Err(error)
+                if error.message == "action is not valid for module scanners"),
+            "list_scanners has no arm in the scanners handler: {result:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn invalid_module_action_combo_is_rejected() {
         let (caps, cfg, _path) = ctx_with(AllMissing);
         let env = test_env("ctx");

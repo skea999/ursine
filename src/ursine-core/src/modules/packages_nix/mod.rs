@@ -910,6 +910,47 @@ fn validated_profile_generation(profile_path: &std::path::Path) -> Result<u32, A
         .ok_or_else(|| ApiError::invalid("profile link is not a generation link"))
 }
 
+/// Active generation from the profile symlink, `Ok(None)` when the user has
+/// no profile at all (a fresh account with nothing installed through nix).
+///
+/// A link that exists but cannot be read keeps its error: that is a broken
+/// profile, not an empty one.
+fn active_generation(profile: &std::path::Path) -> Result<Option<u32>, ApiError> {
+    let link = match std::fs::read_link(profile) {
+        Ok(link) => link,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(ApiError::invalid(format!(
+                "cannot read profile link: {error}"
+            )))
+        }
+    };
+    generations::parse_generation_link(&link.to_string_lossy())
+        .map(Some)
+        .ok_or_else(|| {
+            ApiError::new(
+                ErrorCode::Conflict,
+                "cannot determine the active generation; refresh and retry",
+            )
+        })
+}
+
+/// Reply for a profile that does not exist yet: no generation would be
+/// deleted (dry run) and a real run succeeds deleting nothing. Keys match
+/// the normal payloads so a client parses one shape.
+fn no_profile_payload(dry_run: bool) -> serde_json::Value {
+    if dry_run {
+        json!({
+            "dry_run": true,
+            "current": null,
+            "would_delete": [],
+            "kept": 0,
+        })
+    } else {
+        prune_apply_payload(None, &[], "", "")
+    }
+}
+
 fn prune_apply_payload(
     current: Option<u32>,
     deleted: &[u32],
@@ -1254,15 +1295,14 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
 
             // nix profile history does not mark the active generation; read it
             // from the profile symlink (profile-N-link).
-            let link = std::fs::read_link(profile_ref)
-                .map_err(|e| ApiError::invalid(format!("cannot read profile link: {e}")))?;
-            let current =
-                generations::parse_generation_link(&link.to_string_lossy()).ok_or_else(|| {
-                    ApiError::new(
-                        ErrorCode::Conflict,
-                        "cannot determine the active generation; refresh and retry",
-                    )
-                })?;
+            let Some(current) = active_generation(profile_ref)? else {
+                // No profile link at all: nothing was ever installed with nix
+                // for this user, so there is no generation to keep and none to
+                // delete. Answering empty (dry run) and deleting nothing (real
+                // run) is the honest reply; a link error here read as a failure
+                // of a request that has nothing to do.
+                return Ok(no_profile_payload(*dry_run));
+            };
 
             if !dry_run {
                 // A destructive apply without the exact preview is refused at
@@ -1373,6 +1413,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)] // tests use the host temp dir
 
     #[test]
     fn element_lock_prefers_percent_encoded_narhash() {
@@ -1832,5 +1873,53 @@ global flake:blender-bin github:edolstra/nix-warez?dir=blender\n";
         assert_eq!(payload["deleted"], json!([]));
         assert_eq!(payload["stdout"], "");
         assert_eq!(payload["stderr"], "");
+    }
+
+    #[test]
+    fn missing_profile_link_is_no_profile_not_an_error() {
+        let dir = std::env::temp_dir().join(format!("ursine-prune-profile-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let profile = dir.join("profile");
+
+        // Issue #18: a fresh account has no profile link at all — that is an
+        // empty profile, never "cannot read profile link".
+        assert_eq!(active_generation(&profile).unwrap(), None);
+
+        // A real `profile-N-link` answers its generation.
+        std::os::unix::fs::symlink(dir.join("profile-7-link"), &profile).unwrap();
+        assert_eq!(active_generation(&profile).unwrap(), Some(7));
+
+        // A link that exists but is not a generation link is a conflict, not
+        // an empty profile: the file was planted or nix changed its layout.
+        std::fs::remove_file(&profile).unwrap();
+        std::fs::create_dir_all(dir.join("nixpkgs")).unwrap();
+        std::os::unix::fs::symlink("nixpkgs", &profile).unwrap();
+        assert!(active_generation(&profile).is_err());
+
+        // A path that cannot be read as a link either (a directory) keeps its
+        // error too.
+        std::fs::remove_file(&profile).unwrap();
+        std::fs::create_dir(&profile).unwrap();
+        let error = active_generation(&profile).unwrap_err();
+        assert!(error.message.contains("cannot read profile link"));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn no_profile_prune_answers_empty_plans() {
+        // Dry run: an empty list of generations to delete, no current one.
+        let preview = no_profile_payload(true);
+        assert_eq!(preview["dry_run"], true);
+        assert_eq!(preview["current"], serde_json::Value::Null);
+        assert_eq!(preview["would_delete"], json!([]));
+        assert_eq!(preview["kept"], 0);
+
+        // Real run: success with nothing deleted.
+        let applied = no_profile_payload(false);
+        assert_eq!(applied["dry_run"], false);
+        assert_eq!(applied["current"], serde_json::Value::Null);
+        assert_eq!(applied["deleted"], json!([]));
     }
 }

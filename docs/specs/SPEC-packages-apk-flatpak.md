@@ -37,6 +37,11 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `update_flatpak` | `flatpak update -y --noninteractive <scope>` |
 
 - APK is system scope: root only.
+- `list_apk_updates` is the one APK read that writes: the leading
+  `apk update` rewrites the cached package index (there is no separate
+  `refresh_apk` action since v0.47.0). It never touches `/etc/apk/world` or
+  an installed package, and `list_apk`/`search_apk` stay purely read-only. A
+  client that gates writes must treat this call as a write.
 - Flatpak has system and user scope; user scope runs as the authenticated
   principal. Root may retarget user scope to any existing normal-login
   account through the wire `as_user` (`--as-user`); non-root principals
