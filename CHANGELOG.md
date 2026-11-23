@@ -35,6 +35,27 @@
   ids, so a runtime selected by a short pattern and an id installed on several
   branches are told apart; both actions document that runtimes match (#36).
 
+- **Services** (`ursine-core`): the dinit unit lookup searches every directory
+  dinit loads units from — `/etc/dinit.d`, `/lib/dinit.d`, `/usr/lib/dinit.d`,
+  `/usr/local/lib/dinit.d` (`DINIT_SERVICE_DIRS`) — and falls back to
+  `dinitctl list` before answering `not_found`, so a unit outside the two old
+  directories no longer fails `enable`/`disable` while `start`/`stop` work
+  (#26).
+- **ursinectl**: a failed action prints its wire error code on stderr —
+  `error[<code>]: <message>` (plus `fix:`), or the `ApiError` object with
+  `code`/`message`/`fix` under `--json` — so a script branches on the code
+  instead of parsing text. stdout stays reserved for results.
+  `ErrorCode::as_str` gives the wire name (`not_found`, `internal`, …) (#18).
+- **Action defaults** (`ursine-api`): `system` on the flatpak actions and
+  `all` on nix `upgrade` are optional and default to `false` (user
+  installation; upgrade the named package); the catalogue reports them as
+  `required: false`. `dry_run` stays required on `wipe_history` and
+  `prune_generations` and the action docs say why (#9).
+- **Services** (`ursine-api`, spec): `service_action` documents the three
+  dinit results of `enable`/`disable` — `enable` starts a stopped unit,
+  `enable` with an existing boot link is a no-op, `disable` leaves a running
+  unit running (#17).
+
 ## [0.49.0] — 2026-11-23
 
 ### Added

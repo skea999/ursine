@@ -86,6 +86,15 @@ ursinectl [--json] [--yes] [--as-user U] [--config PATH] \
   no root, no config, no audit line. `--json` emits the stable
   `ursine.actions/1` document; the table is for humans.
 - Exit codes: 0 ok, 1 action/API error, 2 usage/root-gate/confirmation.
+  A failed action always prints its wire error code on **stderr** (stdout stays
+  reserved for results): the human form is `error[<code>]: <message>` plus
+  `fix: <hint>` when the daemon sent one, so
+  `ursinectl … 2>&1 | grep -q 'error\[not_found\]'` works; with `--json` the
+  stream carries the wire `ApiError` object instead (`code`, `message`,
+  optional `fix`), one JSON document per failed call. The code strings are the
+  `ErrorCode` wire names (`not_found`, `invalid`, `unavailable`, `conflict`,
+  `internal`, …). Usage and root-gate failures stay plain `error: …` text with
+  exit 2, since no action ran.
 - Auth: the euid-0 gate replaces the shadow handshake entirely; the CLI's in-process
   authenticator rejects every `auth` request outright (no stub backdoor in
   a root binary).

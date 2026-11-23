@@ -116,7 +116,7 @@ async fn run_call(module: ModuleId, action: ursine_api::Action, opts: cli::RunOp
                     Ok(0) => ExitCode::SUCCESS,
                     Ok(_) => ExitCode::FAILURE,
                     Err(e) => {
-                        eprintln!("error: {}", e.message);
+                        report(&e, opts.json);
                         ExitCode::FAILURE
                     }
                 };
@@ -144,11 +144,21 @@ async fn run_call(module: ModuleId, action: ursine_api::Action, opts: cli::RunOp
             ExitCode::from(ursinectl::response_exit_code(&value))
         }
         Err(error) => {
-            eprintln!("error: {}", error.message);
-            if let Some(fix) = error.fix {
-                eprintln!("fix: {fix}");
-            }
+            report(&error, opts.json);
             ExitCode::FAILURE
         }
+    }
+}
+
+/// Print a failed action: the wire code rides in both forms.
+///
+/// Both forms go to stderr. `--json` switches the shape (the wire
+/// `code`/`message`/`fix` object) but not the stream: stdout stays reserved
+/// for a result, so a pipeline never mistakes an error for one.
+fn report(error: &ursine_api::ApiError, json: bool) {
+    if json {
+        eprintln!("{}", ursinectl::error_json(error));
+    } else {
+        eprint!("{}", ursinectl::error_human(error));
     }
 }

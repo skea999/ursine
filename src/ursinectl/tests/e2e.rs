@@ -227,10 +227,12 @@ fn scratch(tag: &str) -> std::path::PathBuf {
 #[test]
 fn api_error_exits_1_and_prints_fix() {
     // Nix is not installed in the CI container → capability gate fires:
-    // an API error is exit 1 (usage errors are exit 2).
+    // an API error is exit 1 (usage errors are exit 2). The wire code is part
+    // of the printed line, so a script reads it without parsing the text.
     let out = run(&["nix", "search", "query=niri"]);
     assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
-    assert!(stderr(&out).contains("error:"), "{}", stderr(&out));
+    assert!(stderr(&out).contains("error["), "{}", stderr(&out));
+    assert!(stderr(&out).contains("]: "), "{}", stderr(&out));
     assert!(stderr(&out).contains("fix:"), "{}", stderr(&out));
     assert!(stdout(&out).is_empty(), "errors belong on stderr");
 }
@@ -301,13 +303,35 @@ fn config_init_get_roundtrip_e2e() {
 #[test]
 fn as_user_unknown_user_is_rejected_e2e() {
     // Root may target other accounts — the target must exist (typed
-    // NotFound naming the user, exit 1).
+    // NotFound naming the user, exit 1). The wire code is part of the printed
+    // line so a script can branch on it.
     let out = run(&["crontab", "crontab_get", "--as-user", "definitely-not-root"]);
     assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
     assert!(
-        stderr(&out).contains("user definitely-not-root does not exist"),
+        stderr(&out).contains("error[not_found]: user definitely-not-root does not exist"),
         "{}",
         stderr(&out)
+    );
+
+    // `--json` selects the error shape, not the stream: stderr carries the
+    // wire error object, stdout stays empty.
+    let out = run(&[
+        "--json",
+        "crontab",
+        "crontab_get",
+        "--as-user",
+        "definitely-not-root",
+    ]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(stdout(&out).is_empty(), "errors belong on stderr");
+    let v: serde_json::Value = serde_json::from_str(stderr(&out).trim()).unwrap();
+    assert_eq!(v["code"], "not_found", "{v}");
+    assert!(
+        v["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("does not exist"),
+        "{v}"
     );
 }
 

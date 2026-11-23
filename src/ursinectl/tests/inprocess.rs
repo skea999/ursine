@@ -1434,3 +1434,47 @@ async fn stream_job_resumes_across_polls_without_loss_or_duplication() {
     assert_eq!(text.matches("part2").count(), 1, "no duplication: {text:?}");
     assert!(text.contains("a\u{e9}"), "torn char reassembled: {text:?}");
 }
+
+/// A failed call prints its wire code: `error[<code>]: …` on stderr for a
+/// human, and `code` inside the `--json` object for a script.
+#[tokio::test]
+async fn failed_answer_prints_the_wire_code_in_both_forms() {
+    let (daemon, token) = build();
+    let err = ursinectl::call(
+        &daemon,
+        &token,
+        &root_peer(),
+        ModuleId::Crontab,
+        Action::CrontabGet,
+        Some("definitely-not-a-user".into()),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
+
+    let line = ursinectl::error_human(&err);
+    assert!(line.starts_with("error[not_found]: "), "{line}");
+    assert!(line.contains(&err.message), "{line}");
+
+    let json: serde_json::Value = serde_json::from_str(&ursinectl::error_json(&err)).unwrap();
+    assert_eq!(json["code"], "not_found", "{json}");
+    assert_eq!(json["message"], err.message, "{json}");
+}
+
+/// A tool that failed in an unexpected way answers `internal`; the printed
+/// forms carry that code and the `fix` the daemon attached.
+#[test]
+fn internal_answer_prints_its_code_and_fix() {
+    let err = ursine_api::ApiError::internal(
+        "command failed: ERROR: No such package: ursine-not-a-package",
+    )
+    .with_fix("check the package name");
+
+    let line = ursinectl::error_human(&err);
+    assert!(line.starts_with("error[internal]: "), "{line}");
+    assert!(line.contains("fix: check the package name"), "{line}");
+
+    let json: serde_json::Value = serde_json::from_str(&ursinectl::error_json(&err)).unwrap();
+    assert_eq!(json["code"], "internal", "{json}");
+    assert_eq!(json["fix"], "check the package name", "{json}");
+}
