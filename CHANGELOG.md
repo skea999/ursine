@@ -69,6 +69,31 @@
   plan. Both reads now share `profile_link_generation`, so a missing link is
   an empty preview/apply and only an unusable link stays an error (#29).
 
+- **btrbk**: `set_btrbk_config` drops the end marker of the managed block
+  together with the start marker and the blank line that followed it, so
+  repeated calls no longer stack one more end marker and a blank run per
+  call (#25); a call now keeps the options an earlier call wrote instead of
+  deleting every managed option it does not name (#31); a managed option
+  that is also set below the first `volume`/`subvolume`/`target` line answers
+  a `conflict` error naming the key and line, because btrbk reads the
+  section value and silently ignores the managed one — the shipped FeralOS
+  layout puts `subvolume /` above its options (#32).
+- **snapshots**: `init_btrbk_config` writes one `subvolume` line per
+  top-level subvolume `btrfs subvolume list -a /` reports instead of a fixed
+  `volume /` + `home`/`@` text, skips nested subvolumes and the snapshot
+  store, and falls back to the old single name when nothing can be read;
+  every named subvolume is still probed before the file is written (#28).
+- **snapshots**: `restore_snapshot` names the tree the capped backup chain
+  deletes as `would_delete` in the preview and in the apply answer, and
+  `Action::RestoreSnapshot` documents the `backup_configs.copies` limit, so
+  a restore beyond the cap no longer drops the oldest saved tree without a
+  word (#35). The mount-point check compares paths with trailing slashes
+  trimmed, so `target=/home/` is refused like `/home` instead of rotating
+  the chain and failing with EBUSY (#24).
+- **snapshots**: `create_snapshot` is gated `Gate::Always` and documented as
+  destructive — `btrbk snapshot` applies the retention rules afterwards and
+  deletes the snapshots they no longer keep (#38).
+
 ## [0.49.0] — 2026-11-23
 
 ### Added

@@ -934,7 +934,9 @@ const CREATE_SNAPSHOT: ActionSpec = row(
     "create_snapshot",
     ModuleId::Snapshots,
     Effect::Mutating,
-    Gate::Never,
+    // `btrbk snapshot` also applies the retention rules and deletes what they
+    // no longer keep, so the call is destructive despite its name.
+    Gate::Always,
     &[param("section", false)],
 );
 const RESTORE_SNAPSHOT: ActionSpec = row(
@@ -1854,6 +1856,21 @@ mod tests {
         let refreshed = Action::ListApkUpdates { refresh: true };
         assert!(refreshed.is_mutating());
         assert!(!refreshed.is_destructive());
+    }
+
+    #[test]
+    fn create_snapshot_is_destructive() {
+        // `btrbk snapshot` applies the retention rules afterwards and deletes
+        // the snapshots they no longer keep, so it must ask for `--yes` like
+        // restore and delete do.
+        let action = Action::CreateSnapshot { section: None };
+        assert_eq!(action.spec().gate, Gate::Always);
+        assert!(action.is_mutating());
+        assert!(action.is_destructive());
+        assert!(Action::CreateSnapshot {
+            section: Some("home".into())
+        }
+        .is_destructive());
     }
 
     #[test]

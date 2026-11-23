@@ -33,6 +33,72 @@ pub fn slot_path(target: &Path, index: usize) -> PathBuf {
     PathBuf::from(name)
 }
 
+/// One step of the slot-chain shift the next write performs.
+#[derive(Debug, PartialEq, Eq)]
+struct ShiftStep {
+    /// Slot the shift lands on and whose tree is therefore deleted. `None`
+    /// when the destination is free, so nothing is lost.
+    evict: Option<PathBuf>,
+    /// Slot that moves one position older.
+    from: PathBuf,
+    /// Destination of the move.
+    to: PathBuf,
+}
+
+/// The slot-chain shift the next rotation performs: for every existing
+/// `slot i-1` below the cap, delete what `slot i` holds and move the tree
+/// into it, oldest slot first. The chain is planned from an `exists`
+/// predicate so a preview can report the deletions without touching the
+/// disk, and the writer runs the very same plan — the preview cannot
+/// disagree with the write.
+fn shift_plan(target: &Path, copies: usize, exists: impl Fn(&Path) -> bool) -> Vec<ShiftStep> {
+    let copies = copies.clamp(MIN_COPIES, MAX_COPIES);
+    // Occupancy is tracked step by step: the tree a shift moves out of a slot
+    // leaves it free for the next (newer) shift, so only the destination of
+    // the oldest move loses a tree.
+    let mut occupied: Vec<bool> = (0..copies)
+        .map(|index| exists(&slot_path(target, index)))
+        .collect();
+    let mut steps = Vec::new();
+    for index in (1..copies).rev() {
+        if !matches!(occupied.get(index - 1), Some(true)) {
+            continue;
+        }
+        let evict = matches!(occupied.get(index), Some(true)).then(|| slot_path(target, index));
+        if let Some(filled) = occupied.get_mut(index) {
+            *filled = true;
+        }
+        if let Some(filled) = occupied.get_mut(index - 1) {
+            *filled = false;
+        }
+        steps.push(ShiftStep {
+            evict,
+            from: slot_path(target, index - 1),
+            to: slot_path(target, index),
+        });
+    }
+    steps
+}
+
+/// Slots of `target` that the next rotation deletes.
+///
+/// That is the tree the oldest shift overwrites plus stale slots left by a
+/// higher configured count. Read-only — no path is touched, so a preview can
+/// name what a restore would lose. Empty when the chain has room left.
+pub fn evicted_slots(target: &Path, copies: usize) -> Vec<PathBuf> {
+    let copies = copies.clamp(MIN_COPIES, MAX_COPIES);
+    let mut evicted: Vec<PathBuf> = shift_plan(target, copies, Path::exists)
+        .into_iter()
+        .filter_map(|step| step.evict)
+        .collect();
+    evicted.extend(
+        (copies..=MAX_COPIES)
+            .map(|index| slot_path(target, index))
+            .filter(|path| path.exists()),
+    );
+    evicted
+}
+
 /// Shift the backup chain one step older (slot `i-1` → slot `i` for
 /// `i = copies-1 … 1`; directories included — `rename` works for both),
 /// drop stale slots left by a higher configured count, then run `insert`
@@ -45,32 +111,27 @@ fn rotate_common(
 ) -> Result<(), ApiError> {
     let copies = copies.clamp(MIN_COPIES, MAX_COPIES);
     // Oldest slot first so a slot is free before its newer neighbour moves in.
-    for index in (1..copies).rev() {
-        let from = slot_path(target, index - 1);
-        if !from.exists() {
-            continue;
-        }
-        let to = slot_path(target, index);
-        if to.exists() {
-            let removed = if to.is_dir() {
-                std::fs::remove_dir_all(&to)
+    for step in shift_plan(target, copies, Path::exists) {
+        if let Some(evict) = &step.evict {
+            let removed = if evict.is_dir() {
+                std::fs::remove_dir_all(evict)
             } else {
-                std::fs::remove_file(&to)
+                std::fs::remove_file(evict)
             };
             // A concurrent writer (GUI + ursinectl) may remove the slot
             // between the check and the call: NotFound is benign.
             match removed {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(rotation_error(&to, &e)),
+                Err(e) => return Err(rotation_error(evict, &e)),
             }
         }
-        match std::fs::rename(&from, &to) {
+        match std::fs::rename(&step.from, &step.to) {
             Ok(()) => {}
             // Same race: the source vanished under us — the other writer
             // already shifted it; keep going instead of failing the write.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(rotation_error(&from, &e)),
+            Err(e) => return Err(rotation_error(&step.from, &e)),
         }
     }
     // Slots left over from a higher configured count are stale: drop them.
@@ -323,6 +384,33 @@ mod tests {
         assert!(
             !slot_path(&target, 3).exists(),
             "gen1 must have rotated out of the 3-copy chain"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn evicted_slots_names_the_tree_the_next_rotation_drops() {
+        // The restore preview names the tree a rotation deletes, so a user
+        // sees the data loss before confirming it.
+        let dir = dir("evict");
+        let target = dir.join("tree");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::create_dir_all(slot_path(&target, 0)).unwrap();
+        std::fs::create_dir_all(slot_path(&target, 1)).unwrap();
+        assert!(
+            evicted_slots(&target, 3).is_empty(),
+            "a chain with room left loses nothing"
+        );
+        std::fs::create_dir_all(slot_path(&target, 2)).unwrap();
+        assert_eq!(evicted_slots(&target, 3), vec![slot_path(&target, 2)]);
+        assert!(
+            slot_path(&target, 2).is_dir(),
+            "the preview must not touch the disk"
+        );
+        // A lowered cap also drops the slots above it.
+        assert_eq!(
+            evicted_slots(&target, 2),
+            vec![slot_path(&target, 1), slot_path(&target, 2)]
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

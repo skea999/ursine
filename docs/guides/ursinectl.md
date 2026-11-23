@@ -272,13 +272,34 @@ add it to zones with `add_firewall_service`;
 `get_btrbk_config`, `init_btrbk_config`, `set_btrbk_config settings={…}`,
 `delete_snapshot snapshot=…`, `delete_snapshots sources=[…]`
 
-`init_btrbk_config` picks the `snapshot_dir` from the machine: an existing
-`/btrbk/snapshots` (FeralOS) wins, then `/.snapshots`; `/.snapshots` is
-created when neither exists. The named subvolume (`home` when `/home`
-exists, else `@`) is probed with `btrfs subvolume show`, so a layout that
-cannot be snapshotted fails with an error instead of a written config.
+`init_btrbk_config` reads the layout from the machine: the top-level
+subvolumes `btrfs subvolume list -a /` reports (nested ones and the
+snapshot-store subvolume are skipped) become the `subvolume` lines of the
+written file, and the `snapshot_dir` comes from the machine too — an
+existing `/btrbk/snapshots` (FeralOS) wins, then `/.snapshots`, which is
+created when neither exists. Each subvolume is probed with
+`btrfs subvolume show`, so a layout that cannot be snapshotted fails with
+an error instead of a written config. When the listing cannot be read the
+file falls back to the historical single name (`home` when `/home` exists,
+else `@`).
+
+`set_btrbk_config` only replaces the options it is given: an option an
+earlier call wrote stays in the managed block, so a client changing one
+option need not resend the rest. A managed option that also appears below
+the first `volume`/`subvolume`/`target` line is refused with a `conflict`
+error naming the key and line — btrbk reads such a line as that section's
+value, which silently wins over the managed global one.
+
+`create_snapshot` is destructive: `btrbk snapshot` applies the retention
+rules afterwards and deletes the snapshots they no longer keep, so it needs
+`--yes`.
+
 `restore_snapshot` refuses a target that is a mount point (a mounted
 subvolume cannot be renamed); unmount it or restore from a recovery boot.
+The live target is kept in the same capped backup chain as every other
+file (`backup_configs.copies`, 3 by default), so a restore beyond the cap
+deletes the oldest saved tree of the target; the preview and the apply
+answer name it in `would_delete`.
 
 ### users
 
