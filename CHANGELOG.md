@@ -94,6 +94,18 @@
   destructive — `btrbk snapshot` applies the retention rules afterwards and
   deletes the snapshots they no longer keep (#38).
 
+- **AppArmor leftovers from 0.48.0 leave `/etc/apparmor.d`**: a profile write
+  or mode change moves the `*.ursine-backup` / `*.ursine-backup.<n>` files
+  that release left next to the profiles into the module's backup root, path
+  encoded as for new slots, so the parser stops reporting duplicate profiles.
+  The migration is idempotent, touches only slot files, keeps both copies when
+  a backup name is taken (`.migrated` suffix) and logs every move.
+- **Theming answers `unavailable` for a provider without a palette**: with
+  `theme-provider` other than `matugen` and no `[styling.palette]`, and for an
+  unparsable Wayle config or a missing `[styling]` section, the answer is
+  `Unavailable` with a `fix` naming the provider and what to set instead of
+  `Internal`.
+
 ## [0.49.0] — 2026-11-23
 
 ### Added

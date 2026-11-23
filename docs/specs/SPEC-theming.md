@@ -53,7 +53,7 @@ Source extraction:
 - **DMS**: `settings.json` (fonts, icon, cursor, radius, theme name) + palette
   from the generated `@define-color` rules in
   `~/.config/gtk-3.0/dank-colors.css` (DMS/matugen own that file).
-- **Wayle**: `config.toml` `[styling]`. A static `[styling.palette]` table is read when present; with `theme-provider = "matugen"` (the FeralOS seed) there is no palette in the config — Wayle runs `matugen --json hex …` and caches it at `~/.cache/wayle/matugen-colors.json` (wayle-wallpaper), which is the read surface. Other dynamic providers (pywal/wallust) are rejected with an actionable error until their caches are implemented.
+- **Wayle**: `config.toml` `[styling]`. A static `[styling.palette]` table is read when present; with `theme-provider = "matugen"` (the FeralOS seed) there is no palette in the config — Wayle runs `matugen --json hex …` and caches it at `~/.cache/wayle/matugen-colors.json` (wayle-wallpaper), which is the read surface. Other dynamic providers (pywal/wallust) have no cache reader yet: with no `[styling.palette]` table the answer is `Unavailable` — message naming the provider, `fix` naming `[styling.palette]` and the matugen cache — never `Internal`. An unparsable config or a missing `[styling]` section answers `Unavailable` with a `fix` too: both describe the host's file, not a bad request.
 
 ## Targets
 
