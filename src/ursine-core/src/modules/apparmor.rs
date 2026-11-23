@@ -181,10 +181,21 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             Ok(json!(view(user).await?))
         }
         Action::ApparmorCleanprof { name } => {
-            run_profile_tool(ctx, user, name, &AA_CLEANPROF, "aa-cleanprof").await
+            // aa-cleanprof is interactive and its stdin is null here; -s
+            // overwrites with the clean profile, --no-reload leaves the
+            // reload to the module's own action.
+            run_profile_tool(
+                ctx,
+                user,
+                name,
+                &AA_CLEANPROF,
+                "aa-cleanprof",
+                &["-s", "--no-reload"],
+            )
+            .await
         }
         Action::ApparmorAutodep { path } => {
-            run_profile_tool(ctx, user, path, &AA_AUTODEP, "aa-autodep").await
+            run_profile_tool(ctx, user, path, &AA_AUTODEP, "aa-autodep", &[]).await
         }
         Action::ApparmorFeaturesAbi => {
             let program = tool(&AA_FEATURES_ABI, "aa-features-abi")?;
@@ -256,11 +267,14 @@ async fn run_profile_tool(
     target: &str,
     candidates: &[&'static str],
     label: &str,
+    extra: &[&str],
 ) -> Result<serde_json::Value, ApiError> {
     let target = validate_target(target)?;
     let program = tool(candidates, label)?;
     rotate_profiles_dir(crate::backup_configs::copies_from(&ctx.config)).await?;
-    exec::run_root_program(program, &[&target], TIMEOUT).await?;
+    let mut args: Vec<&str> = extra.to_vec();
+    args.push(&target);
+    exec::run_root_program(program, &args, TIMEOUT).await?;
     Ok(json!(view(user).await?))
 }
 
@@ -581,9 +595,43 @@ async fn profile_set(path: &str, content: &str, copies: usize) -> Result<(), Api
             combine(&check.stdout, &check.stderr)
         )));
     }
-    crate::backup_configs::rotate_async(PathBuf::from(&path), copies, None).await?;
+    rotate_profile(&path, copies)?;
     crate::atomic::write(Path::new(&path), content)?;
     Ok(())
+}
+
+/// Back up one profile OUTSIDE `/etc/apparmor.d`: the `AppArmor` parser reads
+/// every file in that directory, so `.ursine-backup` slots next to a profile
+/// would be loaded as duplicate profiles. Slots live under
+/// `/var/backups/ursine/apparmor` with the profile path encoded.
+fn rotate_profile(path: &str, copies: usize) -> Result<(), ApiError> {
+    let content = match std::fs::read(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(ApiError::internal(format!(
+                "read apparmor profile for backup: {error}"
+            )))
+        }
+    };
+    let relative = path.strip_prefix(PROFILES_DIR).unwrap_or(path);
+    let encoded: String = relative
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '%'
+            }
+        })
+        .collect();
+    let target = PathBuf::from("/var/backups/ursine/apparmor").join(encoded);
+    if let Some(dir) = target.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| {
+            ApiError::internal(format!("create apparmor backup dir {}: {e}", dir.display()))
+        })?;
+    }
+    crate::backup_configs::rotate_store(&target, copies, &content, 0o600)
 }
 
 async fn rotate_profiles_dir(copies: usize) -> Result<(), ApiError> {

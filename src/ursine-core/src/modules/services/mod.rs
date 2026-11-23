@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use serde_json::json;
-use ursine_api::{Action, ApiError, Capability, Service, ServiceOp};
+use ursine_api::{Action, ApiError, Capability, ErrorCode, Service, ServiceOp};
 
 use super::ModuleCtx;
 use crate::modules::packages_nix::exec;
@@ -167,6 +167,13 @@ fn dinit_enabled(name: &str) -> bool {
         .any(|dir| fs::symlink_metadata(Path::new(dir).join(name)).is_ok())
 }
 
+/// A dinit unit file exists (enabled or not).
+fn dinit_service_exists(name: &str) -> bool {
+    ["/etc/dinit.d", "/lib/dinit.d"]
+        .iter()
+        .any(|dir| Path::new(dir).join(name).is_file())
+}
+
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && !name.starts_with('-')
@@ -226,7 +233,20 @@ async fn openrc_action(name: &str, op: ServiceOp) -> Result<(), ApiError> {
             .await?;
         }
         ServiceOp::Disable => {
-            run(&RC_UPDATE, &["del", name], "OpenRC", "apk add openrc").await?;
+            // `rc-update del` fails when the service is not in the runlevel;
+            // the desired state already holds, so that answer is success.
+            let program = tool(&RC_UPDATE, "OpenRC", "apk add openrc")?;
+            let out =
+                exec::run_root_program_tolerant(program, &["del", name], TIMEOUT, None).await?;
+            if out.code != 0 {
+                let text = format!("{}{}", out.stdout, out.stderr);
+                if !text.contains("is not in the runlevel") {
+                    return Err(ApiError::internal(format!(
+                        "command failed: {}",
+                        text.trim()
+                    )));
+                }
+            }
         }
     }
     Ok(())
@@ -239,14 +259,28 @@ async fn dinit_action(name: &str, op: ServiceOp) -> Result<(), ApiError> {
             run(&DINITCTL, &[verb, name], "dinit", "apk add dinit").await?;
         }
         ServiceOp::Enable => {
+            if !dinit_service_exists(name) {
+                return Err(ApiError::new(
+                    ErrorCode::NotFound,
+                    format!("service {name} does not exist"),
+                ));
+            }
             if dinit_enabled(name) {
                 return Ok(());
             }
             run(&DINITCTL, &["enable", name], "dinit", "apk add dinit").await?;
         }
         ServiceOp::Disable => {
+            // "Not enabled" is success only for an existing service: the
+            // link test cannot tell it from a missing unit.
             if !dinit_enabled(name) {
-                return Ok(());
+                if dinit_service_exists(name) {
+                    return Ok(());
+                }
+                return Err(ApiError::new(
+                    ErrorCode::NotFound,
+                    format!("service {name} does not exist"),
+                ));
             }
             run(&DINITCTL, &["disable", name], "dinit", "apk add dinit").await?;
         }

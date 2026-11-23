@@ -19,6 +19,7 @@ const TIMEOUT: Duration = Duration::from_secs(120);
 
 pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
     match action {
+        Action::ListScanners => Ok(json!({"scanners": detect(ctx.as_user).await?})),
         Action::GetScannerConfig => Ok(json!(read_view(ctx).await?)),
         Action::SetScannerDevice {
             name,

@@ -484,7 +484,6 @@ pub enum Action {
         zone: String,
         port: String,
     },
-    /// Reload firewalld.
     /// Toggle filtering on the default zone: `enabled=false` sets the
     /// target to `ACCEPT` (traffic passes), `enabled=true` restores
     /// `REJECT`. firewalld has no global on/off switch, so the toggle
@@ -503,6 +502,7 @@ pub enum Action {
     DeleteFirewallService {
         service: String,
     },
+    /// Reload firewalld (applies pending permanent changes).
     ReloadFirewall,
 
     // -- snapshots (btrbk) --

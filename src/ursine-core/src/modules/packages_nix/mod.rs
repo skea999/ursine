@@ -1254,8 +1254,22 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
 
             // nix profile history does not mark the active generation; read it
             // from the profile symlink (profile-N-link).
-            let link = std::fs::read_link(profile_ref)
-                .map_err(|e| ApiError::invalid(format!("cannot read profile link: {e}")))?;
+            let link = match std::fs::read_link(profile_ref) {
+                Ok(link) => link,
+                // Never installed anything: there is nothing to prune, so a
+                // preview answers with an empty plan instead of an error.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    if *dry_run {
+                        return Ok(json!({
+                            "dry_run": true,
+                            "would_delete": [],
+                            "kept": 0,
+                        }));
+                    }
+                    return Ok(prune_apply_payload(None, &[], "", ""));
+                }
+                Err(e) => return Err(ApiError::invalid(format!("cannot read profile link: {e}"))),
+            };
             let current =
                 generations::parse_generation_link(&link.to_string_lossy()).ok_or_else(|| {
                     ApiError::new(

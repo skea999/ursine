@@ -112,12 +112,21 @@ pub(super) async fn set(
         {
             in_section = true;
         }
-        if !in_section && managed_key(trimmed.split_whitespace().next().unwrap_or("")).is_some() {
+        let marker = trimmed == MANAGED_MARKER;
+        if !in_section
+            && (marker || managed_key(trimmed.split_whitespace().next().unwrap_or("")).is_some())
+        {
+            continue;
+        }
+        // The block separator belongs to the managed block.
+        if marker {
             continue;
         }
         body.push_str(line);
         body.push('\n');
     }
+    // Drop the blank lines the removed block left behind.
+    let body = body.trim_start_matches('\n');
     let updated = format!("{managed}\n{body}");
 
     // Validate with btrbk before replacing the live file.
@@ -191,8 +200,13 @@ fn managed_key(key: &str) -> Option<usize> {
     MANAGED_KEYS.iter().position(|(name, _)| *name == key)
 }
 
+/// First line of the managed block; the removal pass drops it too, so
+/// repeated `set` calls replace the block instead of stacking copies.
+const MANAGED_MARKER: &str = "# --- Ursine managed options ---";
+
 fn render_managed(settings: &BtrbkSettings) -> Result<String, ApiError> {
-    let mut out = String::from("# --- Ursine managed options ---\n");
+    let mut out = String::from(MANAGED_MARKER);
+    out.push('\n');
     for (name, get) in MANAGED_KEYS {
         if let Some(value) = get(settings) {
             validate_value(name, value)?;

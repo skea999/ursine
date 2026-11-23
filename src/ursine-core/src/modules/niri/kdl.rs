@@ -27,8 +27,8 @@ pub(super) fn parse_values(doc: &KdlDocument) -> NiriValues {
         mouse_accel_speed: speed(doc, &["input", "mouse", "accel-speed"]),
         mouse_accel_profile: string(doc, &["input", "mouse", "accel-profile"]),
         mouse_natural_scroll: flag(doc, &["input", "mouse", "natural-scroll"]),
-        cursor_size: integer(doc, &["cursor", "size"]),
-        cursor_theme: string(doc, &["cursor", "theme"]),
+        cursor_size: integer(doc, &["cursor", "xcursor-size"]),
+        cursor_theme: string(doc, &["cursor", "xcursor-theme"]),
         keyboard_layout: string(doc, &["input", "keyboard", "xkb", "layout"]),
         keyboard_repeat_delay: integer(doc, &["input", "keyboard", "repeat-delay"]),
         keyboard_repeat_rate: integer(doc, &["input", "keyboard", "repeat-rate"]),
@@ -302,7 +302,7 @@ pub(super) fn apply_section(
                     .and_then(|v| u32::try_from(v).ok())
                     .filter(|v| (8..=128).contains(v))
                     .ok_or_else(|| ApiError::invalid("cursor size must be 8..128"))?;
-                set_integer(doc, "cursor", "size", size);
+                set_integer(doc, "cursor", "xcursor-size", size);
                 applied = true;
             }
             if let Some(theme) = object.get("theme") {
@@ -313,7 +313,7 @@ pub(super) fn apply_section(
                 if theme.len() > 128 || theme.chars().any(char::is_control) {
                     return Err(ApiError::invalid("invalid cursor theme"));
                 }
-                set_string(doc, "cursor", "theme", theme);
+                set_string(doc, "cursor", "xcursor-theme", theme);
                 applied = true;
             }
         }
@@ -407,7 +407,7 @@ fn nested_child<'a>(
 fn integer(doc: &KdlDocument, path: &[&str]) -> Option<u32> {
     let node = match path {
         ["layout", "gaps"] => child_node(doc, "layout", "gaps"),
-        ["cursor", "size"] => child_node(doc, "cursor", "size"),
+        ["cursor", "xcursor-size"] => child_node(doc, "cursor", "xcursor-size"),
         ["layout", "border", "width"] => nested_child(doc, "layout", "border", "width"),
         ["layout", "focus-ring", "width"] => nested_child(doc, "layout", "focus-ring", "width"),
         ["input", "keyboard", "repeat-delay"] => {
@@ -427,7 +427,7 @@ fn integer(doc: &KdlDocument, path: &[&str]) -> Option<u32> {
 
 fn string(doc: &KdlDocument, path: &[&str]) -> Option<String> {
     let node = match path {
-        ["cursor", "theme"] => child_node(doc, "cursor", "theme"),
+        ["cursor", "xcursor-theme"] => child_node(doc, "cursor", "xcursor-theme"),
         ["screenshot-path"] => node(doc, "screenshot-path"),
         ["input", "keyboard", "xkb", "layout"] => node(doc, "input")?
             .children()?

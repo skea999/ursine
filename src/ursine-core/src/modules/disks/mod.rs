@@ -694,8 +694,9 @@ fn mkfs_program(fstype: &str) -> Result<String, ApiError> {
 /// already matched the exact device).
 fn mkfs_args(fstype: &str) -> Vec<String> {
     match fstype {
-        "ext4" | "btrfs" | "xfs" => vec!["-f".to_string()],
-        "ntfs" => vec!["-F".to_string()],
+        // ext4 (e2fsprogs) and ntfs spell force `-F`; btrfs/xfs use `-f`.
+        "ext4" | "ntfs" => vec!["-F".to_string()],
+        "btrfs" | "xfs" => vec!["-f".to_string()],
         _ => Vec::new(),
     }
 }
@@ -823,7 +824,8 @@ mod tests {
         assert!(confirm_device_matches("/dev/sda1", "/dev/sda1").is_ok());
         assert!(confirm_device_matches("/dev/sda1", "/dev/sda").is_err());
         assert!(confirm_device_matches("../dev", "../dev").is_err());
-        assert_eq!(mkfs_args("ext4"), ["-f"]);
+        // ext4 spells force `-F` (e2fsprogs); btrfs/xfs use `-f`.
+        assert_eq!(mkfs_args("ext4"), ["-F"]);
         assert_eq!(mkfs_args("xfs"), ["-f"]);
         assert!(mkfs_args("vfat").is_empty());
         assert_eq!(mkfs_args("ntfs"), ["-F"]);

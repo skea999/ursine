@@ -33,8 +33,10 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
         Action::SetDefaultFirewallZone { zone } => {
             validate_zone(zone)?;
             backup().await?;
-            run(&[&format!("--set-default-zone={zone}"), "--permanent"]).await?;
-            run(&["--reload"]).await?;
+            // `--set-default-zone` is a stand-alone option: it updates the
+            // runtime and the permanent configuration in one call and must
+            // not be combined with `--permanent` (firewalld errors out).
+            run(&[&format!("--set-default-zone={zone}")]).await?;
             Ok(json!(read_status().await?))
         }
         Action::AddFirewallService { zone, service } => {
