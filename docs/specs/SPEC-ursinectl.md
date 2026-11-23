@@ -78,7 +78,13 @@ ursinectl [--json] [--yes] [--as-user U] [--config PATH] \
 - Destructive actions (removals, deletes, rollbacks, gc, restore-apply,
   crontab set, theme apply, …): `--yes` required (CLI equivalent of the GUI
   confirmation); without it, refuse with the action name and exit 2.
-  Dry-run/preview variants never require `--yes`.
+  Dry-run/preview variants never require `--yes`. The classification is NOT a
+  CLI list: it comes from `ursine-api` (`Action::is_destructive`), one row per
+  action in `ursine-api/src/catalogue.rs`.
+- `ursinectl actions [--json]` prints the action catalogue: wire name, module,
+  read-only vs mutating, the `--yes` gate and the parameters. Metadata only —
+  no root, no config, no audit line. `--json` emits the stable
+  `ursine.actions/1` document; the table is for humans.
 - Exit codes: 0 ok, 1 action/API error, 2 usage/root-gate/confirmation.
 - Auth: the euid-0 gate replaces the shadow handshake entirely; the CLI's in-process
   authenticator rejects every `auth` request outright (no stub backdoor in

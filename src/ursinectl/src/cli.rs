@@ -6,8 +6,10 @@
 //! API is reachable from the CLI by construction. `key=@path` reads a file,
 //! `key=-` reads stdin; `password`/`new_password` MUST use `-` (never argv).
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
+use ursine_api::catalogue::{self, ActionSpec, Effect, Gate};
 use ursine_api::Action;
 
 /// Parsed command line (everything after argv\[0\]).
@@ -15,6 +17,11 @@ use ursine_api::Action;
 pub enum Cmd {
     Help(Option<String>),
     Version,
+    /// Print the machine-readable action catalogue (no root, no side effect).
+    Actions {
+        /// One compact JSON document instead of the aligned table.
+        json: bool,
+    },
     Run(RunOpts),
 }
 
@@ -37,6 +44,8 @@ USAGE: sudo ursinectl [--json] [--yes] [--as-user USER] [--config PATH] \\
 
   Values are JSON when possible (dry_run=true, keep=3), else plain strings.
   key=@path reads a file; key=- reads stdin.
+  `ursinectl actions [--json]` prints the action catalogue (wire name,
+  module, read-only vs mutating, --yes gate, parameters). No root needed.
   password/new_password MUST be key=- (never on the command line).
   Destructive actions require --yes.
   --as-user USER targets another account: the user must EXIST (typed
@@ -167,8 +176,13 @@ pub fn parse(args: &[String]) -> Result<Cmd, String> {
         }
     }
     if positional.len() == 1 && pairs.is_empty() {
+        let only = positional.remove(0);
+        // `ursinectl actions` is the catalogue subcommand, not a module.
+        if only == "actions" {
+            return Ok(Cmd::Actions { json });
+        }
         // `ursinectl nix` → module help
-        return Ok(Cmd::Help(positional.into_iter().next()));
+        return Ok(Cmd::Help(Some(only)));
     }
     if positional.len() != 2 {
         return Err("expected <module> <action> [key=value ...]".to_string());
@@ -335,74 +349,69 @@ fn expand_value(raw: &str) -> Result<serde_json::Value, String> {
 
 /// Actions that delete, roll back or overwrite state: `--yes` required.
 ///
-/// Dry-run/preview variants are not destructive. When a new destructive
-/// action lands in the API it must be added here (review checklist).
+/// The classification lives in `ursine_api` ([`Action::is_destructive`]) so
+/// there is exactly ONE list: the CLI, the GUI and `ursinectl actions --json`
+/// cannot disagree. Dry-run/preview variants are not destructive.
 pub fn is_destructive(action: &Action) -> bool {
-    use Action::{
-        ApkRemoveRegex, ApkUpgradeRegex, ApparmorCleanprof, ApparmorRemoveUnknown,
-        BoosterRegenerate, CancelPrinterJobs, CrontabSet, DeleteFirewallService, DeleteSnapshot,
-        DeleteSnapshots, DeleteUser, FlatpakRemoveRegex, FlatpakUpgradeRegex, ForgetNetwork,
-        FormatDisk, PartitionCreate, PartitionDelete, PruneGenerations, Remove, RemoveAll,
-        RemoveApk, RemoveApkRepository, RemoveFirewallPort, RemoveFirewallService, RemoveFlatpak,
-        RemoveFlatpakOrphans, RemoveFlatpakRemote, RemoveNixRepository, RemovePrinter, RemoveRegex,
-        RemoveScannerDevice, RestoreSnapshot, Rollback, SetFirewallEnabled, SetNetworkIpv4,
-        SetPassword, StoreGc, ThemeApply, UnmountDisk, UpdateFlatpak, UpdateFlatpakApp, UpgradeApk,
-        UpgradeApkPackage, UpgradeRegex, WipeHistory,
-    };
-    // Mode-dependent: only unloading security policy counts as destructive.
-    if let Action::ApparmorSetMode { mode, .. } = action {
-        if mode == "disable" {
-            return true;
+    action.is_destructive()
+}
+
+/// Human-readable catalogue table for `ursinectl actions`.
+///
+/// One line per action in catalogue order; a trailing `?` marks a parameter
+/// the request may omit (`#[serde(default)]`). Clients should read
+/// `ursinectl actions --json` instead of parsing this.
+pub fn actions_table() -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "{:<30} {:<17} {:<10} {:<11} PARAMS",
+        "ACTION", "MODULE", "EFFECT", "DESTRUCTIVE"
+    );
+    for spec in catalogue::ACTIONS {
+        let row = format!(
+            "{:<30} {:<17} {:<10} {:<11} {}",
+            spec.name,
+            spec.module.as_str(),
+            effect_label(spec),
+            gate_label(spec),
+            params_label(spec)
+        );
+        let _ = writeln!(out, "{}", row.trim_end());
+    }
+    out
+}
+
+/// `read-only` / `mutating` for the table.
+fn effect_label(spec: &ActionSpec) -> &'static str {
+    match spec.effect {
+        Effect::ReadOnly => "read-only",
+        Effect::Mutating => "mutating",
+    }
+}
+
+/// `--yes` column: `no`, `always` or `by request` (payload decides).
+fn gate_label(spec: &ActionSpec) -> &'static str {
+    match spec.gate {
+        Gate::Never => "no",
+        Gate::Always => "always",
+        Gate::Request => "by request",
+    }
+}
+
+/// Comma-separated parameters, optional ones marked with `?`.
+fn params_label(spec: &ActionSpec) -> String {
+    let mut out = String::new();
+    for param in spec.params {
+        if !out.is_empty() {
+            out.push_str(", ");
+        }
+        out.push_str(param.name);
+        if !param.required {
+            out.push('?');
         }
     }
-    matches!(
-        action,
-        Remove { .. }
-            | RemoveAll
-            | RemoveRegex { dry_run: false, .. }
-            | UpgradeRegex { dry_run: false, .. }
-            | ApkRemoveRegex { dry_run: false, .. }
-            | ApkUpgradeRegex { dry_run: false, .. }
-            | FlatpakRemoveRegex { dry_run: false, .. }
-            | FlatpakUpgradeRegex { dry_run: false, .. }
-            | WipeHistory { dry_run: false, .. }
-            | Rollback { .. }
-            | StoreGc
-            | PruneGenerations { dry_run: false, .. }
-            | RemoveApk { .. }
-            | UpgradeApk
-            | UpgradeApkPackage { .. }
-            | RemoveFlatpak { .. }
-            | UpdateFlatpak { .. }
-            | UpdateFlatpakApp { .. }
-            | RemoveFlatpakOrphans { .. }
-            | SetNetworkIpv4 { .. }
-            | ForgetNetwork { .. }
-            | DeleteFirewallService { .. }
-            | FormatDisk { .. }
-            | RemoveApkRepository { .. }
-            | RemoveNixRepository { .. }
-            | RemoveFlatpakRemote { .. }
-            | PartitionCreate { .. }
-            | PartitionDelete { .. }
-            | SetFirewallEnabled { enabled: false, .. }
-            | RestoreSnapshot { dry_run: false, .. }
-            | DeleteSnapshot { .. }
-            | DeleteSnapshots { .. }
-            | DeleteUser { .. }
-            | SetPassword { .. }
-            | CrontabSet { .. }
-            | BoosterRegenerate
-            | ApparmorRemoveUnknown
-            | ApparmorCleanprof { .. }
-            | ThemeApply { .. }
-            | RemovePrinter { .. }
-            | CancelPrinterJobs { .. }
-            | RemoveScannerDevice { .. }
-            | RemoveFirewallService { .. }
-            | RemoveFirewallPort { .. }
-            | UnmountDisk { .. }
-    )
+    out
 }
 
 #[cfg(test)]
@@ -498,15 +507,38 @@ mod tests {
     }
 
     #[test]
-    fn destructive_classification() {
+    fn destructive_classification_delegates_to_the_api() {
+        // The CLI holds no second list: the answer is the API classification,
+        // and `samples.rs` checks every action's expectation through it.
+        let samples = [
+            Action::RemoveAll,
+            Action::CrontabSet {
+                content: String::new(),
+            },
+            Action::WipeHistory {
+                older_than: None,
+                dry_run: true,
+            },
+            Action::WipeHistory {
+                older_than: None,
+                dry_run: false,
+            },
+            Action::ListApk,
+            Action::ListApkUpdates,
+            Action::SetFirewallEnabled { enabled: false },
+            Action::ApparmorSetMode {
+                path: "/etc/apparmor.d/local/usr.bin.niri".into(),
+                mode: "disable".into(),
+            },
+        ];
+        for action in &samples {
+            assert_eq!(
+                is_destructive(action),
+                action.is_destructive(),
+                "{action:?}"
+            );
+        }
         assert!(is_destructive(&Action::RemoveAll));
-        assert!(is_destructive(&Action::CrontabSet {
-            content: String::new()
-        }));
-        assert!(!is_destructive(&Action::WipeHistory {
-            older_than: None,
-            dry_run: true
-        }));
         assert!(!is_destructive(&Action::ListApk));
     }
 
@@ -653,183 +685,6 @@ mod tests {
     }
 
     #[test]
-    fn destructive_classification_is_exhaustive() {
-        use Action::{
-            AddFlatpakRemote, CancelPrinterJobs, CreateFirewallService, CrontabSet,
-            DeleteFirewallService, DeleteSnapshot, DeleteSnapshots, DeleteUser, FormatDisk,
-            ListApk, PartitionCreate, PartitionDelete, PruneGenerations, Remove, RemoveAll,
-            RemoveApk, RemoveApkRepository, RemoveFirewallPort, RemoveFirewallService,
-            RemoveFlatpak, RemoveFlatpakOrphans, RemoveFlatpakRemote, RemoveNixRepository,
-            RemovePrinter, RemoveRegex, RemoveScannerDevice, RestoreSnapshot, Rollback, Search,
-            SetFirewallEnabled, SetPassword, StoreGc, ThemeApply, UnmountDisk, UpdateFlatpak,
-            UpdateFlatpakApp, Upgrade, UpgradeApk, UpgradeApkPackage, UpgradeRegex, WipeHistory,
-        };
-        let destructive = [
-            Remove {
-                package: "x".into(),
-            },
-            RemoveAll,
-            RemoveRegex {
-                pattern: "x".into(),
-                dry_run: false,
-            },
-            UpgradeRegex {
-                pattern: "x".into(),
-                dry_run: false,
-            },
-            WipeHistory {
-                older_than: None,
-                dry_run: false,
-            },
-            Rollback { generation: None },
-            StoreGc,
-            PruneGenerations {
-                keep: 1,
-                dry_run: false,
-                expected_current: None,
-                expected_delete: None,
-            },
-            RemoveApk {
-                package: "x".into(),
-            },
-            UpgradeApk,
-            UpgradeApkPackage {
-                package: "x".into(),
-            },
-            RemoveFlatpak {
-                app_id: "x".into(),
-                system: false,
-            },
-            UpdateFlatpak { system: false },
-            UpdateFlatpakApp {
-                app_id: "x".into(),
-                system: false,
-            },
-            RemoveFlatpakOrphans { system: false },
-            RestoreSnapshot {
-                snapshot: "s".into(),
-                target: "t".into(),
-                dry_run: false,
-            },
-            DeleteSnapshot {
-                snapshot: "s".into(),
-            },
-            DeleteSnapshots { sources: vec![] },
-            DeleteUser {
-                uid: 1000,
-                remove_files: false,
-            },
-            SetPassword {
-                uid: 1000,
-                new_password: String::new(),
-            },
-            CrontabSet {
-                content: String::new(),
-            },
-            ThemeApply {
-                show_minimize: true,
-            },
-            RemovePrinter { name: "p".into() },
-            CancelPrinterJobs { printer: None },
-            RemoveScannerDevice { name: "d".into() },
-            RemoveFirewallService {
-                zone: "z".into(),
-                service: "s".into(),
-            },
-            RemoveFirewallPort {
-                zone: "z".into(),
-                port: "53".into(),
-            },
-            UnmountDisk {
-                device: "/dev/sda1".into(),
-            },
-            DeleteFirewallService {
-                service: "s".into(),
-            },
-            SetFirewallEnabled { enabled: false },
-            FormatDisk {
-                device: "/dev/sda1".into(),
-                fstype: "ext4".into(),
-                confirm_device: "/dev/sda1".into(),
-            },
-            RemoveApkRepository {
-                url: "https://example.invalid/x".into(),
-            },
-            RemoveNixRepository {
-                name: "myflake".into(),
-                system: true,
-                source: ursine_api::NixRepoSource::Channel,
-            },
-            RemoveFlatpakRemote {
-                name: "flathub".into(),
-                system: false,
-            },
-            PartitionCreate {
-                device: "/dev/sda".into(),
-                start_mib: 1,
-                end_mib: 2,
-                confirm_device: "/dev/sda".into(),
-            },
-            PartitionDelete {
-                device: "/dev/sda".into(),
-                number: 1,
-                confirm_device: "/dev/sda".into(),
-            },
-        ];
-        for action in &destructive {
-            assert!(is_destructive(action), "must require --yes: {action:?}");
-        }
-        // Previews/dry-runs and reads never gate on --yes.
-        let benign = [
-            WipeHistory {
-                older_than: None,
-                dry_run: true,
-            },
-            RemoveRegex {
-                pattern: "x".into(),
-                dry_run: true,
-            },
-            UpgradeRegex {
-                pattern: "x".into(),
-                dry_run: true,
-            },
-            PruneGenerations {
-                keep: 1,
-                dry_run: true,
-                expected_current: None,
-                expected_delete: None,
-            },
-            RestoreSnapshot {
-                snapshot: "s".into(),
-                target: "t".into(),
-                dry_run: true,
-            },
-            Upgrade {
-                package: None,
-                all: true,
-            },
-            ListApk,
-            Search {
-                query: "x".into(),
-                repo: None,
-            },
-            SetFirewallEnabled { enabled: true },
-            AddFlatpakRemote {
-                name: "r".into(),
-                url: "https://example.invalid/repo".into(),
-                system: false,
-            },
-            CreateFirewallService {
-                service: "s".into(),
-                ports: vec![],
-            },
-        ];
-        for action in &benign {
-            assert!(!is_destructive(action), "must NOT gate: {action:?}");
-        }
-    }
-
-    #[test]
     fn value_with_embedded_equals_is_preserved() {
         // split_once('=') must cut only the first separator.
         let a = build_action(
@@ -926,5 +781,55 @@ mod tests {
             parse(&args(&["--version"])).unwrap(),
             Cmd::Version
         ));
+    }
+
+    #[test]
+    fn actions_subcommand_parses_with_and_without_json() {
+        assert!(matches!(
+            parse(&args(&["actions"])).unwrap(),
+            Cmd::Actions { json: false }
+        ));
+        assert!(matches!(
+            parse(&args(&["--json", "actions"])).unwrap(),
+            Cmd::Actions { json: true }
+        ));
+        // A module name is still a help request, not the catalogue.
+        assert!(matches!(
+            parse(&args(&["actionsx"])).unwrap(),
+            Cmd::Help(Some(m)) if m == "actionsx"
+        ));
+    }
+
+    #[test]
+    fn actions_table_lists_every_row_once() {
+        let table = actions_table();
+        let lines: Vec<&str> = table.lines().collect();
+        assert_eq!(
+            lines.len(),
+            catalogue::ACTIONS.len() + 1,
+            "header + one line per action"
+        );
+        assert!(lines[0].starts_with("ACTION "));
+        for spec in catalogue::ACTIONS {
+            let hits = lines
+                .iter()
+                .filter(|line| line.split_whitespace().next() == Some(spec.name))
+                .count();
+            assert_eq!(hits, 1, "{} must appear exactly once", spec.name);
+        }
+        // Parameters are shown, optional ones marked `?`.
+        let install = lines
+            .iter()
+            .find(|line| line.split_whitespace().next() == Some("install_apk"))
+            .unwrap();
+        assert!(install.ends_with("package"), "{install}");
+        let remove_regex = lines
+            .iter()
+            .find(|line| line.split_whitespace().next() == Some("remove_regex"))
+            .unwrap();
+        assert!(
+            remove_regex.ends_with("pattern, dry_run?"),
+            "{remove_regex}"
+        );
     }
 }

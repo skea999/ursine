@@ -120,6 +120,25 @@ fn version_and_help_succeed_without_side_effects() {
 }
 
 #[test]
+fn actions_catalogue_prints_without_side_effects() {
+    // Metadata only: the catalogue must not need the daemon, the config or
+    // an audit line (it is the one subcommand a client can poll).
+    let doc = json_ok(&["--json", "actions"]);
+    assert_eq!(doc["schema"], "ursine.actions/1");
+    assert_eq!(doc["count"], ursine_api::catalogue::ACTIONS.len());
+    let actions = doc["actions"].as_array().unwrap();
+    assert!(actions
+        .iter()
+        .any(|row| row["name"] == "install_apk" && row["effect"] == "mutating"));
+
+    let table = run(&["actions"]);
+    ok(&table);
+    let text = stdout(&table);
+    assert!(text.starts_with("ACTION"), "{text}");
+    assert!(text.contains("install_apk"), "{text}");
+}
+
+#[test]
 fn no_args_is_usage_error() {
     let out = run(&[]);
     assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));

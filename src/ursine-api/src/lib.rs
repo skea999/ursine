@@ -9,6 +9,7 @@ pub mod apparmor;
 pub mod bluetooth;
 pub mod booster;
 pub mod capability;
+pub mod catalogue;
 pub mod config;
 pub mod crontab;
 pub mod disk;
@@ -39,6 +40,7 @@ pub use apparmor::{
 pub use bluetooth::{BluetoothAdapter, BluetoothDevice, BluetoothOp, BluetoothView};
 pub use booster::{BoosterConfig, BoosterConfigPatch, BoosterRegenerateReport};
 pub use capability::{Capability, CapabilityReport};
+pub use catalogue::{ActionSpec, Effect, Gate, Param};
 pub use config::{BackupConfigs, ModulesConfig, TriState, UpdatesAuto, UrsineConfig};
 pub use crontab::{max_crontab_bytes, CrontabView};
 pub use disk::{Disk, DiskView, DISK_FSTYPES};

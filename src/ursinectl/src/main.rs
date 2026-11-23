@@ -34,6 +34,22 @@ fn main() -> ExitCode {
             println!("ursinectl {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
+        Cmd::Actions { json } => {
+            // Pure metadata: no root gate, no config, no side effect.
+            if json {
+                match serde_json::to_string(&ursine_api::catalogue::json_document()) {
+                    Ok(line) => println!("{line}"),
+                    Err(e) => {
+                        eprintln!("error: encode the action catalogue: {e}");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            } else {
+                print!("{}", cli::actions_table());
+            }
+            let _ = std::io::stdout().flush();
+            ExitCode::SUCCESS
+        }
         Cmd::Run(opts) => run(opts),
     }
 }

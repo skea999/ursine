@@ -30,6 +30,7 @@ src/ursine-api/
    ├─ envelope.rs      Request, Response, framing constants
    ├─ module.rs        ModuleId enum ( PackagesNix, Snapshots, Users, Niri, Capabilities, Config, System )
    ├─ action.rs        per-module Action payloads
+   ├─ catalogue.rs     action catalogue: read-only vs mutating, --yes gate, parameters
    ├─ principal.rs     Principal { origin, user/groups }, asUser field type
    ├─ token.rs         SessionToken (opaque string), AuthRequest/AuthResponse
    ├─ capability.rs    CapabilityReport { module, available, reason, fix }
@@ -66,6 +67,46 @@ pub enum Request {
 - Always: roundtrip test per type; golden test when changing any payload; semver-check before publishing versions in-repo
 - Ask first: any change to existing wire fields (breaking change to frontends); new ModuleId variants
 - Never: IO, blocking, `unsafe`, logic (only types + parsing)
+
+## Action catalogue and the read-only rule
+
+The crate also owns the metadata about an action, so no frontend keeps its
+own list:
+
+- `catalogue::Effect` (`ReadOnly` | `Mutating`) says what a request does to
+the machine. `Action::effect()` answers for the *request*: a `dry_run`
+preview is read-only even though the variant mutates.
+- `catalogue::Gate` (`Never` | `Always` | `Request`) says whether the
+destructive confirmation (`--yes` in the CLI, a dialog in the GUI) is
+required. `Action::is_destructive()` resolves `Request` from the payload
+(`dry_run`, `apparmor_set_mode` with `mode=disable`, `set_firewall_enabled`
+with `enabled=false`).
+- `catalogue::ACTIONS` is one row per `Action` variant (wire name, module,
+effect, gate, parameters with a `required` flag). `Action::spec()` is an
+exhaustive match: a new variant does not compile until it is classified,
+and the drift tests in `src/ursinectl/tests/samples.rs` fail until the row
+is in `ACTIONS`.
+- `catalogue::json_document()` renders the stable client document, schema id
+`ursine.actions/1` (printed by `ursinectl actions --json`):
+
+```json
+{"schema":"ursine.actions/1","count":143,"actions":[
+  {"name":"install_apk","module":"packages_apk","effect":"mutating",
+   "destructive":"never","previewable":false,
+   "params":[{"name":"package","required":true}]}]}
+```
+
+Rules for adding an action: classify it in `catalogue.rs` (the match is
+exhaustive, so this is forced), keep `list_apk_updates` mutating (it runs
+`apk update`), keep dry-run/preview variants read-only, and never mark a
+read-only action as gated. The catalogue is metadata only: it changes no
+wire field and no dispatch.
+
+Parameters are names plus `required` (`true` when the wire rejects a
+request without the field: not an `Option`, no `serde(default)`). A full
+JSON Schema (types, ranges, enums) is deliberately **not** shipped: the
+catalogue would have to stay true to serde, which it cannot without a
+derive, so it stays at what can be derived by hand and be tested.
 
 ## Success Criteria
 

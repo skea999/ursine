@@ -18,6 +18,10 @@ ursinectl \- Ursine root control CLI (in-process, chroot-capable)
 .RI [ module ]
 .br
 .B ursinectl
+.B actions
+.RB [ \-\-json ]
+.br
+.B ursinectl
 .B \-\-version
 .SH DESCRIPTION
 .B ursinectl
@@ -104,7 +108,11 @@ Secrets (
 Action names are the stable wire names (same as the API tag and the audit
 log). Run
 .B ursinectl \-\-help
-for the grouped list.
+for the grouped list, or
+.B ursinectl actions
+for the machine-readable catalogue (module, read-only vs mutating,
+.B \-\-yes
+gate and parameters of every action).
 .TP
 .B system
 .BR status ,
@@ -271,13 +279,88 @@ rebuilds the initramfs through the distribution's kernel hooks
 .B booster build
 fallback. Requires
 .BR booster .
+.SH ACTION CATALOGUE
+.B ursinectl actions
+lists every action the daemon accepts, one line per action:
+wire name, module, effect
+.RI ( read-only " or " mutating ),
+the
+.B \-\-yes
+gate (
+.IR no ,
+.I always
+or
+.IR "by request" )
+and the parameter names; a trailing
+.I ?
+marks a parameter the request may omit. It needs no root and no
+configuration: it only prints metadata.
+.PP
+With
+.BR \-\-json
+the same data is printed as one compact document with schema id
+.IR ursine.actions/1 :
+a
+.I schema
+key, a
+.I count
+and an
+.I actions
+array whose rows carry
+.IR name ,
+.IR module ,
+.I effect
+(
+.I read_only
+or
+.IR mutating ),
+.I destructive
+(
+.IR never ,
+.I always
+or
+.IR request ),
+.I previewable
+and
+.I params
+(
+.I name
+plus
+.I required
+).
+.PP
+Read-only means the request changes nothing on the machine: reads,
+previews and
+.I dry_run
+runs. Mutating is everything that writes, deletes, restarts or
+re-applies something, including
+.B list_apk_updates
+(which runs
+.B apk update
+and rewrites the index files). Clients should gate refresh timers on the
+.I effect
+they read here instead of keeping their own list.
 .SH DESTRUCTIVE ACTIONS
 Removing, deleting, rolling back, garbage collecting and applying
 restores/crontab/booster/apparmor/theme changes require
 .B \-\-yes
 (the CLI equivalent of the GUI confirmation). Dry-run and preview
 variants never do. Without the flag the CLI prints the refused action and
-exits with status 2.
+exits with status 2. The authoritative list is the
+.I destructive
+column of
+.BR "ursinectl actions \-\-json" :
+.I always
+needs the flag,
+.I request
+needs it only for the real (non-preview) run, and the payload decides for
+.B apparmor_set_mode
+(only
+.IR mode=disable )
+and
+.B set_firewall_enabled
+(only
+.IR enabled=false ).
 .SH BACKGROUND JOBS
 Package mutations answer with a job id; the CLI streams the job log to
 stdout as plain terminal text (never a percentage bar) and exits with the
