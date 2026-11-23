@@ -16,6 +16,13 @@ const ADDUSER: [&str; 3] = ["/usr/sbin/adduser", "/sbin/adduser", "/usr/bin/addu
 const USERDEL: [&str; 3] = ["/usr/sbin/userdel", "/sbin/userdel", "/usr/bin/userdel"];
 const DELUSER: [&str; 3] = ["/usr/sbin/deluser", "/sbin/deluser", "/usr/bin/deluser"];
 
+/// `chpasswd` argument list for a value that is already hashed (`-e`).
+///
+/// Both shadow's `chpasswd` and the `BusyBox` one accept `-e`. Without it the
+/// tool treats the value on stdin as a plaintext password and hashes it, so
+/// the shadow field would not be the string we sent.
+const CHPASSWD_PREHASHED: [&str; 1] = ["-e"];
+
 pub(super) type User = UserSummary;
 
 fn find(candidates: &[&'static str]) -> Option<&'static str> {
@@ -129,6 +136,8 @@ pub(super) async fn create(name: &str, fullname: &str) -> Result<(), ApiError> {
     }
     // Explicit lock: never trust a tool's default shadow field (an empty
     // field would mean a passwordless account until the GUI sets one).
+    // The field is written as the literal marker `!`, so the account stays
+    // locked until `set_password` stores a real hash.
     lock_password(name).await
 }
 
@@ -155,17 +164,28 @@ pub(super) async fn delete(uid: u32, remove_files: bool) -> Result<(), ApiError>
     }
 }
 
+/// Build the `name:value` line `chpasswd -e` reads on stdin.
+///
+/// The value is stored verbatim: a `$6$…` hash stays that hash and the lock
+/// marker `!` stays `!`. The quoted-stdin runner appends the newline.
+fn password_line(name: &str, field: &str) -> String {
+    format!("{name}:{field}")
+}
+
 /// Replace an account's shadow password field through `chpasswd -e`:
 /// the CLI takes the lock files itself, works identically on shadow and
 /// `BusyBox` (no `usermod -p` plaintext trap), and the value never
 /// leaves our process as plaintext (the hash was computed in-process).
+///
+/// `-e` (see [`CHPASSWD_PREHASHED`]) is what keeps the stored field equal to
+/// the string we pass; without it the value is hashed once more inside the
+/// tool and neither the lock marker nor a computed `$6$…` hash survives.
 async fn replace_password_field(name: &str, field: &str) -> Result<(), ApiError> {
     let program = find(&CHPASSWD).ok_or_else(|| no_tool("chpasswd not found"))?;
-    // No trailing newline: the quoted-stdin runner appends one.
-    let input = format!("{name}:{field}");
+    let input = password_line(name, field);
     crate::modules::packages_nix::exec::run_root_program_quoted_stdin(
         program,
-        &[],
+        &CHPASSWD_PREHASHED,
         std::time::Duration::from_secs(60),
         &input,
     )
@@ -173,13 +193,15 @@ async fn replace_password_field(name: &str, field: &str) -> Result<(), ApiError>
     .map(|_| ())
 }
 
-/// Write a pre-computed hash (`$6$…`) into the account's password field.
+/// Write a pre-computed hash (`$6$…`) into the account's password field,
+/// so the account can log in with exactly the password that was hashed.
 pub(super) async fn set_password(uid: u32, hashed: &str) -> Result<(), ApiError> {
     let name = user_name_for_uid(uid)?;
     replace_password_field(&name, hashed).await
 }
 
-/// Set the account's shadow password field to `!` (locked).
+/// Set the account's shadow password field to `!` (locked), which no
+/// password can match.
 async fn lock_password(name: &str) -> Result<(), ApiError> {
     replace_password_field(name, "!").await
 }
@@ -200,11 +222,43 @@ async fn run(program: &str, args: &[&str]) -> Result<(), ApiError> {
 mod tests {
     use super::*;
 
+    /// A fixed crypt SHA-512 hash of `ursine-test` (salt `abcdefgh`). A
+    /// literal keeps the test cheap and independent of the salt generator;
+    /// `password_line` only has to move the string, never to build it.
+    const HASHED: &str =
+        "$6$abcdefgh$NLd1na0CyT.jYyyxEe5vx6ut8kD6lKiYS7zhN1HisLwEkBPnPhhDD.3yFa/ialvkXZIeNi1I9AzvOQ0mny.A00";
+
     #[test]
     fn uid_lookup_matches_the_login_name() {
         let raw = "root:x:0:0:root:/root:/bin/sh\nalice:x:1000:1000:Alice:/home/alice:/bin/sh\n";
         assert_eq!(uid_from_passwd(raw, "alice"), Some(1000));
         assert_eq!(uid_from_passwd(raw, "root"), Some(0));
         assert_eq!(uid_from_passwd(raw, "bob"), None);
+    }
+
+    #[test]
+    fn chpasswd_is_told_the_value_is_already_hashed() {
+        assert_eq!(CHPASSWD_PREHASHED, ["-e"]);
+    }
+
+    #[test]
+    fn password_line_passes_an_existing_hash_through_unchanged() {
+        assert_eq!(password_line("alice", HASHED), format!("alice:{HASHED}"));
+    }
+
+    #[test]
+    fn password_line_sends_the_lock_marker_verbatim() {
+        assert_eq!(password_line("alice", "!"), "alice:!");
+    }
+
+    #[test]
+    fn the_stored_hash_verifies_the_password_that_was_hashed() {
+        // The `set_password` path end to end: hash in-process, hand the hash
+        // to `chpasswd -e`, read the field back. Verifying it proves the
+        // password just set is the one that logs in.
+        let line = password_line("alice", HASHED);
+        let (_, field) = line.split_once(':').unwrap();
+        assert!(pwhash::sha512_crypt::verify("ursine-test", field));
+        assert!(!pwhash::sha512_crypt::verify("wrong-password", field));
     }
 }

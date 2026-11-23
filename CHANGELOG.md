@@ -106,6 +106,14 @@
   `Unavailable` with a `fix` naming the provider and what to set instead of
   `Internal`.
 
+- **Users**: accounts created by 0.48.0–0.49.0 were left usable instead of
+  locked, and `set_password` left the account rejecting the password it had
+  just been given. If you created or reset accounts with those versions, lock
+  them (`passwd -l <name>`) and set a fresh password; existing shadow entries
+  are not migrated here. Accounts created from this release on stay locked
+  until `set_password` runs, and that action stores exactly the password it
+  was given.
+
 ## [0.49.0] — 2026-11-23
 
 ### Added
