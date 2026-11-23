@@ -63,7 +63,16 @@ repo_group() {
     src/ursine/Cargo.toml src/ursined/Cargo.toml src/ursinectl/Cargo.toml \
     rust-toolchain.toml deny.toml taplo.toml
   need actionlint && run actionlint
-  need zizmor && run zizmor .github/workflows
+  if need zizmor; then
+    if [ -n "${ZIZMOR_SARIF:-}" ]; then
+      # One run, SARIF instead of plain text: CI uploads this file so the
+      # code-scanning alerts track the current workflow instead of going stale.
+      step "zizmor --format sarif .github/workflows > $ZIZMOR_SARIF"
+      if ! zizmor --format sarif .github/workflows >"$ZIZMOR_SARIF"; then STATUS=1; fi
+    else
+      run zizmor .github/workflows
+    fi
+  fi
   # The only rules outside this image: they need a Nix store, so the Nix job
   # runs them in nixos/nix (ci.yml, "Nix lint and flake evaluation").
   step "nix linters (statix/deadnix/alejandra): Nix job — nixos/nix"

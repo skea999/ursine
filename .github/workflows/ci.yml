@@ -49,6 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # tag: create the release and upload the assets
+      security-events: write # upload the zizmor SARIF on main
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -102,7 +103,15 @@ jobs:
             -e CARGO_HOME=/work/artifacts/cargo-home \
             -e RUST_MIN_STACK=16777216 \
             -e "URSINE_RUN_DIR=/work/$RUN_DIR" \
+            -e "ZIZMOR_SARIF=/work/$RUN_DIR/zizmor.sarif" \
             ursine-ci:ci sh scripts/verify.sh
+
+      - name: Upload the zizmor SARIF (main only)
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && hashFiles(format('{0}/zizmor.sarif', env.RUN_DIR)) != ''
+        uses: github/codeql-action/upload-sarif@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d # v3
+        with:
+          sarif_file: ${{ env.RUN_DIR }}/zizmor.sarif
+          category: zizmor
 
       - name: Build the release package (tag)
         if: github.ref_type == 'tag'
