@@ -1178,6 +1178,37 @@ pub struct ProcessOutcome {
     pub stderr: String,
 }
 
+/// Like [`run_root_program_value`] but a non-zero exit is data.
+///
+/// `aa-easyprof` refuses a policy with `ERROR: Invalid policy` on stderr and a
+/// non-zero status, which the module maps to a typed error. Same quoted-value
+/// guard (profile paths carry `*` and `@{VAR}`), no shell.
+pub async fn run_root_program_value_tolerant(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<ProcessOutcome, ApiError> {
+    if !is_safe_atom(program) {
+        return Err(ApiError::invalid("invalid program"));
+    }
+    let mut cmd = Command::new(program);
+    for arg in args {
+        if !(arg.is_empty() || is_safe_quoted_value(arg)) {
+            return Err(ApiError::invalid("invalid command argument"));
+        }
+        cmd.arg(arg);
+    }
+    let output = run_command(cmd, timeout, OutputPolicy::Truncate, None).await?;
+    Ok(ProcessOutcome {
+        code: output.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
+/// Like [`run_root_program`] but a non-zero exit is data and `input` is
+/// written to stdin verbatim (device/property failures and syntax checks need
+/// the tool's own text). Same atom guard, no shell.
 pub async fn run_root_program_tolerant(
     program: &str,
     args: &[&str],

@@ -875,6 +875,7 @@ pub async fn apparmor_easyprof(
     binary: String,
     template: Option<String>,
     policy_groups: Option<String>,
+    template_vars: Vec<String>,
 ) -> Result<ursine_api::ApparmorOutput, ApiError> {
     let value = call(
         token,
@@ -883,6 +884,7 @@ pub async fn apparmor_easyprof(
             binary,
             template,
             policy_groups,
+            template_vars,
         },
         None,
     )

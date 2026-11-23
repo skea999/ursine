@@ -955,6 +955,7 @@ impl cosmic::Application for App {
                 "binary" => self.apparmor.easyprof_binary = value,
                 "template" => self.apparmor.easyprof_template = value,
                 "groups" => self.apparmor.easyprof_groups = value,
+                "vars" => self.apparmor.easyprof_vars = value,
                 other => debug_assert!(false, "unknown easyprof field {other}"),
             },
             Message::RefreshNetwork => return self.load_network(),
@@ -5921,7 +5922,11 @@ impl App {
                     binary,
                     template,
                     policy_groups,
-                } => client::apparmor_easyprof(token, binary, template, policy_groups).await,
+                    template_vars,
+                } => {
+                    client::apparmor_easyprof(token, binary, template, policy_groups, template_vars)
+                        .await
+                }
                 ApparmorQuery::EasyprofList(what) => {
                     client::apparmor_easyprof_list(token, what).await
                 }

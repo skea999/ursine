@@ -249,7 +249,18 @@ CLIs; profile paths must live under
 .IR /etc/apparmor.d ;
 profile saves are syntax-checked before writing and rotate the
 .I backup_configs
-slots; the notifications button activates aa-notify from the next login.
+slots outside that directory (under
+.IR /var/lib/ursine/backups/apparmor ),
+because every AppArmor tool parses the whole profile directory; a backup
+left in it from an older release is reported as a conflict instead of
+being deleted. aa-cleanprof runs with
+.B \-s
+(silent) and aa-easyprof takes
+.I template_vars
+( NAME=VALUE , passed as
+.BR \-\-template\-var=@{NAME}=VALUE )
+for policy groups that use variables; the notifications button activates
+aa-notify from the next login.
 .TP
 .B booster
 booster_config_get, booster_config_set, booster_regenerate. Edits

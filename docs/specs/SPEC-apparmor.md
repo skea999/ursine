@@ -22,17 +22,56 @@ module — no duplicate logic).
 | `apparmor_unconfined` | `aa-unconfined` (raw output) |
 | `apparmor_remove_unknown` | `aa-remove-unknown` (destructive → `--yes`) |
 | `apparmor_profile_get {path}` | raw file content |
-| `apparmor_profile_set {path, content}` | path validation → **`apparmor_parser -d` on stdin of the NEW content** (invalid refused before any write) → `backup_configs` rotation → atomic tmp+rename 0644 |
+| `apparmor_profile_set {path, content}` | path validation → **`apparmor_parser -d` on stdin of the NEW content** (invalid refused before any write) → `backup_configs` rotation **into the mirror root** (see Backups) → atomic tmp+rename 0644 |
 | `apparmor_notifications_enable` | surgical edit of `show_notifications="yes"` in `/etc/apparmor/notify.conf` (backup first) + write `~/.config/autostart/aa-notify.desktop` (`Exec=aa-notify -p`) owned by the session user; effective from next login (user decision: no same-session spawn) |
-| `apparmor_cleanprof {name}` | `aa-cleanprof <name>` — rewrites the profile file (drops comments, reorders) → whole `/etc/apparmor.d` rotated first; destructive (`--yes`) |
-| `apparmor_autodep {path}` | `aa-autodep <path>` (adds hardlink deps to the file → rotated first) |
+| `apparmor_cleanprof {name}` | `aa-cleanprof -s <name>` (`-s` = silent: without it the tool prompts, has no terminal behind the daemon and dies in a Python traceback) — rewrites the profile file (drops comments, reorders) → whole `/etc/apparmor.d` backed up first; destructive (`--yes`); an interactive refusal is `unavailable` with a fix, never the traceback as the message |
+| `apparmor_autodep {path}` | `aa-autodep <path>` (adds hardlink deps to the file → backed up first) |
 | `apparmor_features_abi` | `aa-features-abi --extract` (read-only) |
 | `apparmor_decode {hex}` | `aa-decode <hex>` (argv form; stdin multi-line decoding is out of scope — the shared runners reject newlines) |
-| `apparmor_easyprof {binary, template?, policy_groups?}` | `aa-easyprof [-t T] [-p G] <binary>` (two-argv short options — optparse-portable) — generation ONLY: `--output-directory` is never passed, so the profile goes to stdout (man: "If unspecified, policy is sent to stdout") and NO profile file is written (the tool may drop a transient /tmp file while consulting apparmor_parser); `binary`/options go through the quoted-value guard (`*` is legal in profile paths) |
+| `apparmor_easyprof {binary, template?, policy_groups?, template_vars?}` | `aa-easyprof [-t T] [-p G] [--template-var=@{NAME}=VALUE …] <binary>` (two-argv short options — optparse-portable; one argv element per declared variable) — generation ONLY: `--output-directory` is never passed, so the profile goes to stdout (man: "If unspecified, policy is sent to stdout") and NO profile file is written (the tool may drop a transient /tmp file while consulting apparmor_parser); `binary`/options go through the quoted-value guard (`*` is legal in profile paths) |
 | `apparmor_easyprof_list {what}` | `aa-easyprof --list-templates` or `--list-policy-groups` (`what` ∈ templates\|policy_groups) |
 
 All profile paths: canonicalized, must live under `/etc/apparmor.d`, must
 be regular files; `..` and symlink escapes rejected.
+
+`template_vars` (added 2026-11-24, issue #16): optional list of
+`NAME=VALUE` entries (`serde(default)`, so older clients still
+deserialize). Each entry becomes one `--template-var=@{NAME}=VALUE`
+argv element — the only way to satisfy a policy group that writes a
+variable (`opt-application` uses `@{APPNAME}`), which otherwise fails
+verification. Validation: name = letters/digits/`_`, 64 chars max;
+value non-empty, 512 chars max, no newline/CR/NUL; at most 32 entries.
+`aa-easyprof` refusing the generated policy (`ERROR: Invalid policy`)
+is `invalid` with a fix naming `template_vars` (and the variable, when
+the verification message names it), never `Internal`.
+
+## Backups
+
+The profile directory is machine-read: every `AppArmor` tool parses every
+file in `/etc/apparmor.d`, so a rotated copy parked next to a profile
+defines that profile twice and breaks the load of UNRELATED profiles
+(`ERROR: Conflicting profiles for /usr/bin/true defined in two files`).
+
+The `backup_configs` slot chain for profiles therefore lives in a mirror
+root, outside the read tree (user decision, issue #11):
+
+```text
+/etc/apparmor.d                       → /var/lib/ursine/backups/apparmor/etc/apparmor.d
+/etc/apparmor.d/usr.bin.jq            → /var/lib/ursine/backups/apparmor/etc/apparmor.d/usr.bin.jq
+slot 0 / .N                           → <mirror>.ursine-backup[.N]
+```
+
+Same slot naming, same rotation order (backup before replace, fail
+closed) and the same `backup_configs.copies` cap as every other module
+(`backup_configs::rotate_into`, used by one shared helper for the
+single-file write and the whole-directory rotation). `/etc/apparmor.d`
+never gains an `*.ursine-backup*` file again.
+
+A pre-existing `*.ursine-backup*` entry inside `/etc/apparmor.d` (left by
+v0.48.x and older) is a real conflict: every profile write answers
+`conflict` with a fix that names the files and shows the `mv` command
+into the mirror root. Ursine never deletes files under
+`/etc/apparmor.d` on its own.
 
 Excluded with rationale: `aa-genprof`/`aa-logprof`/`aa-mergeprof`
 (interactive learning loops), `aa-exec` (executes programs), `aa-notify`
@@ -96,6 +135,9 @@ only).
 - Unit: `aa-status` text fixtures (loaded / not loaded / not mounted /
   enforce+complain lists with pids), path validation (outside
   `/etc/apparmor.d`, `..`, symlink escape, non-file), mode→argv mapping,
+  backup mirror path mapping + stray-backup scan (`rotate_into` keeps
+  the chain outside the read tree), `template_vars` → argv and its
+  validation, `Invalid policy`/interactive-tool error mapping,
   enable = symlink-removal + parser compose, notify.conf surgical edit
   (comments preserved), autostart file content, check-result mapping.
 - Samples: every action `Dispatch::Gate` in CI (no aa-status in

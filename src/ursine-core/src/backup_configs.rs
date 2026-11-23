@@ -7,6 +7,10 @@
 //! failed rotation aborts the write (exit 42 in the shell scripts) and the
 //! live file stays untouched. Legacy timestamped backups from older
 //! releases (`<file>.ursine-backup-<stamp>`) are pruned to the same cap.
+//!
+//! [`rotate_into`] keeps the very same slot chain but parks it on another
+//! path, for targets whose OWN directory is machine-read: an `AppArmor` backup
+//! next to a profile is a second definition of that profile.
 
 use std::path::{Path, PathBuf};
 
@@ -38,19 +42,22 @@ pub fn slot_path(target: &Path, index: usize) -> PathBuf {
 /// drop stale slots left by a higher configured count, then run `insert`
 /// which puts the newest backup into slot 0, then prune legacy
 /// timestamped backups down to the remaining allowance.
+///
+/// `slot_base` names the chain: it equals the target for a normal rotation and
+/// is the mirror path for [`rotate_into`].
 fn rotate_common(
-    target: &Path,
+    slot_base: &Path,
     copies: usize,
     insert: impl FnOnce(&Path) -> Result<(), ApiError>,
 ) -> Result<(), ApiError> {
     let copies = copies.clamp(MIN_COPIES, MAX_COPIES);
     // Oldest slot first so a slot is free before its newer neighbour moves in.
     for index in (1..copies).rev() {
-        let from = slot_path(target, index - 1);
+        let from = slot_path(slot_base, index - 1);
         if !from.exists() {
             continue;
         }
-        let to = slot_path(target, index);
+        let to = slot_path(slot_base, index);
         if to.exists() {
             let removed = if to.is_dir() {
                 std::fs::remove_dir_all(&to)
@@ -75,15 +82,15 @@ fn rotate_common(
     }
     // Slots left over from a higher configured count are stale: drop them.
     for index in copies..=MAX_COPIES {
-        let stale = slot_path(target, index);
+        let stale = slot_path(slot_base, index);
         if stale.is_dir() {
             let _ = std::fs::remove_dir_all(&stale);
         } else if stale.exists() {
             let _ = std::fs::remove_file(&stale);
         }
     }
-    insert(&slot_path(target, 0))?;
-    prune_legacy(target, copies);
+    insert(&slot_path(slot_base, 0))?;
+    prune_legacy(slot_base, copies);
     Ok(())
 }
 
@@ -95,6 +102,43 @@ pub fn rotate(target: &Path, copies: usize, owner: Option<(u32, u32)>) -> Result
         return Ok(());
     }
     rotate_common(target, copies, |slot0| copy_path(target, slot0, owner))
+}
+
+/// Rotation whose slot chain lives OUTSIDE the source tree: `target` is
+/// copied, but the slots hang off `mirror` (`<mirror>.ursine-backup`, …).
+///
+/// Needed where the source's own directory is read as input by a tool that
+/// picks up every file in it (`AppArmor` profiles): a backup parked next to
+/// the live file would be a second definition of the same profile. Same
+/// naming, same `copies` cap, same fail-closed order.
+///
+/// Missing `target` → no-op, like [`rotate`].
+pub fn rotate_into(
+    target: &Path,
+    mirror: &Path,
+    copies: usize,
+    owner: Option<(u32, u32)>,
+) -> Result<(), ApiError> {
+    if !target.exists() {
+        return Ok(());
+    }
+    // The mirror may sit several levels below its root (`…/etc/apparmor.d/…`).
+    if let Some(parent) = mirror.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| rotation_error(parent, &e))?;
+    }
+    rotate_common(mirror, copies, |slot0| copy_path(target, slot0, owner))
+}
+
+/// Async wrapper for [`rotate_into`] (blocking pool, like [`rotate_async`]).
+pub async fn rotate_into_async(
+    target: PathBuf,
+    mirror: PathBuf,
+    copies: usize,
+    owner: Option<(u32, u32)>,
+) -> Result<(), ApiError> {
+    tokio::task::spawn_blocking(move || rotate_into(&target, &mirror, copies, owner))
+        .await
+        .map_err(|e| ApiError::internal(format!("backup task failed: {e}")))?
 }
 
 /// Async wrapper for module handlers: runs [`rotate`] on the blocking
@@ -490,6 +534,63 @@ mod tests {
                 .mode();
             assert_eq!(mode & 0o777, 0o600, "crontab backups stay private");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rotate_into_keeps_the_chain_outside_the_source_tree() {
+        // File target: the mirror path need not exist yet (nested dirs are
+        // created); the source directory must stay free of `*ursine-backup*`.
+        let dir = dir("into");
+        let live = dir.join("etc/apparmor.d/usr.bin.jq");
+        std::fs::create_dir_all(live.parent().unwrap()).unwrap();
+        std::fs::write(&live, "first\n").unwrap();
+        let mirror = dir.join("var/lib/ursine/backups/apparmor/etc/apparmor.d/usr.bin.jq");
+        rotate_into(&live, &mirror, 2, None).unwrap();
+        std::fs::write(&live, "second\n").unwrap();
+        rotate_into(&live, &mirror, 2, None).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(slot_path(&mirror, 0)).unwrap(),
+            "second\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(slot_path(&mirror, 1)).unwrap(),
+            "first\n"
+        );
+        assert!(!slot_path(&live, 0).exists(), "no slot beside the profile");
+        let live_dir = live.parent().unwrap();
+        for entry in std::fs::read_dir(live_dir).unwrap().flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            assert!(
+                !name.contains("ursine-backup"),
+                "{name} must not live in the read directory"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rotate_into_copies_a_whole_directory_to_the_mirror() {
+        let dir = dir("into-dir");
+        let live = dir.join("etc/apparmor.d");
+        std::fs::create_dir_all(live.join("local")).unwrap();
+        std::fs::write(live.join("usr.bin.jq"), "profile\n").unwrap();
+        std::fs::write(live.join("local/extra"), "local\n").unwrap();
+        let mirror = dir.join("var/lib/ursine/backups/apparmor/etc/apparmor.d");
+        rotate_into(&live, &mirror, 3, None).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(slot_path(&mirror, 0).join("usr.bin.jq")).unwrap(),
+            "profile\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(slot_path(&mirror, 0).join("local/extra")).unwrap(),
+            "local\n"
+        );
+        assert!(live.join("usr.bin.jq").exists(), "copy, never move");
+        assert!(!slot_path(&live, 0).exists());
+        // A missing target stays a no-op, exactly like `rotate`.
+        rotate_into(&dir.join("absent"), &dir.join("mirror/absent"), 2, None).unwrap();
+        assert!(!slot_path(&dir.join("mirror/absent"), 0).exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

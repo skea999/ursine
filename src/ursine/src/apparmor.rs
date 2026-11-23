@@ -64,6 +64,8 @@ pub enum ApparmorQuery {
         binary: String,
         template: Option<String>,
         policy_groups: Option<String>,
+        /// `NAME=VALUE` declarations for the variables a policy group uses.
+        template_vars: Vec<String>,
     },
     EasyprofList(String),
 }
@@ -87,6 +89,9 @@ pub struct ApparmorState {
     pub easyprof_binary: String,
     pub easyprof_template: String,
     pub easyprof_groups: String,
+    /// Comma-separated `NAME=VALUE` template variables (policy groups that
+    /// write `@{APPNAME}` refuse to verify without them).
+    pub easyprof_vars: String,
     pub error: Option<String>,
     pub message: Option<String>,
 }
@@ -396,6 +401,18 @@ impl ApparmorState {
         );
         items.push(
             row(vec![
+                text("Template vars:").into(),
+                text_input("APPNAME=appname", &self.easyprof_vars)
+                    .on_input(|value| Message::ApparmorEasyprofChanged("vars", value))
+                    .width(Length::Fill)
+                    .into(),
+            ])
+            .spacing(8)
+            .width(Length::Fill)
+            .into(),
+        );
+        items.push(
+            row(vec![
                 small_button(
                     "Generate",
                     (!self.action_busy && !self.busy && !self.easyprof_binary.trim().is_empty())
@@ -403,6 +420,7 @@ impl ApparmorState {
                             binary: self.easyprof_binary.trim().to_string(),
                             template: non_empty(&self.easyprof_template),
                             policy_groups: non_empty(&self.easyprof_groups),
+                            template_vars: template_vars(&self.easyprof_vars),
                         })),
                 ),
                 small_button(
@@ -480,6 +498,17 @@ impl ApparmorState {
 fn non_empty(value: &str) -> Option<String> {
     let trimmed = value.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+/// Comma-separated `NAME=VALUE` box → the action's `template_vars` list
+/// (empty entries ignored, so a trailing comma is harmless).
+fn template_vars(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(ToString::to_string)
+        .collect()
 }
 
 impl ApparmorState {

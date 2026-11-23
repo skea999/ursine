@@ -697,12 +697,17 @@ pub enum Action {
     },
     /// Generate a profile from templates/policy groups — stdout only,
     /// nothing is written (`--output-directory` is never passed).
+    /// `template_vars` declares the `AppArmor` variables a policy group uses
+    /// (`NAME=VALUE` entries, passed as `--template-var=@{NAME}=VALUE`);
+    /// without them a group that writes `@{APPNAME}` fails to verify.
     ApparmorEasyprof {
         binary: String,
         #[serde(default)]
         template: Option<String>,
         #[serde(default)]
         policy_groups: Option<String>,
+        #[serde(default)]
+        template_vars: Vec<String>,
     },
     /// List aa-easyprof templates or policy groups.
     ApparmorEasyprofList {
@@ -770,6 +775,43 @@ mod tests {
                 app_id: "org.mozilla.firefox".into(),
                 system: false,
                 remote: Some("flathub-beta".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn apparmor_easyprof_defaults_template_vars_for_older_clients() {
+        // Old clients omit `template_vars`: the wire must still parse, and the
+        // argv builder then passes no `--template-var` at all.
+        let parsed: Action = serde_json::from_value(serde_json::json!({
+            "action": "apparmor_easyprof",
+            "binary": "/opt/tools/scanner-app",
+            "policy_groups": "opt-application",
+        }))
+        .unwrap();
+        assert_eq!(
+            parsed,
+            Action::ApparmorEasyprof {
+                binary: "/opt/tools/scanner-app".into(),
+                template: None,
+                policy_groups: Some("opt-application".into()),
+                template_vars: Vec::new(),
+            }
+        );
+        let with_vars: Action = serde_json::from_value(serde_json::json!({
+            "action": "apparmor_easyprof",
+            "binary": "/opt/tools/scanner-app",
+            "policy_groups": "opt-application",
+            "template_vars": ["APPNAME=tools"],
+        }))
+        .unwrap();
+        assert_eq!(
+            with_vars,
+            Action::ApparmorEasyprof {
+                binary: "/opt/tools/scanner-app".into(),
+                template: None,
+                policy_groups: Some("opt-application".into()),
+                template_vars: vec!["APPNAME=tools".into()],
             }
         );
     }

@@ -339,18 +339,33 @@ no `su`, no suid requirement on the tool.
 (`content=@file` reads the profile from a file), `apparmor_notifications_enable`,
 `apparmor_cleanprof name=…`, `apparmor_autodep path=…`,
 `apparmor_features_abi`, `apparmor_decode hex=…`,
-`apparmor_easyprof binary=… [template=…] [policy_groups=…]`,
+`apparmor_easyprof binary=… [template=…] [policy_groups=…]
+[template_vars='["APPNAME=appname"]']`,
 `apparmor_easyprof_list what=templates|policy_groups` (SPEC-apparmor).
 
 - `apparmor_easyprof` only PRINTS the generated profile (aa-easyprof's
   `--output-directory` is never passed — no profile file is written);
   copy the output into a profile file yourself to persist it.
+- `template_vars` declares the AppArmor variables a policy group writes:
+  each `NAME=VALUE` entry becomes `--template-var=@{NAME}=VALUE`. The
+  group `opt-application` uses `@{APPNAME}`, so without the declaration
+  aa-easyprof refuses the policy (`ERROR: Invalid policy`); the CLI
+  answers `invalid` with a fix naming `template_vars`.
 
 - All profile paths must live under `/etc/apparmor.d` (canonicalized —
   symlinks cannot escape).
 - `apparmor_profile_set` refuses content that fails
   `apparmor_parser -d` BEFORE writing; the file rotates through the
   `backup_configs` slots first. Applying is a separate `apparmor_load`.
+- Profile backups never sit in `/etc/apparmor.d` — every AppArmor tool
+  parses that whole directory, so a copy next to a profile defines it
+  twice and breaks unrelated profiles. The slots mirror the source path
+  under `/var/lib/ursine/backups/apparmor/etc/apparmor.d/…` with the same
+  naming and the same `backup_configs.copies` cap. Backups left in the
+  profile directory by an older release make every write answer
+  `conflict` with the file names and the `mv` command; move them by hand.
+- `apparmor_cleanprof` runs `aa-cleanprof -s` (silent) and
+  `apparmor_autodep` backs the profile directory up first.
 - `apparmor_notifications_enable` writes `show_notifications="yes"` into
   `/etc/apparmor/notify.conf` and installs the `aa-notify` autostart
   entry for the session user — notifications start at the next login.
