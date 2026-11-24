@@ -55,6 +55,11 @@ center as the Nix store. Both backends are capability-gated and audited.
   account through the wire `as_user` (`--as-user`); non-root principals
   may target only their own account (same hardened boundary as
   theming/crontab), and system-scope actions reject `as_user`.
+- `system` is optional on the wire for every flatpak action and defaults to
+  `false` (the target user's installation, the same scope an explicit
+  `--user` request asks for); the catalogue reports it as `required: false`.
+  `list_flatpak_remotes` is the exception: its default is unset, which keeps
+  the legacy both-installations listing.
 - The GUI never shells out. It renders typed rows from `ursine-api`.
 
 ## Security

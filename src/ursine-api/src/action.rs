@@ -102,8 +102,14 @@ pub enum Action {
         dry_run: bool,
     },
     /// Upgrade one package (or all when `all`).
+    ///
+    /// `all` is optional on the wire and defaults to `false` (upgrade the one
+    /// named package), so a client that only names a package does not have to
+    /// send the flag. A request that names neither is refused with `invalid`
+    /// rather than silently upgrading nothing.
     Upgrade {
         package: Option<String>,
+        #[serde(default)]
         all: bool,
     },
     /// Upgrade all packages whose name matches a regex. `dry_run` lists matches.
@@ -123,6 +129,10 @@ pub enum Action {
         generation: Option<u32>,
     },
     /// Delete old profile generations (destructive). Dry-run supported.
+    ///
+    /// `dry_run` stays **required** on purpose: a destructive call has to
+    /// state whether it previews or applies, and a silent `false` default is
+    /// the one default that cannot be taken back.
     WipeHistory {
         older_than: Option<String>,
         dry_run: bool,
@@ -134,6 +144,9 @@ pub enum Action {
     /// Garbage-collect the whole nix store (unreachable paths only).
     StoreGc,
     /// Prune profile generations, keeping the last `keep` (`dry_run` = no changes).
+    ///
+    /// `dry_run` stays **required** for the same reason as [`Action::WipeHistory`]:
+    /// a deletion is never the implied default.
     PruneGenerations {
         keep: u32,
         dry_run: bool,
@@ -198,8 +211,14 @@ pub enum Action {
     },
 
     // -- packages.flatpak --
+    // Every action here selects the installation with `system`; the field is
+    // optional on the wire and defaults to `false` (the target user's
+    // installation, the same value an explicit `--user` request carries).
+    // `ListFlatpakRemotes` is the exception: its default is `None`, which
+    // keeps the legacy both-installations listing.
     /// Installed Flatpak applications for system or user installation.
     ListFlatpak {
+        #[serde(default)]
         system: bool,
     },
     /// Configured Flatpak remotes. `system` selects the installation;
@@ -211,6 +230,7 @@ pub enum Action {
     /// Refs with updates available on their remotes
     /// (`flatpak remote-ls --updates`, apps and runtimes).
     ListFlatpakUpdates {
+        #[serde(default)]
         system: bool,
     },
     /// Add a Flatpak remote to the selected installation
@@ -218,23 +238,27 @@ pub enum Action {
     AddFlatpakRemote {
         name: String,
         url: String,
+        #[serde(default)]
         system: bool,
     },
     /// Remove a Flatpak remote (`flatpak remote-delete`; refuses while
     /// packages still come from it unless flatpak itself allows it).
     RemoveFlatpakRemote {
         name: String,
+        #[serde(default)]
         system: bool,
     },
     /// Search the configured Flatpak remotes.
     SearchFlatpak {
         query: String,
+        #[serde(default)]
         system: bool,
     },
     /// Install a Flatpak application from a configured remote (default
     /// `flathub`).
     InstallFlatpak {
         app_id: String,
+        #[serde(default)]
         system: bool,
         #[serde(default)]
         remote: Option<String>,
@@ -245,11 +269,13 @@ pub enum Action {
         app_id: String,
         #[serde(default)]
         remote: Option<String>,
+        #[serde(default)]
         system: bool,
     },
     /// Remove a Flatpak application.
     RemoveFlatpak {
         app_id: String,
+        #[serde(default)]
         system: bool,
     },
     /// Preview/apply removing installed apk packages matching a regex
@@ -276,6 +302,7 @@ pub enum Action {
         pattern: String,
         #[serde(default)]
         dry_run: bool,
+        #[serde(default)]
         system: bool,
     },
     /// Preview/apply updating the installed Flatpak refs that match a regex.
@@ -287,19 +314,23 @@ pub enum Action {
         pattern: String,
         #[serde(default)]
         dry_run: bool,
+        #[serde(default)]
         system: bool,
     },
     /// Update every Flatpak application in the selected installation.
     UpdateFlatpak {
+        #[serde(default)]
         system: bool,
     },
     /// Update one Flatpak application in the selected installation.
     UpdateFlatpakApp {
         app_id: String,
+        #[serde(default)]
         system: bool,
     },
     /// Remove unused Flatpak runtimes.
     RemoveFlatpakOrphans {
+        #[serde(default)]
         system: bool,
     },
 
@@ -471,6 +502,24 @@ pub enum Action {
     /// List init services and their enabled state.
     ListServices,
     /// Start/stop/restart/enable/disable one service.
+    ///
+    /// `start`, `stop` and `restart` only touch the running state. `enable`
+    /// and `disable` change the boot set, and under dinit the backend command
+    /// changes the running state as well, so these three results are part of
+    /// the contract:
+    ///
+    /// - `enable` on a stopped unit that is not enabled yet: the boot link is
+    ///   created **and dinit starts the service**.
+    /// - `enable` on a unit whose boot link exists: success without a backend
+    ///   call, and the running state is untouched (a stopped unit stays
+    ///   stopped).
+    /// - `disable` on a running enabled unit: the boot link is removed and
+    ///   **the service keeps running**.
+    ///
+    /// `enable` and `disable` therefore answer with the service list re-read
+    /// afterwards: read `state` there instead of assuming the operation left
+    /// it alone. `OpenRC` behaves differently (`rc-update` never starts or
+    /// stops anything).
     ServiceAction {
         name: String,
         op: crate::ServiceOp,
@@ -816,6 +865,99 @@ mod tests {
                 remote: Some("flathub-beta".into()),
             }
         );
+    }
+
+    #[test]
+    fn flatpak_system_defaults_to_the_user_installation() {
+        // Every flatpak action answers the user's installation when a client
+        // omits `system`; the catalogue says `required: false` for it.
+        let listed: Action =
+            serde_json::from_value(serde_json::json!({ "action": "list_flatpak" })).unwrap();
+        assert_eq!(listed, Action::ListFlatpak { system: false });
+
+        let installed: Action = serde_json::from_value(serde_json::json!({
+            "action": "install_flatpak",
+            "app_id": "org.mozilla.firefox",
+        }))
+        .unwrap();
+        assert_eq!(
+            installed,
+            Action::InstallFlatpak {
+                app_id: "org.mozilla.firefox".into(),
+                system: false,
+                remote: None,
+            }
+        );
+
+        let updated: Action = serde_json::from_value(serde_json::json!({
+            "action": "update_flatpak_app",
+            "app_id": "org.mozilla.firefox",
+        }))
+        .unwrap();
+        assert_eq!(
+            updated,
+            Action::UpdateFlatpakApp {
+                app_id: "org.mozilla.firefox".into(),
+                system: false,
+            }
+        );
+
+        let orphans: Action =
+            serde_json::from_value(serde_json::json!({ "action": "remove_flatpak_orphans" }))
+                .unwrap();
+        assert_eq!(orphans, Action::RemoveFlatpakOrphans { system: false });
+
+        // The regex pair keeps the required/optional split it had: preview is
+        // optional, the installation selector is optional too.
+        let regex: Action = serde_json::from_value(serde_json::json!({
+            "action": "flatpak_remove_regex",
+            "pattern": "^org\\.mozilla",
+        }))
+        .unwrap();
+        assert_eq!(
+            regex,
+            Action::FlatpakRemoveRegex {
+                pattern: "^org\\.mozilla".into(),
+                dry_run: false,
+                system: false,
+            }
+        );
+
+        // `system: true` keeps the explicit system scope on the wire.
+        let explicit: Action = serde_json::from_value(serde_json::json!({
+            "action": "list_flatpak",
+            "system": true,
+        }))
+        .unwrap();
+        assert_eq!(explicit, Action::ListFlatpak { system: true });
+    }
+
+    #[test]
+    fn upgrade_all_defaults_to_false_and_dry_run_stays_required() {
+        let one: Action = serde_json::from_value(serde_json::json!({
+            "action": "upgrade",
+            "package": "hello",
+        }))
+        .unwrap();
+        assert_eq!(
+            one,
+            Action::Upgrade {
+                package: Some("hello".into()),
+                all: false,
+            }
+        );
+
+        // Destructive calls keep an explicit choice: a request without
+        // `dry_run` is rejected instead of defaulting to apply.
+        let wipe = serde_json::from_value::<Action>(serde_json::json!({
+            "action": "wipe_history",
+        }));
+        assert!(wipe.is_err());
+        let prune = serde_json::from_value::<Action>(serde_json::json!({
+            "action": "prune_generations",
+            "keep": 3,
+        }));
+        assert!(prune.is_err());
     }
 
     #[test]

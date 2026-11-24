@@ -26,6 +26,27 @@ pub enum ErrorCode {
     Internal,
 }
 
+impl ErrorCode {
+    /// The stable wire name, byte for byte the string serde emits.
+    ///
+    /// Frontends that print the code (the CLI's `error[not_found]: …` form)
+    /// use this instead of `Debug`, which spells `RateLimited` the variant way.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotImplemented => "not_implemented",
+            Self::Unauthorized => "unauthorized",
+            Self::Forbidden => "forbidden",
+            Self::RateLimited => "rate_limited",
+            Self::Unavailable => "unavailable",
+            Self::Invalid => "invalid",
+            Self::NotFound => "not_found",
+            Self::Conflict => "conflict",
+            Self::Internal => "internal",
+        }
+    }
+}
+
 /// Error payload carried by `Response::Err`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiError {
@@ -101,6 +122,25 @@ mod tests {
         assert_eq!(json, "\"not_implemented\"");
         let json = serde_json::to_string(&ErrorCode::RateLimited).unwrap();
         assert_eq!(json, "\"rate_limited\"");
+    }
+
+    #[test]
+    fn as_str_matches_the_serialized_name() {
+        // The CLI prints `as_str`; the daemon sends serde. They must not drift.
+        for code in [
+            ErrorCode::NotImplemented,
+            ErrorCode::Unauthorized,
+            ErrorCode::Forbidden,
+            ErrorCode::RateLimited,
+            ErrorCode::Unavailable,
+            ErrorCode::Invalid,
+            ErrorCode::NotFound,
+            ErrorCode::Conflict,
+            ErrorCode::Internal,
+        ] {
+            let wire = serde_json::to_value(code).unwrap();
+            assert_eq!(wire, code.as_str(), "{code:?}");
+        }
     }
 
     #[test]

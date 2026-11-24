@@ -271,7 +271,7 @@ const UPGRADE: ActionSpec = row(
     ModuleId::PackagesNix,
     Effect::Mutating,
     Gate::Never,
-    &[param("package", false), param("all", true)],
+    &[param("package", false), param("all", false)],
 );
 const UPGRADE_REGEX: ActionSpec = row(
     "upgrade_regex",
@@ -422,7 +422,7 @@ const LIST_FLATPAK: ActionSpec = row(
     ModuleId::PackagesFlatpak,
     Effect::ReadOnly,
     Gate::Never,
-    &[param("system", true)],
+    &[param("system", false)],
 );
 const LIST_FLATPAK_REMOTES: ActionSpec = row(
     "list_flatpak_remotes",
@@ -436,7 +436,7 @@ const LIST_FLATPAK_UPDATES: ActionSpec = row(
     ModuleId::PackagesFlatpak,
     Effect::ReadOnly,
     Gate::Never,
-    &[param("system", true)],
+    &[param("system", false)],
 );
 const ADD_FLATPAK_REMOTE: ActionSpec = row(
     "add_flatpak_remote",
@@ -446,7 +446,7 @@ const ADD_FLATPAK_REMOTE: ActionSpec = row(
     &[
         param("name", true),
         param("url", true),
-        param("system", true),
+        param("system", false),
     ],
 );
 const REMOVE_FLATPAK_REMOTE: ActionSpec = row(
@@ -454,14 +454,14 @@ const REMOVE_FLATPAK_REMOTE: ActionSpec = row(
     ModuleId::PackagesFlatpak,
     Effect::Mutating,
     Gate::Always,
-    &[param("name", true), param("system", true)],
+    &[param("name", true), param("system", false)],
 );
 const SEARCH_FLATPAK: ActionSpec = row(
     "search_flatpak",
     ModuleId::PackagesFlatpak,
     Effect::ReadOnly,
     Gate::Never,
-    &[param("query", true), param("system", true)],
+    &[param("query", true), param("system", false)],
 );
 const INSTALL_FLATPAK: ActionSpec = row(
     "install_flatpak",
@@ -470,7 +470,7 @@ const INSTALL_FLATPAK: ActionSpec = row(
     Gate::Never,
     &[
         param("app_id", true),
-        param("system", true),
+        param("system", false),
         param("remote", false),
     ],
 );
@@ -482,7 +482,7 @@ const GET_FLATPAK_INFO: ActionSpec = row(
     &[
         param("app_id", true),
         param("remote", false),
-        param("system", true),
+        param("system", false),
     ],
 );
 const REMOVE_FLATPAK: ActionSpec = row(
@@ -490,7 +490,7 @@ const REMOVE_FLATPAK: ActionSpec = row(
     ModuleId::PackagesFlatpak,
     Effect::Mutating,
     Gate::Always,
-    &[param("app_id", true), param("system", true)],
+    &[param("app_id", true), param("system", false)],
 );
 
 // -- PackagesApk --
@@ -518,7 +518,7 @@ const FLATPAK_REMOVE_REGEX: ActionSpec = row(
     &[
         param("pattern", true),
         param("dry_run", false),
-        param("system", true),
+        param("system", false),
     ],
 );
 const FLATPAK_UPGRADE_REGEX: ActionSpec = row(
@@ -529,7 +529,7 @@ const FLATPAK_UPGRADE_REGEX: ActionSpec = row(
     &[
         param("pattern", true),
         param("dry_run", false),
-        param("system", true),
+        param("system", false),
     ],
 );
 const UPDATE_FLATPAK: ActionSpec = row(
@@ -537,21 +537,21 @@ const UPDATE_FLATPAK: ActionSpec = row(
     ModuleId::PackagesFlatpak,
     Effect::Mutating,
     Gate::Always,
-    &[param("system", true)],
+    &[param("system", false)],
 );
 const UPDATE_FLATPAK_APP: ActionSpec = row(
     "update_flatpak_app",
     ModuleId::PackagesFlatpak,
     Effect::Mutating,
     Gate::Always,
-    &[param("app_id", true), param("system", true)],
+    &[param("app_id", true), param("system", false)],
 );
 const REMOVE_FLATPAK_ORPHANS: ActionSpec = row(
     "remove_flatpak_orphans",
     ModuleId::PackagesFlatpak,
     Effect::Mutating,
     Gate::Always,
-    &[param("system", true)],
+    &[param("system", false)],
 );
 
 // -- Printers --
@@ -1705,6 +1705,54 @@ mod tests {
             total > 100,
             "the catalogue shrank unexpectedly: {total} rows"
         );
+    }
+
+    #[test]
+    fn optional_scope_flags_are_not_required() {
+        // `system` is optional on every flatpak action (serde default false =
+        // the user installation); `all` is optional on nix `upgrade`.
+        let flatpak_with_scope = [
+            "list_flatpak",
+            "list_flatpak_updates",
+            "add_flatpak_remote",
+            "remove_flatpak_remote",
+            "search_flatpak",
+            "install_flatpak",
+            "get_flatpak_info",
+            "remove_flatpak",
+            "flatpak_remove_regex",
+            "flatpak_upgrade_regex",
+            "update_flatpak",
+            "update_flatpak_app",
+            "remove_flatpak_orphans",
+        ];
+        for name in flatpak_with_scope {
+            let system = row_named(name)
+                .params
+                .iter()
+                .find(|p| p.name == "system")
+                .unwrap_or_else(|| panic!("{name} has no system param"));
+            assert!(!system.required, "{name}: system must be optional");
+        }
+        let all = row_named("upgrade")
+            .params
+            .iter()
+            .find(|p| p.name == "all")
+            .expect("upgrade has an all param");
+        assert!(!all.required, "upgrade: all must be optional");
+    }
+
+    #[test]
+    fn destructive_deletions_keep_dry_run_required() {
+        // Documented on the action: a deletion never previews by default.
+        for name in ["wipe_history", "prune_generations"] {
+            let dry_run = row_named(name)
+                .params
+                .iter()
+                .find(|p| p.name == DRY_RUN)
+                .unwrap_or_else(|| panic!("{name} has no dry_run param"));
+            assert!(dry_run.required, "{name}: dry_run must stay required");
+        }
     }
 
     #[test]

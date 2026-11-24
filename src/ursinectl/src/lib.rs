@@ -116,6 +116,32 @@ pub async fn stream_job(
     }
 }
 
+/// Human error block for stderr: `error[<code>]: <message>` plus the `fix`.
+///
+/// The wire code sits in the brackets so a shell script can branch on it the
+/// same way it would read `code` from the JSON form. The `fix` line appears
+/// only when the daemon sent one.
+pub fn error_human(error: &ursine_api::ApiError) -> String {
+    let mut text = format!("error[{}]: {}\n", error.code.as_str(), error.message);
+    if let Some(fix) = &error.fix {
+        text.push_str(&format!("fix: {fix}\n"));
+    }
+    text
+}
+
+/// `--json` error object: the wire `ApiError` on one line, for stderr.
+///
+/// `--json` selects the shape, not the stream: stdout carries only results, so
+/// a script reads the failed call's `code`, `message` and `fix` from stderr as
+/// one JSON document.
+pub fn error_json(error: &ursine_api::ApiError) -> String {
+    serde_json::to_string(error).unwrap_or_else(|_| {
+        // Encoding a plain struct cannot fail in practice; a panic here would
+        // hide the failure the caller is about to report.
+        "{\"code\":\"internal\",\"message\":\"the error could not be encoded\"}".to_string()
+    })
+}
+
 /// Process exit code for a call that succeeded at the API level.
 ///
 /// Returns `1` when the response reports `valid: false` (`niri validate`
@@ -127,8 +153,9 @@ pub fn response_exit_code(value: &serde_json::Value) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::response_exit_code;
+    use super::{error_human, error_json, response_exit_code};
     use serde_json::json;
+    use ursine_api::ApiError;
 
     #[test]
     fn valid_false_exits_one() {
@@ -146,5 +173,23 @@ mod tests {
         assert_eq!(response_exit_code(&json!({"valid": true})), 0);
         assert_eq!(response_exit_code(&json!({"exists": true})), 0);
         assert_eq!(response_exit_code(&json!({"valid": "false"})), 0);
+    }
+
+    #[test]
+    fn error_forms_carry_the_wire_code() {
+        let error = ApiError::internal("apk exited 1").with_fix("rerun the action");
+        assert_eq!(
+            error_human(&error),
+            "error[internal]: apk exited 1\nfix: rerun the action\n"
+        );
+        // No fix: one line, no trailing empty `fix:`.
+        assert_eq!(
+            error_human(&ApiError::internal("apk exited 1")),
+            "error[internal]: apk exited 1\n"
+        );
+        let json: serde_json::Value = serde_json::from_str(&error_json(&error)).unwrap();
+        assert_eq!(json["code"], "internal");
+        assert_eq!(json["message"], "apk exited 1");
+        assert_eq!(json["fix"], "rerun the action");
     }
 }

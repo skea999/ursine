@@ -21,7 +21,7 @@ channels / `nix-env` are out of scope by decision (skea999).
 | `nix.remove` | asUser | `nix profile remove <element>` |
 | `nix.removeAll` | asUser | `nix profile remove --all` |
 | `nix.removeRegex` | asUser | `nix profile remove --regex <pattern>` |
-| `nix.upgrade` | asUser | `nix profile upgrade <element>` / `--all` |
+| `nix.upgrade` | asUser | `nix profile upgrade <element>` / `--all`. `all` is optional on the wire and defaults to `false` (upgrade the named package); a request that names neither a package nor `all=true` answers `invalid`. |
 | `nix.upgradeRegex` | asUser | `nix profile upgrade --regex <pattern>` |
 | `nix.search` | asUser | `nix search <repo> <query> --json` → `SearchResult[]` (repo defaults to `nixpkgs`; custom repos prefix bare installables) |
 | `nix.listRepositories` | asUser | `nix registry list` + `nix-channel --list` → `NixRepository[]` for the selected scope (`system` or the target user). Only configured entries: builtin `global` defaults are never returned (no file to edit, no way to restore them). A channel fills a name the registry does not define. |
