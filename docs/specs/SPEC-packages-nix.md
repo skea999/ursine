@@ -31,9 +31,9 @@ channels / `nix-env` are out of scope by decision (skea999).
 | `nix.generations` | asUser | `nix profile history` → lines (returned NEWEST first) |
 | `nix.rollback` | asUser | `nix profile rollback [--to N]` |
 | `nix.wipeHistory` | asUser | `nix profile wipe-history [--older-than D] [--dry-run]` |
-| `nix.diffClosures` | asUser | `nix profile diff-closures` → lines |
+| `nix.diffClosures` | asUser | plain `nix profile diff-closures` → lines. `--to` is not passed: that flag belongs to `rollback` and nix rejects it here. With `generation=N` only the block whose header ends at N (`Version M -> N:`) is returned, because nix prints one block per generation pair; a generation that is no step in the history is an `invalid` error, not an empty diff |
 | `nix.storeGc` | **root** | `nix store gc` — total GC (unreachable paths only), timeout 3600s |
-| `nix.pruneGenerations` | **root** (exec) | plan from `nix profile history` (ANSI stripped; current generation read from `profile-N-link` symlink — nix 2.31 does not mark it); `dry_run` returns `current` + `would_delete`; exec `nix-env -p <profile> --delete-generations +N` (root: users cannot lock the store profile in multi-user mode) |
+| `nix.pruneGenerations` | **root** (exec) | plan from `nix profile history` (ANSI stripped; current generation read from `profile-N-link` symlink — nix 2.31 does not mark it); `dry_run` returns `current` + `would_delete`; exec `nix-env -p <profile> --delete-generations +N` (root: users cannot lock the store profile in multi-user mode). Both reads of the profile link share one helper: a missing link (or one that vanished between the two reads) answers the empty plan, never `Invalid` |
 
 Execution rules (binding): `su -l -s /bin/sh <user> -c 'nix ...'` (login env:
 HOME/PATH/XDG for the user's own profile); every argument validated against a
@@ -46,7 +46,10 @@ GC notes: `storeGc` runs as root and only removes paths unreachable from any
 GC root (profile generations are roots — that is why prune exists). The active
 generation is never deleted; `pruneGenerations` computes the plan first, so the
 GUI can preview it before running. Verified against nix 2.31.5: `history` emits
-ANSI escapes and has no `(current)` marker; `--delete-generations +N` needs root.
+ANSI escapes and has no `(current)` marker; `--delete-generations +N` needs root;
+`diff-closures` accepts no `--to`, prints one `Version A -> B:` block per pair of
+consecutive generations (header from `CmdProfileDiffClosures`, `profile.cc`) and
+separates blocks with a blank line.
 
 - Repositories mirror the FeralOS model: the installer adds the `nixos-26.05` channel as root and pins `nixpkgs` in `/etc/nix/registry.json` plus the install user's registry. Ursine lists exactly those configured entries per scope — `System` = system registry + root channels, `User` = the target user's — and never the builtin registry defaults (a user cannot restore one, so it is not offered for removal).
 - Registry list/add/remove are user-scoped actions: `asUser` picks the registry to read or edit. A NON-root caller may target only its own account; root may retarget an existing normal-login account. Every authenticated Ursine user is in `wheel` (login gate), which is the distro's trusted-users boundary.

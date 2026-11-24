@@ -893,21 +893,105 @@ async fn attach_descriptions(user: &str, packages: &mut [InstalledPackage], dead
     }
 }
 
-fn lines(outcome: &CommandOutcome) -> serde_json::Value {
-    json!({ "lines": line_list(outcome) })
+/// Arguments for `nix profile diff-closures`.
+///
+/// The `--to` flag belongs to `nix profile rollback` only: nix rejects it on
+/// `diff-closures`, so a requested generation is selected out of the printed
+/// blocks (`diff_closures_view`) instead of being passed on the command line.
+fn diff_closures_args() -> [(&'static str, &'static str); 2] {
+    [("profile", ""), ("diff-closures", "")]
 }
 
-/// Validate the profile link and read the active generation.
-fn validated_profile_generation(profile_path: &std::path::Path) -> Result<u32, ApiError> {
-    let meta = std::fs::symlink_metadata(profile_path)
-        .map_err(|e| ApiError::invalid(format!("profile path is not a symlink: {e}")))?;
-    if !meta.file_type().is_symlink() {
-        return Err(ApiError::invalid("profile path is not a symlink"));
+/// Leading generation number of a `Version …` header fragment, plus the rest.
+fn diff_closures_number(text: &str) -> Option<(u32, &str)> {
+    let len = text.find(|c: char| !c.is_ascii_digit())?;
+    let (digits, rest) = text.split_at(len);
+    Some((digits.parse().ok()?, rest))
+}
+
+/// The `(from, to)` generation pair of a `Version A -> B:` block header.
+fn diff_closures_step(line: &str) -> Option<(u32, u32)> {
+    let rest = line.strip_prefix("Version ")?;
+    let (from, rest) = diff_closures_number(rest)?;
+    let rest = rest.strip_prefix(" -> ")?;
+    let (to, _) = diff_closures_number(rest)?;
+    Some((from, to))
+}
+
+/// Keep the block that describes `generation`.
+///
+/// `nix profile diff-closures` prints one `Version A -> B:` block per pair of
+/// consecutive generations, so the block that belongs to generation N is the
+/// one whose right-hand side is N. The left-hand side is NOT required to be
+/// N-1: after a prune the history can jump (`Version 3 -> 7:`). Without a
+/// requested generation every block is returned. A generation that is no step
+/// in the profile's history is an error rather than an empty answer, because
+/// an empty list reads like "nothing changed" in the frontends.
+fn diff_closures_view(
+    lines: Vec<String>,
+    generation: Option<u32>,
+) -> Result<Vec<String>, ApiError> {
+    let Some(wanted) = generation else {
+        return Ok(lines);
+    };
+    let mut kept: Vec<String> = Vec::new();
+    let mut in_block = false;
+    for line in lines {
+        if let Some((_, to)) = diff_closures_step(&line) {
+            in_block = to == wanted;
+        }
+        // Detail lines belong to whichever header preceded them, and text
+        // before the first header belongs to no generation at all.
+        if in_block {
+            kept.push(line);
+        }
     }
-    let target = std::fs::read_link(profile_path)
-        .map_err(|e| ApiError::invalid(format!("cannot read profile link: {e}")))?;
-    generations::profile_target_generation(&target, profile_path)
-        .ok_or_else(|| ApiError::invalid("profile link is not a generation link"))
+    if kept.is_empty() {
+        return Err(ApiError::invalid(format!(
+            "generation {wanted} is not a generation step in the closure diff"
+        ))
+        .with_fix("refresh the generation list and diff a step from it"));
+    }
+    Ok(kept)
+}
+
+/// Active generation named by the profile symlink (`profile-N-link`).
+///
+/// `Ok(None)` means the link itself is gone: nothing was ever installed, or the
+/// profile disappeared between two reads. Both reads in `prune_generations`
+/// answer that with the empty plan, and sharing this one helper keeps them from
+/// drifting apart. Every other failure — an unreadable link, a path that is not
+/// a symlink, a link that does not name a generation — stays an `invalid`
+/// error, because the profile is there but unusable.
+fn profile_link_generation(profile: &std::path::Path) -> Result<Option<u32>, ApiError> {
+    match std::fs::read_link(profile) {
+        Ok(target) => generations::profile_target_generation(&target, profile)
+            .map(Some)
+            .ok_or_else(|| {
+                ApiError::invalid("profile link is not a generation link")
+                    .with_fix("run nix profile install once to rebuild the profile link")
+            }),
+        // No link: the profile has no generations yet, which is not a failure.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        // EINVAL: the path exists but is a plain file or directory, so the
+        // repair differs from an unreadable link and deserves its own message.
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidInput => {
+            Err(ApiError::invalid("profile path is not a symlink")
+                .with_fix("let nix own the profile link, or point as_user at the right account"))
+        }
+        Err(e) => Err(ApiError::invalid(format!("cannot read profile link: {e}"))),
+    }
+}
+
+/// Answer for a profile without a generation link: a preview reports an empty
+/// plan and an apply reports an empty deletion, because a user who never
+/// installed anything has nothing to prune.
+fn empty_prune_answer(dry_run: bool) -> serde_json::Value {
+    if dry_run {
+        json!({ "dry_run": true, "would_delete": [], "kept": 0 })
+    } else {
+        prune_apply_payload(None, &[], "", "")
+    }
 }
 
 fn prune_apply_payload(
@@ -982,9 +1066,11 @@ fn start_argv_job(
 /// True when the profile symlink no longer points at `generation` (a
 /// concurrent rollback raced the job).
 fn profile_changed(profile_link: &std::path::Path, generation: u32) -> bool {
-    std::fs::read_link(profile_link)
+    // A link that no longer names a generation counts as unchanged: this only
+    // classifies a concurrent rollback, it never reports a failure.
+    profile_link_generation(profile_link)
         .ok()
-        .and_then(|link| generations::parse_generation_link(&link.to_string_lossy()))
+        .flatten()
         .is_some_and(|now| now != generation)
 }
 
@@ -1220,13 +1306,10 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             start_profile_job(ctx, "wipe_history", pairs(&args), MUTATE_TIMEOUT)
         }
         Action::DiffClosures { generation } => {
-            let gen_str = generation.map(|g| g.to_string());
-            let mut args: Vec<(&str, &str)> = vec![("profile", ""), ("diff-closures", "")];
-            if let Some(g) = gen_str.as_deref() {
-                args.push(("--to", g));
-            }
-            let out = exec::run_as_user(user, &args, HISTORY_TIMEOUT).await?;
-            Ok(lines(&out))
+            // Plain `nix profile diff-closures`: one block per generation step.
+            let out = exec::run_as_user(user, &diff_closures_args(), HISTORY_TIMEOUT).await?;
+            let view = diff_closures_view(line_list(&out), *generation)?;
+            Ok(json!({ "lines": view }))
         }
         Action::StoreGc => {
             // Store-wide GC: unreachable paths only; runs as root via the daemon.
@@ -1254,29 +1337,12 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
 
             // nix profile history does not mark the active generation; read it
             // from the profile symlink (profile-N-link).
-            let link = match std::fs::read_link(profile_ref) {
-                Ok(link) => link,
+            let Some(current) = profile_link_generation(profile_ref)? else {
                 // Never installed anything: there is nothing to prune, so a
-                // preview answers with an empty plan instead of an error.
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    if *dry_run {
-                        return Ok(json!({
-                            "dry_run": true,
-                            "would_delete": [],
-                            "kept": 0,
-                        }));
-                    }
-                    return Ok(prune_apply_payload(None, &[], "", ""));
-                }
-                Err(e) => return Err(ApiError::invalid(format!("cannot read profile link: {e}"))),
+                // preview and an apply both answer with the empty plan instead
+                // of an error.
+                return Ok(empty_prune_answer(*dry_run));
             };
-            let current =
-                generations::parse_generation_link(&link.to_string_lossy()).ok_or_else(|| {
-                    ApiError::new(
-                        ErrorCode::Conflict,
-                        "cannot determine the active generation; refresh and retry",
-                    )
-                })?;
 
             if !dry_run {
                 // A destructive apply without the exact preview is refused at
@@ -1321,7 +1387,12 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
                 ));
             }
 
-            let fresh_current = validated_profile_generation(profile_ref)?;
+            let Some(fresh_current) = profile_link_generation(profile_ref)? else {
+                // The link vanished between the two reads: the profile is gone,
+                // so the answer is the same empty apply the first read gives,
+                // never an `invalid` error.
+                return Ok(empty_prune_answer(false));
+            };
             if current != fresh_current {
                 return Err(ApiError::new(
                     ErrorCode::Conflict,
@@ -1387,6 +1458,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)] // tests use the host temp dir
 
     #[test]
     fn element_lock_prefers_percent_encoded_narhash() {
@@ -1846,5 +1918,124 @@ global flake:blender-bin github:edolstra/nix-warez?dir=blender\n";
         assert_eq!(payload["deleted"], json!([]));
         assert_eq!(payload["stdout"], "");
         assert_eq!(payload["stderr"], "");
+    }
+
+    /// Fresh, empty fixture directory for one profile-link test.
+    fn fixture_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("ursine-nix-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn diff_closures_argv_never_carries_the_rollback_flag() {
+        let args = diff_closures_args();
+        assert_eq!(args, [("profile", ""), ("diff-closures", "")]);
+        // `--to` belongs to `nix profile rollback`; nix rejects it here.
+        assert!(!args.iter().any(|(flag, _)| *flag == "--to"));
+    }
+
+    #[test]
+    fn diff_closures_step_reads_header_generations() {
+        assert_eq!(diff_closures_step("Version 1 -> 2:"), Some((1, 2)));
+        // A pruned history jumps: the left side is a surviving generation.
+        assert_eq!(diff_closures_step("Version 3 -> 7:"), Some((3, 7)));
+        // Detail lines and free text are not headers.
+        assert_eq!(diff_closures_step("  firefox: 120.0 -> 121.0"), None);
+        assert_eq!(diff_closures_step("Version x -> 2:"), None);
+        assert_eq!(diff_closures_step("Version 2"), None);
+    }
+
+    #[test]
+    fn diff_closures_view_keeps_only_the_requested_generation() {
+        let lines: Vec<String> = [
+            "Version 1 -> 2:",
+            "  firefox: 120.0 -> 121.0",
+            "Version 2 -> 3:",
+            "  hello: 2.12 -> 2.12.1",
+            "  gh: 2.101.0 -> 2.102.0",
+        ]
+        .iter()
+        .map(|line| (*line).to_string())
+        .collect();
+        // No generation: the whole output, untouched.
+        assert_eq!(diff_closures_view(lines.clone(), None).unwrap(), lines);
+        // generation=2 is the `Version 1 -> 2:` step, never `2 -> 3:`.
+        assert_eq!(
+            diff_closures_view(lines.clone(), Some(2)).unwrap(),
+            vec![
+                "Version 1 -> 2:".to_string(),
+                "  firefox: 120.0 -> 121.0".to_string(),
+            ]
+        );
+        // The newest block keeps every detail line it owns.
+        assert_eq!(
+            diff_closures_view(lines, Some(3)).unwrap(),
+            vec![
+                "Version 2 -> 3:".to_string(),
+                "  hello: 2.12 -> 2.12.1".to_string(),
+                "  gh: 2.101.0 -> 2.102.0".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn diff_closures_view_rejects_a_generation_that_is_no_step() {
+        let error = diff_closures_view(vec!["Version 1 -> 2:".to_string()], Some(9)).unwrap_err();
+        assert_eq!(error.code, ErrorCode::Invalid);
+        assert!(error.message.contains("generation 9"), "{error:?}");
+        assert!(error.fix.is_some());
+        // A profile with a single generation prints no block at all.
+        assert!(diff_closures_view(Vec::new(), Some(1)).is_err());
+        assert!(diff_closures_view(Vec::new(), None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn profile_link_generation_answers_none_when_the_link_is_gone() {
+        let dir = fixture_dir("prune-missing");
+        // Never installed anything, or the link vanished between the reads.
+        assert_eq!(profile_link_generation(&dir.join("profile")).unwrap(), None);
+        assert_eq!(
+            empty_prune_answer(true),
+            json!({ "dry_run": true, "would_delete": [], "kept": 0 })
+        );
+        // The empty apply claims no current generation and deletes nothing.
+        let applied = empty_prune_answer(false);
+        assert_eq!(applied["dry_run"], false);
+        assert_eq!(applied["deleted"], json!([]));
+        assert!(applied["current"].is_null());
+    }
+
+    #[test]
+    fn profile_link_generation_resolves_the_active_generation() {
+        let dir = fixture_dir("prune-present");
+        std::fs::write(dir.join("profile-7-link"), "").unwrap();
+        let profile = dir.join("profile");
+        // Exactly what nix keeps: `profile -> profile-N-link`, one component.
+        std::os::unix::fs::symlink("profile-7-link", &profile).unwrap();
+        assert_eq!(profile_link_generation(&profile).unwrap(), Some(7));
+    }
+
+    #[test]
+    fn profile_link_generation_reports_an_unusable_link() {
+        let dir = fixture_dir("prune-unusable");
+        // A plain file where nix keeps its symlink (read_link → EINVAL).
+        let plain = dir.join("plain");
+        std::fs::write(&plain, "").unwrap();
+        let error = profile_link_generation(&plain).unwrap_err();
+        assert_eq!(error.code, ErrorCode::Invalid);
+        assert!(error.message.contains("not a symlink"), "{error:?}");
+        // A symlink that does not name a generation needs another repair.
+        std::fs::write(dir.join("target"), "").unwrap();
+        let stray = dir.join("stray");
+        std::os::unix::fs::symlink("target", &stray).unwrap();
+        let error = profile_link_generation(&stray).unwrap_err();
+        assert_eq!(error.code, ErrorCode::Invalid);
+        assert!(error.message.contains("generation link"), "{error:?}");
+        // A relative link that leaves the profile directory is refused.
+        let escaped = dir.join("escaped");
+        std::os::unix::fs::symlink("../profile-7-link", &escaped).unwrap();
+        assert!(profile_link_generation(&escaped).is_err());
     }
 }
