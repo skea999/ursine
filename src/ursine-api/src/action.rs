@@ -92,7 +92,16 @@ pub enum Action {
     /// List installed packages in the target user's profile.
     #[serde(rename = "list_installed_nix", alias = "list_installed")]
     ListInstalled,
-    /// Search a registry flake (default `nixpkgs`; slow: UI shows progress).
+    /// Search a registry flake (default `nixpkgs`) and answer the whole page.
+    ///
+    /// Synchronous: no progress is streamed and no job id comes back, so the
+    /// client waits for one reply. The FIRST search on a machine whose Nix
+    /// cache is cold downloads the flake source and evaluates every attribute,
+    /// which takes minutes rather than seconds (135s measured for `firefox` on
+    /// a slow VM, ~103 MiB of cache left behind); a warm search answers in
+    /// seconds. The daemon kills the child after `timeouts::SEARCH_SECS`
+    /// (300s) and answers in `internal` when it does, so a client that sizes
+    /// its own deadline must allow at least that value.
     #[serde(rename = "search_nix", alias = "search")]
     Search {
         query: String,
