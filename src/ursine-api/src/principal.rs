@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PrincipalOrigin {
-    /// Verified locally through the PAM handshake.
+    /// Verified locally by the daemon against the shadow file.
     Local,
     /// Verified through OIDC (v3; no code path yet).
     Oidc,

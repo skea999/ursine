@@ -12,6 +12,13 @@ use crate::token::SessionToken;
 
 /// Current protocol version. Bump on breaking wire changes.
 ///
+/// The version is not advisory: `Daemon::handle` compares `Request::v` with
+/// this constant and refuses any other value with an `invalid` error naming
+/// both numbers, before authentication or dispatch. That check is the only
+/// enforcement of the rule; `docs/specs/SPEC-protocol.md` states it for
+/// client authors, and a test keeps the documented number in step with this
+/// constant.
+///
 /// v3: package mutations return `job_id` (poll `job_output`); no more inline
 /// mutation output.
 /// v4: `list_apk_repositories` rows are `{url, tag}` objects (was a list
@@ -19,6 +26,12 @@ use crate::token::SessionToken;
 /// v5: no D-Bus — `set_bluetooth_pairing_pin` removed (pairing is
 /// bluetoothctl's own agent), `BluetoothView.pairing_pin_set` removed,
 /// capability `accountsservice` renamed to `shadow` (user CLI probe).
+/// v6: Nix repository scopes mirror the `FeralOS` model — `system: bool`
+/// selects the installation on `list_nix_repositories`, `add_nix_repository`
+/// and `remove_nix_repository`, and `remove` names the row's source
+/// (`registry` | `channel`) instead of the old `scope` string.
+/// v7: `refresh_apk` removed — the update check refreshes the indexes first,
+/// and it was the only package action outside the job path.
 pub const PROTOCOL_VERSION: u16 = 7;
 
 const fn wire_version() -> u16 {
@@ -43,7 +56,8 @@ pub struct Request {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RequestBody {
-    /// One-time handshake: credentials verified by the daemon via PAM.
+    /// One-time handshake: credentials checked against the shadow file.
+    /// It is the only unauthenticated request.
     Auth {
         user: String,
         password: String,
@@ -58,7 +72,8 @@ pub enum RequestBody {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         client: Option<String>,
     },
-    /// Authenticated call: requires `Authorization: Bearer <token>`.
+    /// Authenticated call: the session token travels in `token` on the
+    /// request line, not in a header.
     Call {
         module: ModuleId,
         action: Action,
@@ -265,5 +280,28 @@ mod tests {
         let s = serde_json::to_string(&auth).unwrap();
         assert_eq!(serde_json::from_str::<Response>(&s).unwrap(), auth);
         assert!(s.contains("\"client\":\"ursine-gui\""));
+    }
+
+    #[test]
+    fn spec_protocol_states_the_current_wire_version() {
+        // The specification is the only protocol reference a client author
+        // has, so it must name the version this crate sends. Reading it at
+        // compile time keeps the check free of IO and makes a stale sentence
+        // a test failure instead of a support question.
+        const SPEC: &str = include_str!("../../../docs/specs/SPEC-protocol.md");
+        let stated = format!("(currently {PROTOCOL_VERSION};");
+        let mut sentences = 0;
+        for line in SPEC.lines().filter(|line| line.contains("(currently ")) {
+            sentences += 1;
+            assert!(
+                line.contains(&stated),
+                "docs/specs/SPEC-protocol.md must state `v: u16` {stated}, \
+                found: {line}"
+            );
+        }
+        assert_eq!(
+            sentences, 1,
+            "the specification carries exactly one `v: u16` version sentence"
+        );
     }
 }

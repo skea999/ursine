@@ -5,7 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Bearer token issued after a successful handshake.
+/// Opaque session token issued after a successful handshake; it travels in
+/// `Request::token` on the same line as the call, never in a header.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SessionToken(String);
