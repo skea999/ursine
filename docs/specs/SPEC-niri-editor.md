@@ -10,7 +10,7 @@ A schema-driven settings GUI for the niri Wayland compositor — the user SELECT
 - **Parsing**: existing `~/.config/niri/config.kdl` parsed via `kdl` crate; known nodes rendered into forms; **unknown/user-added nodes preserved verbatim** on write (round-trip safety: we only rewrite what we manage)
 - **Writing**: serialize managed sections + preserved unknown nodes; atomic write (temp + rename); the previous config rotates through the uniform `.ursine-backup[.N]` slots (`backup_configs.copies`, default 3); `niri validate` runs BEFORE commit — invalid config never lands
 - **Sections (v1 forms)**: input (keyboard: layouts, repeat; touchpad: tap, natural scroll, dwt), pointer speed, outputs (mode, scale, position, VRR, transform), layout (gaps, struts, border/focus-ring: width+colors, preset widths/heights), animations (on/off, durations, curves from schema), keybinds (capture widget: press combo → recorded binding + action dropdown), gestures, environment variables (add/remove list), spawn-at-startup (add/remove list), cursor (size, theme), screenshot path prefix, hotkey overlay toggle
-- **Live validation**: `niri validate --config <tmp>` on every change batch; errors mapped back to the offending form field
+- **Live validation**: `niri validate --config <tmp>` on every change batch, the temporary file written as the target user in a hidden `.niri-validate.XXXXXX` beside the config (niri resolves a relative `include` against the validated file's folder, so `/tmp` would reject a valid split config); the folder is never created — a missing `~/.config/niri` validates from a temporary folder — and the file is removed on every exit path, including the signals a stopping daemon sends, with a sweep of hour-old leftovers after a `SIGKILL`; errors mapped back to the offending form field
 
 ## Implementation status (0.7.0 baseline)
 
@@ -41,7 +41,7 @@ stderr in the GUI. `ursinectl` exits 1 on `valid=false`.
 |---|---|
 | `niri.getConfig` | parse current config.kdl → schema-typed JSON (managed + unknown count) |
 | `niri.setSection` | apply form diff to managed nodes → validate → atomic write + backup → niri reload (niri auto-reloads on file change) |
-| `niri.validate` | run `niri validate` on proposed config without writing (GUI shows result before Apply) |
+| `niri.validate` | run `niri validate` on a proposed config without writing it (GUI shows result before Apply): a hidden temporary file beside the config is created and removed, the config folder is never created |
 | `niri.schema` | return schema version + option metadata (GUI builds forms dynamically) |
 
 - Per-user file (`~/.config/niri/config.kdl`): `asUser` applies (daemon reads/writes as target user, `su -l` or direct file IO with setuid — file IO with ownership check, simplest and safest)

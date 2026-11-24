@@ -670,7 +670,10 @@ pub enum Action {
     // -- niri --
     /// Schema-typed view of the user's config.kdl.
     GetNiriConfig,
-    /// Run `niri validate` against a proposed config (no write).
+    /// Run `niri validate` against a proposed config (nothing written).
+    /// The check uses a hidden temporary file beside the config — resolved
+    /// `include` paths need that location — and removes it afterwards; the
+    /// config folder is never created.
     ValidateNiriConfig {
         proposed: Option<String>,
     },

@@ -129,6 +129,15 @@
   Maintenance row states no count, and `remove_flatpak_orphans` stays the
   explicit gated action that removes them (#40).
 
+- **`validate_niri_config` writes nothing it keeps**: the check still runs
+  `niri validate` on a hidden `.niri-validate.XXXXXX` beside the config — a
+  relative `include` only resolves there — but it no longer creates
+  `~/.config/niri` (a missing folder validates from a temporary folder), and
+  the file is removed on failure and on `SIGINT`/`SIGTERM`/`SIGHUP` too, with
+  hour-old leftovers from a `SIGKILL` swept by the next run. The catalogue
+  comment and the action's documentation now say so instead of claiming nothing
+  is written (#39).
+
 ## [0.49.0] — 2026-11-23
 
 ### Added

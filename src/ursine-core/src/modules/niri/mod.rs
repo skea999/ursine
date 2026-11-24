@@ -249,4 +249,24 @@ mod tests {
             Some(NIRI_MIN_SUPPORTED_TUPLE)
         );
     }
+
+    #[test]
+    fn validate_stays_a_read_only_preview() {
+        // Clients poll `validate_niri_config` as a read, so the catalogue row
+        // is `read-only` and the script behind it must earn that: it never
+        // creates the config folder and it removes its temporary file. If
+        // either stops being true the row has to become `mutating`.
+        let spec = Action::ValidateNiriConfig { proposed: None }.spec();
+        assert_eq!(spec.effect, ursine_api::catalogue::Effect::ReadOnly);
+        assert_eq!(spec.gate, ursine_api::catalogue::Gate::Never);
+        let script = exec::niri_validate_script();
+        assert!(
+            !script.contains("mkdir"),
+            "validate must not create the config folder"
+        );
+        assert!(
+            script.contains(".niri-validate.") && script.contains("trap cleanup EXIT"),
+            "validate must use and remove its temporary file"
+        );
+    }
 }

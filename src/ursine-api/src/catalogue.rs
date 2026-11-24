@@ -1054,7 +1054,10 @@ const GET_NIRI_CONFIG: ActionSpec = row(
     Gate::Never,
     &[],
 );
-// checks a proposal with `niri validate`; nothing is written
+// checks a proposal with `niri validate` on a hidden temporary file beside
+// the config: the folder is never created, the file is removed afterwards
+// (also on failure and on the signals a stopping daemon sends), so no
+// configuration changes and the request stays read-only
 const VALIDATE_NIRI_CONFIG: ActionSpec = row(
     "validate_niri_config",
     ModuleId::Niri,

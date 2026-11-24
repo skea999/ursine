@@ -627,8 +627,48 @@ if [ -e "$1" ]; then printf 1; cat -- "$1"; else printf 0; fi"#;
     })
 }
 
-/// Validate a proposed niri config as the target user, using a temporary file
-/// in the user's config directory. Never runs user-controlled config as root.
+/// Shell script that validates `$1` (the config path) with `$2` (the niri
+/// binary), reading the proposed config from stdin.
+///
+/// While niri parses the file it resolves every relative `include` against the
+/// parent of that file (`niri-config`, `expand_home_path`), so the temporary
+/// file has to sit beside the real config: a file in `/tmp` would resolve
+/// `include "modules/input.kdl"` against `/tmp` and report a valid config as
+/// invalid. A user without a config folder has nothing to resolve against, so
+/// that case validates from a temporary folder and never creates
+/// `~/.config/niri` — a read-only action must not leave the folder behind.
+///
+/// Cleanup runs on every exit path, including the signals a stopping daemon
+/// sends; a file that `SIGKILL` left behind is swept by a later run once it is
+/// an hour old, so a concurrent validate never loses its own file.
+pub(crate) fn niri_validate_script() -> &'static str {
+    r#"set -eu
+PATH=/usr/bin:/bin
+umask 077
+dir=${1%/*}
+created=
+if [ ! -d "$dir" ]; then
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/ursine-niri-validate.XXXXXX")
+  created=$dir
+fi
+tmp=$(mktemp "$dir/.niri-validate.XXXXXX")
+cleanup() {
+  rm -f -- "$tmp" || true
+  if [ -n "$created" ]; then rm -rf -- "$created" || true; fi
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+find "$dir" -maxdepth 1 -name '.niri-validate.*' -type f -mmin +60 -exec rm -f -- {} \; 2>/dev/null || true
+cat > "$tmp"
+"$2" validate -c "$tmp"
+"#
+}
+
+/// Validate a proposed niri config as the target user, using a hidden
+/// temporary file beside the config (see `niri_validate_script`, the script it
+/// runs). Never runs user-controlled config as root.
 pub async fn run_as_user_validate(
     user: &str,
     path: &str,
@@ -639,16 +679,7 @@ pub async fn run_as_user_validate(
     if !is_safe_quoted_value(path) || !is_safe_atom(niri) {
         return Err(ApiError::invalid("invalid niri command"));
     }
-    let script = r#"set -eu
-PATH=/usr/bin:/bin
-umask 077
-dir=${1%/*}
-mkdir -p -- "$dir"
-tmp=$(mktemp "$dir/.niri-validate.XXXXXX")
-trap 'rm -f -- "$tmp"' EXIT
-cat > "$tmp"
-"$2" validate -c "$tmp"
-"#;
+    let script = niri_validate_script();
     let output = run_user_script_capture(user, script, &[path, niri], content).await?;
     Ok((
         output.status.success(),
@@ -1550,5 +1581,143 @@ mod tests {
             assert!(validate_target_user("bin").is_err());
             assert!(validate_target_user("definitely-not-a-user").is_err());
         }
+    }
+
+    /// Run the validate script for real against a fake `niri` that records
+    /// the path it was asked to parse (in `seen-path`) and exits with
+    /// `exit_code`.
+    fn run_validate_script(base: &Path, config: &Path, exit_code: i32, content: &str) -> i32 {
+        use std::io::Write as _;
+        use std::os::unix::fs::PermissionsExt as _;
+        use std::process::{Command, Stdio};
+
+        let record = base.join("seen-path");
+        let fake = base.join("fake-niri");
+        std::fs::write(
+            &fake,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$3\" > '{}'\nexit {exit_code}\n",
+                record.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(niri_validate_script())
+            .arg("sh")
+            .arg(config)
+            .arg(&fake)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(content.as_bytes())
+            .unwrap();
+        child.wait().unwrap().code().unwrap()
+    }
+
+    /// Hidden `.niri-validate.*` files the script left in `dir`.
+    fn stray_validate_files(dir: &Path) -> Vec<String> {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(".niri-validate."))
+            .collect()
+    }
+
+    /// The temporary file has to sit beside the real config (niri resolves a
+    /// relative `include` against the parsed file's folder) and must be gone
+    /// when the script returns, leaving the config untouched.
+    #[test]
+    fn validate_script_parses_beside_the_config_and_removes_its_file() {
+        let base =
+            std::env::temp_dir().join(format!("ursine-validate-beside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let config_dir = base.join("niri");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let config = config_dir.join("config.kdl");
+        std::fs::write(&config, "layout {}\n").unwrap();
+
+        let code = run_validate_script(&base, &config, 0, "layout { gaps 8 }\n");
+        assert_eq!(code, 0, "validation must succeed");
+
+        let seen = std::fs::read_to_string(base.join("seen-path")).unwrap();
+        let parsed = Path::new(seen.trim());
+        assert_eq!(
+            parsed.parent(),
+            Some(config_dir.as_path()),
+            "parsed {parsed:?} is not beside the config"
+        );
+        assert!(
+            parsed
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(".niri-validate.")),
+            "parsed {parsed:?} is not the hidden temporary file"
+        );
+        assert!(
+            stray_validate_files(&config_dir).is_empty(),
+            "temporary file left behind"
+        );
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), "layout {}\n");
+    }
+
+    /// A user without `~/.config/niri` must not get the folder created by a
+    /// read-only validate: the script parses from a temporary folder and
+    /// removes it again.
+    #[test]
+    fn validate_script_never_creates_a_missing_config_folder() {
+        let base =
+            std::env::temp_dir().join(format!("ursine-validate-missing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let config_dir = base.join("niri");
+        let config = config_dir.join("config.kdl");
+
+        let code = run_validate_script(&base, &config, 0, "layout {}\n");
+        assert_eq!(code, 0, "validation must succeed");
+        assert!(
+            !config_dir.exists(),
+            "validate created ~/.config/niri for a read-only request"
+        );
+
+        let seen = std::fs::read_to_string(base.join("seen-path")).unwrap();
+        let seen = Path::new(seen.trim());
+        assert!(
+            !seen
+                .parent()
+                .is_some_and(|dir| dir.starts_with(&config_dir)),
+            "parsed {seen:?} stayed inside the config folder"
+        );
+        assert!(!seen.exists(), "temporary folder {seen:?} was left behind");
+    }
+
+    /// A rejected config is the common case; it must not leave the hidden
+    /// file (or the folder) behind either.
+    #[test]
+    fn validate_script_removes_its_file_when_niri_rejects_the_config() {
+        let base = std::env::temp_dir().join(format!("ursine-validate-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let config_dir = base.join("niri");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let config = config_dir.join("config.kdl");
+        std::fs::write(&config, "layout {}\n").unwrap();
+
+        let code = run_validate_script(&base, &config, 1, "layout { bogus 1 }\n");
+        assert_eq!(code, 1, "the niri exit code must reach the caller");
+        assert!(
+            stray_validate_files(&config_dir).is_empty(),
+            "temporary file left behind after a rejected config"
+        );
     }
 }
