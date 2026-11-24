@@ -25,9 +25,19 @@ pub const EXIT_USAGE: u8 = 2;
 /// Root is superuser: the principal carries `wheel` unconditionally so
 /// config actions are not hostage to `/etc/group` wording on minimal chroot
 /// installs. This grants nothing the euid-0 gate has not already granted.
-pub fn issue_token(daemon: &Daemon) -> SessionToken {
+///
+/// `read_only` is the `--read-only` flag: the token then carries the same
+/// scope a remote client asks for in the handshake, so the daemon's refusal
+/// for mutating actions applies to the in-process path too. The client id is
+/// fixed here because `ursinectl` never sends an `auth` envelope — it issues
+/// its token directly — and the audit log should still say which program ran
+/// the action.
+pub fn issue_token(daemon: &Daemon, read_only: bool) -> SessionToken {
     let principal = ursine_api::Principal::local("root", vec!["wheel".to_string()]);
-    let (token, _expires) = daemon.sessions.issue(principal);
+    let (token, _expires) =
+        daemon
+            .sessions
+            .issue(principal, read_only, Some("ursinectl".to_string()));
     token
 }
 

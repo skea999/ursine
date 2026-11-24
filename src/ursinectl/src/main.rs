@@ -99,7 +99,7 @@ async fn run_call(module: ModuleId, action: ursine_api::Action, opts: cli::RunOp
             return ExitCode::FAILURE;
         }
     };
-    let token = ursinectl::issue_token(&daemon);
+    let token = ursinectl::issue_token(&daemon, opts.read_only);
     let peer = root_peer();
     let result =
         ursinectl::call(&daemon, &token, &peer, module, action, opts.as_user.clone()).await;

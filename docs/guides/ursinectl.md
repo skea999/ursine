@@ -29,8 +29,8 @@ invoked through `sudo` (or from a root shell / a chroot as root).
 ## Synopsis
 
 ```text
-ursinectl [--json] [--yes] [--as-user USER] [--config PATH] \
-          <module> <action> [key=value ...]
+ursinectl [--json] [--yes] [--read-only] [--as-user USER] \
+          [--config PATH] <module> <action> [key=value ...]
 
 ursinectl actions [--json]
 ursinectl --help [module]
@@ -43,6 +43,7 @@ ursinectl --version
 |--------|---------|
 | `--json` | Print the result as one compact JSON line (scripting). Without it the result is pretty-printed JSON (the contract; per-module tables are not required). |
 | `--yes`, `-y` | Confirm a destructive action (see below). Without it the CLI refuses and exits 2. |
+| `--read-only` | Issue a read-only session for this run: every mutating action is refused with a typed `forbidden` error, while reads and `dry_run` previews keep working. The scope is fixed at start-up, so it cannot be widened by a later flag. |
 | `--as-user USER` | Target another account for the user-scoped modules (`packages_nix`, `theming`, `crontab`, Flatpak with `system=false`). The user must exist; see [Target users](#target-users). |
 | `--config PATH` | Configuration file (default `/etc/ursine/config.toml`). The same guards apply as in the daemon: regular file, not group/world-writable. |
 | `--help`, `-h` | Full usage, or the action list of one module (`ursinectl --help nix`). Works without root. |

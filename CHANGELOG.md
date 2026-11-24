@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Read-only credentials and client identity** (`ursine-api`, `ursine-core`,
+  `ursinectl`, GUI): the `auth` handshake takes optional `read_only` and
+  `client` fields, the daemon keeps both on the RAM-only session, and
+  dispatch refuses every mutating action of a read-only session with
+  `forbidden` and a `fix` while reads and `dry_run` previews keep working.
+  `ursinectl --read-only` asks for that session, the GUI authenticates as
+  `ursine-gui`, and the audit log records the client as `on_behalf_of`
+  (#11).
+
 ### Fixed
 
 - **Launcher entry has one main category**: `packaging/org.feralos.Ursine.desktop`

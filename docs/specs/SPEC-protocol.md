@@ -116,6 +116,26 @@ JSON Schema (types, ranges, enums) is deliberately **not** shipped: the
 catalogue would have to stay true to serde, which it cannot without a
 derive, so it stays at what can be derived by hand and be tested.
 
+## Auth envelope and the credential scope
+
+`auth` is the only unauthenticated request. Two optional fields scope the
+session the daemon issues; both tolerate absence, so a frontend that predates
+them keeps exactly the read-write access it had and shows no client in the
+audit log.
+
+| Field | Direction | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `read_only` | request | bool | `false` | Ask for a read-only credential. Dispatch refuses every mutating request of that session (`Action::is_mutating()`: the request-level effect, so a `dry_run` preview or a plain read still works) with code `forbidden` and a `fix` naming the scope. |
+| `client` | request | string, optional | absent | Frontend name: 1–64 bytes from `[A-Za-z0-9_.-]`. Copied into the audit log as `on_behalf_of`; never used for authorization. A malformed value is `invalid` with a `fix`, answered before any credential work. |
+| `read_only` | `auth_ok` | bool | `false` | The scope the daemon granted, fixed for the life of the token. |
+| `client` | `auth_ok` | string, optional | absent | Echo of the accepted client id, so a client can confirm the name the audit log will show. |
+
+The scope belongs to the session, not to the token payload: `SessionToken`
+stays an opaque string, nothing is written to disk, and neither the shadow
+handshake nor the `wheel` check changes. A client that wants write access
+after authenticating read-only authenticates again — the scope cannot be
+widened on an existing token.
+
 ## Success Criteria
 
 - `cargo test -p ursine-api` green with golden + roundtrip suites

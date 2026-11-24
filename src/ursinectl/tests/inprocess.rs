@@ -33,7 +33,7 @@ async fn call(
 fn build() -> (Daemon, ursine_api::SessionToken) {
     let daemon =
         ursinectl::daemon::build(std::path::Path::new("/nonexistent/ursine-test.toml")).unwrap();
-    let token = ursinectl::issue_token(&daemon);
+    let token = ursinectl::issue_token(&daemon, false);
     (daemon, token)
 }
 
@@ -60,6 +60,31 @@ async fn cli_action_builder_round_trips_through_dispatch() {
         .await
         .unwrap();
     assert!(result.get("version").is_some(), "{result}");
+}
+
+/// The `--read-only` flag reaches the daemon: a scoped root session reads
+/// freely and is refused the moment it tries to write.
+#[tokio::test]
+async fn read_only_session_reads_but_cannot_mutate() {
+    let daemon =
+        ursinectl::daemon::build(std::path::Path::new("/nonexistent/ursine-test.toml")).unwrap();
+    let token = ursinectl::issue_token(&daemon, true);
+    let status = call(&daemon, &token, ModuleId::System, Action::Status)
+        .await
+        .unwrap();
+    assert!(status.get("version").is_some(), "{status}");
+
+    let action = ursinectl::cli::build_action("init", &[]).unwrap();
+    let err = call(&daemon, &token, ModuleId::Config, action)
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Forbidden, "{err:?}");
+    assert!(
+        err.fix
+            .as_deref()
+            .is_some_and(|fix| fix.contains("read_only")),
+        "the refusal must name the scope"
+    );
 }
 
 #[tokio::test]
@@ -365,9 +390,11 @@ async fn root_manages_other_users_crontab_and_theming() {
 #[tokio::test]
 async fn foreign_root_target_is_forbidden_for_non_root_principals() {
     let (daemon, _root_token) = build();
-    let (alice_token, _expiry) = daemon
-        .sessions
-        .issue(ursine_api::Principal::local("alice", vec!["wheel".into()]));
+    let (alice_token, _expiry) = daemon.sessions.issue(
+        ursine_api::Principal::local("alice", vec!["wheel".into()]),
+        false,
+        None,
+    );
     let err = ursinectl::call(
         &daemon,
         &alice_token,
@@ -385,9 +412,11 @@ async fn foreign_root_target_is_forbidden_for_non_root_principals() {
 #[tokio::test]
 async fn non_root_principal_is_still_own_account_only() {
     let (daemon, _root_token) = build();
-    let (alice_token, _expiry) = daemon
-        .sessions
-        .issue(ursine_api::Principal::local("alice", vec!["wheel".into()]));
+    let (alice_token, _expiry) = daemon.sessions.issue(
+        ursine_api::Principal::local("alice", vec!["wheel".into()]),
+        false,
+        None,
+    );
     let err = ursinectl::call(
         &daemon,
         &alice_token,
@@ -442,7 +471,7 @@ fn build_with_config(tag: &str, toml: &str) -> (Daemon, ursine_api::SessionToken
     // 0644: the config guard rejects group/world-writable files.
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
     let daemon = ursinectl::daemon::build(&path).unwrap();
-    let token = ursinectl::issue_token(&daemon);
+    let token = ursinectl::issue_token(&daemon, false);
     (daemon, token)
 }
 
@@ -509,7 +538,7 @@ async fn set_module_switch_persists_and_reads_back() {
     let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../artifacts/test-ursinectl/switch/config.toml");
     let daemon2 = ursinectl::daemon::build(&dir).unwrap();
-    let token2 = ursinectl::issue_token(&daemon2);
+    let token2 = ursinectl::issue_token(&daemon2, false);
     let err = call(&daemon2, &token2, ModuleId::Crontab, Action::CrontabGet)
         .await
         .unwrap_err();
@@ -538,7 +567,7 @@ async fn config_init_refuses_to_overwrite() {
     let dir = scratch("init");
     let path = dir.join("config.toml");
     let daemon = ursinectl::daemon::build(&path).unwrap();
-    let token = ursinectl::issue_token(&daemon);
+    let token = ursinectl::issue_token(&daemon, false);
     // First init writes the template…
     call(&daemon, &token, ModuleId::Config, Action::Init)
         .await
@@ -948,7 +977,7 @@ async fn every_audited_sample_leaves_a_trace() {
     std::fs::write(&cfg, format!("audit_path = \"{}\"\n", audit_path.display())).unwrap();
     std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o644)).unwrap();
     let daemon = ursinectl::daemon::build(&cfg).unwrap();
-    let token = ursinectl::issue_token(&daemon);
+    let token = ursinectl::issue_token(&daemon, false);
     let peer = root_peer();
 
     write_log_fixture();
@@ -1176,6 +1205,8 @@ async fn protocol_and_auth_boundaries() {
         body: ursine_api::RequestBody::Auth {
             user: "root".into(),
             password: "x".into(),
+            read_only: false,
+            client: None,
         },
     };
     let resp = daemon.handle(req, &peer).await;

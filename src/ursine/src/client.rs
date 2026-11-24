@@ -89,12 +89,21 @@ pub async fn auth(user: String, password: String) -> Result<AuthSession, ApiErro
             v: PROTOCOL_VERSION,
             id: Some(1),
             token: None,
-            body: RequestBody::Auth { user, password },
+            body: RequestBody::Auth {
+                user,
+                password,
+                // The GUI holds the whole machine's controls, so it asks for
+                // no scope restriction; it does name itself so the audit log
+                // can tell a GUI action from a CLI one.
+                read_only: false,
+                client: Some("ursine-gui".to_string()),
+            },
         };
         match roundtrip(&request, AUTH_TIMEOUT)? {
             ResponseBody::AuthOk {
                 token,
                 expires_in_secs,
+                ..
             } => Ok(AuthSession {
                 token,
                 expires_in_secs,
@@ -1218,6 +1227,8 @@ mod tests {
             body: RequestBody::Auth {
                 user: "skea999".into(),
                 password: "pw1".into(),
+                read_only: false,
+                client: Some("ursine-gui".to_string()),
             },
         };
         let line = serde_json::to_string(&request).unwrap();
