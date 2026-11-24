@@ -30,6 +30,13 @@
 
 ### Changed
 
+- **`search_nix` states what the first search costs**: the action doc and
+  `docs/specs/SPEC-packages-nix.md` now say the call is synchronous, that a
+  cold Nix cache makes the first search download and evaluate the flake
+  (135 s measured on a slow VM, ~103 MiB of cache, 29 results) and that the
+  daemon budget is 300s before the child is killed; a test fails when the
+  documented number drifts from the constant the handler uses (#44).
+
 - **`list_apk_updates` no longer writes by default**: the new optional
   `refresh` field (`false` when omitted) makes the check a cached-index
   read — no `apk update`, no network, no index rewrite — and only

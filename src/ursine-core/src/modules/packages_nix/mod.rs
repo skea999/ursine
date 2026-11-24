@@ -1098,6 +1098,10 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             Ok(json!(packages))
         }
         Action::Search { query, repo } => {
+            // Deliberately synchronous, and the one budget below is the only
+            // bound a client has: a cold Nix cache makes `nix search` download
+            // and evaluate the whole flake, which takes minutes (see the
+            // *Search cost* note in `docs/specs/SPEC-packages-nix.md`).
             exec::validate_query(query)?;
             let flake = match repo {
                 Some(repo) => {
@@ -1833,6 +1837,34 @@ global flake:blender-bin github:edolstra/nix-warez?dir=blender\n";
         // happens at install time).
         assert!(!repo_is_custom("nixpkgs"));
         assert!(repo_is_custom("myflake"));
+    }
+
+    /// A client sizes its own deadline from the documented budget, so neither
+    /// the module spec nor the action doc may carry a copy that drifted away
+    /// from the value the handler actually passes to `nix search`.
+    #[test]
+    fn search_budget_matches_the_documented_value() {
+        // `SEARCH_TIMEOUT` is what the `Search` arm hands to the exec helper,
+        // so it is the number a client has to plan for.
+        let budget = format!("{}s", SEARCH_TIMEOUT.as_secs());
+        let spec = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/specs/SPEC-packages-nix.md"
+        ));
+        assert!(
+            spec.contains(&format!("search {budget}")),
+            "SPEC-packages-nix.md must document the search budget as \"search {budget}\""
+        );
+        // A frontend author reads the action doc first; it names the same
+        // number instead of leaving the call open-ended.
+        let action_doc = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../ursine-api/src/action.rs"
+        ));
+        assert!(
+            action_doc.contains(&format!("({budget})")),
+            "the `Search` action doc must state the {budget} daemon budget"
+        );
     }
 
     #[test]

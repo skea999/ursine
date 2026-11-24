@@ -31,7 +31,7 @@ aliases: an existing client or script keeps deserializing to the same variant.
 | `remove_regex_nix` | asUser | `nix profile remove --regex <pattern>` |
 | `upgrade_nix` | asUser | `nix profile upgrade <element>` / `--all`. `all` is optional on the wire and defaults to `false` (upgrade the named package); a request that names neither a package nor `all=true` answers `invalid`. |
 | `upgrade_regex_nix` | asUser | `nix profile upgrade --regex <pattern>` |
-| `search_nix` | asUser | `nix search <repo> <query> --json` → `SearchResult[]` (repo defaults to `nixpkgs`; custom repos prefix bare installables) |
+| `search_nix` | asUser | `nix search <repo> <query> --json` → `SearchResult[]` (repo defaults to `nixpkgs`; custom repos prefix bare installables). Synchronous, no job: a cold Nix cache makes the first call take minutes, timeout 300s (see *Search cost*) |
 | `list_nix_repositories` | asUser | `nix registry list` + `nix-channel --list` → `NixRepository[]` for the selected scope (`system` or the target user). Only configured entries: builtin `global` defaults are never returned (no file to edit, no way to restore them). A channel fills a name the registry does not define. |
 | `add_nix_repository` | asUser | user scope: `nix registry add <name> <flake-ref>`; system scope: merge an `indirect` entry into `/etc/nix/registry.json` (`github:owner/repo[/ref]` only), backup + atomic write |
 | `remove_nix_repository` | asUser | destructive: `source=registry` → `nix registry remove` (user) or the system-file edit; `source=channel` → `nix-channel --remove` |
@@ -49,6 +49,20 @@ strict charset and single-quoted (no shell injection); target user must exist
 and have uid in `1000..60000` (system users/root rejected); path installs
 (`./flake`, `/path`) rejected in v1; timeouts: list/history 60s, search 300s,
 mutations 900s, store gc 3600s, child killed on timeout.
+
+Search cost (binding): `search_nix` stays a synchronous read — it answers one
+`SearchResult[]` page, streams no progress and returns no job id. The first
+search of a machine whose user cache (`~/.cache/nix`) is cold makes `nix search`
+download the flake source and evaluate every attribute of it: 135s measured for
+the query `firefox` on a slow VM without AVX, with ~103 MiB of cache written
+and 29 results returned. A warm search of the same query answers in seconds
+because that cache is reused. Clients therefore size their deadline from the
+daemon's budget, not from the warm-search latency: `timeouts::SEARCH_SECS`
+(search 300s) in the daemon, plus the write and reply margins in the client.
+When the budget runs out the daemon kills the child's whole process group and
+answers `internal` `command timed out after 300s`; a retry is fast because the
+cache is now warm. Turning the search into a pollable job is NOT part of this
+version: it changes the protocol shape and remains an owner decision.
 
 GC notes: `storeGc` runs as root and only removes paths unreachable from any
 GC root (profile generations are roots — that is why prune exists). The active
@@ -116,7 +130,11 @@ let started = ctx.jobs.start(ModuleId::PackagesNix, "install", ctx.principal, So
 
 ## Open Questions
 
-- Search index latency: `nix search` is slow (evaluates nixpkgs). v1 = accept slowness + progress indicator; v2 option = prebuilt search index cache. Accepted?
+- Search index latency: `nix search` is slow (it evaluates nixpkgs). v1 = accept
+  the slowness, keep the call synchronous, and document the cost plus the 300s
+  budget (see *Search cost*); the earlier "progress indicator" is not implemented
+  and is not promised by the protocol. v2 options: a prebuilt search index cache
+  on the machine, or a warm-up step outside the request. Both are open.
 
 ## Package progress (binding, implemented 2026-10-27)
 
