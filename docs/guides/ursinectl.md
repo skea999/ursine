@@ -83,6 +83,17 @@ audit log). Run `ursinectl --help` for the grouped list.
 - `status` — version, protocol version, auth backend
 - `job_output job_id=… offset=…` — poll a background job log (the CLI
   does this automatically for mutations)
+- `reboot`, `poweroff` — hand the machine to the running init
+  (`dinit-reboot` and `dinit-poweroff` on FeralOS, `/sbin/reboot` and
+  `/sbin/poweroff` on an OpenRC box). Both need `--yes`; the connection
+  usually drops while the machine stops, which is the expected outcome.
+- `set_hostname name=…` — write `/etc/hostname` (the previous name joins the
+  backup chain) and apply it with `hostname`. The name must be one RFC 1123
+  label: 1–63 characters of `[a-z0-9-]`, no leading or trailing dash.
+- `set_timezone zone=…` — point `/etc/localtime` at
+  `/usr/share/zoneinfo/<zone>` and write `/etc/timezone`. The name must be a
+  regular file in the zoneinfo tree (`Europe/Rome`); `..` and an absolute
+  path are refused.
 
 ### config
 

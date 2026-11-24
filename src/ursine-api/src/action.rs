@@ -52,6 +52,42 @@ pub enum Action {
         offset: u64,
     },
 
+    // -- system: power state and identity --
+    /// Reboot the machine now.
+    ///
+    /// The call hands the machine to the running init (`dinit-reboot` on
+    /// `FeralOS`, `/sbin/reboot` on an `OpenRC` box) and returns while the stop
+    /// sequence still runs, so a dropped connection is the expected outcome.
+    /// Gated: a reboot interrupts every other user of the machine.
+    Reboot,
+    /// Power the machine off now, the shutdown counterpart of [`Self::Reboot`].
+    ///
+    /// The wire name is `poweroff`, one word like the init tool; the
+    /// `snake_case` rename would have made it `power_off`.
+    #[serde(rename = "poweroff")]
+    PowerOff,
+    /// Set the static host name: `/etc/hostname` (rotated into the backup
+    /// chain) plus the running kernel name through `hostname`.
+    ///
+    /// The name is checked as an RFC 1123 label because `/etc/hostname` is
+    /// read back at every boot and the machine name ends up in every D-Bus
+    /// name derived from it.
+    SetHostname {
+        /// RFC 1123 label: 1 to 63 characters of `[a-z0-9-]`, no leading or
+        /// trailing dash.
+        name: String,
+    },
+    /// Set the system time zone: `/etc/localtime` points at the named file in
+    /// the zoneinfo tree and `/etc/timezone` records the name.
+    ///
+    /// `/etc/localtime` is what every process reads, so it is replaced
+    /// atomically; `/etc/timezone` is the name that survives a distribution
+    /// tool regenerating the link.
+    SetTimezone {
+        /// Zone name under `/usr/share/zoneinfo`, e.g. `Europe/Rome`.
+        zone: String,
+    },
+
     // -- packages.nix --
     /// List installed packages in the target user's profile.
     #[serde(rename = "list_installed_nix", alias = "list_installed")]

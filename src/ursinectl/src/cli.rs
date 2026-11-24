@@ -57,7 +57,8 @@ USAGE: sudo ursinectl [--json] [--yes] [--read-only] [--as-user USER] \\
   when running as root; theming has no root fallback — pass --as-user.
 
 MODULES (wire name; short alias in parentheses):
-  system              status, job_output
+  system              status, job_output, reboot, poweroff,
+                      set_hostname, set_timezone
   config              init, get_config, set_module_switch,
                       set_update_auto
   capabilities(caps)  list, refresh
@@ -124,6 +125,9 @@ MODULES (wire name; short alias in parentheses):
 
 EXAMPLES:
   ursinectl system status
+  ursinectl system set_hostname name=feral-box
+  ursinectl system set_timezone zone=Europe/Rome
+  ursinectl system reboot --yes
   ursinectl caps list
   ursinectl nix search_nix query=niri
   ursinectl apk install_apk package=niri --yes

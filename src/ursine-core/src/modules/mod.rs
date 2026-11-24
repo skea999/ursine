@@ -19,6 +19,7 @@ pub mod niri;
 pub mod packages_apk;
 pub mod packages_flatpak;
 pub mod packages_nix;
+pub mod power;
 pub mod printers;
 pub mod scanners;
 pub mod services;
@@ -116,6 +117,10 @@ pub async fn handle(
             serde_json::to_value(out)
                 .map_err(|e| ApiError::internal(format!("encode job output: {e}")))
         }
+        // Power state and identity (SPEC-system): the init owns the shutdown,
+        // so the handler resolves `dinit-reboot`/`reboot` itself instead of
+        // borrowing the services backend.
+        (ModuleId::System, action) => power::handle(action, ctx).await,
         (ModuleId::Capabilities, Action::List) => Ok(json!(ctx.caps.reports())),
         (ModuleId::Capabilities, Action::Refresh) => {
             ctx.caps.refresh();
@@ -171,6 +176,10 @@ pub fn action_name(action: &Action) -> &'static str {
         Action::Status => "status",
         Action::Init => "init",
         Action::JobOutput { .. } => "job_output",
+        Action::Reboot => "reboot",
+        Action::PowerOff => "poweroff",
+        Action::SetHostname { .. } => "set_hostname",
+        Action::SetTimezone { .. } => "set_timezone",
         Action::GetConfig => "get_config",
         Action::SetModuleSwitch { .. } => "set_module_switch",
         Action::SetUpdateAuto { .. } => "set_update_auto",

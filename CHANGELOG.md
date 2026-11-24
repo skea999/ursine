@@ -163,6 +163,20 @@
   catalogue, `ursinectl --help`, `ursinectl actions` and the guides print the
   new names (#8).
 
+- **Machine power and identity actions** (`ursine-api`, `ursine-core`):
+  `reboot` and `poweroff` hand the machine to the running init —
+  `dinit-reboot`/`dinit-poweroff` on FeralOS, `/sbin/reboot`/`/sbin/poweroff`
+  on an OpenRC box, resolved the way the services module resolves `dinitctl`
+  and answered `unavailable` with an install hint when neither is present, so
+  a power action never does nothing; both require `--yes`. `set_hostname`
+  writes `/etc/hostname` through the backup chain and applies the name with
+  `hostname`; `set_timezone` points `/etc/localtime` at
+  `/usr/share/zoneinfo/<zone>` atomically and writes `/etc/timezone`. The name
+  is validated as an RFC 1123 label, the zone as a regular file inside the
+  zoneinfo tree (`..` refused), and both refusals carry a `fix`. Adds
+  `docs/specs/SPEC-system.md`, the catalogue rows and the `ursinectl` help
+  (#10).
+
 ## [0.49.0] — 2026-11-23
 
 ### Added
