@@ -63,13 +63,16 @@ groups::set_groups(&user.name, &new_groups).await?; // usermod / addgroup
 
 - Passwords: received in request, hashed immediately (crypt SHA-512 via `pwhash` crate), never stored, never logged, never in audit (audit records "password set for uid X", no value)
 - Before every mutation the account files (`/etc/passwd`, `/etc/shadow`, `/etc/group`, `/etc/gshadow`) rotate through the uniform `backup_configs` slots
-- The ONLY allowed `/etc/shadow` interaction is `chpasswd -e` (the CLI owns the lock and the rewrite)
+- The ONLY allowed `/etc/shadow` interaction is `chpasswd -e` (the CLI owns the lock and the rewrite), with the argument list in `CHPASSWD_PREHASHED` so a test can assert it
+- The shadow field ends up as the exact string we send: `!` for a created account, the in-process `$6$…` hash for `set_password` — nothing is hashed a second time by the tool
 
 ## Testing Strategy
 
-- Unit: `/etc/passwd` + `/etc/group` parser fixtures; shadow field
-  replacement; input validation (username rules reused from FeralOS
-  installer validators: `[a-z_][a-z0-9_-]*`)
+- Unit: `/etc/passwd` + `/etc/group` parser fixtures; the `chpasswd` argv is
+  `-e`; the `name:value` stdin line keeps a `$6$…` value and `!` verbatim
+  (and the kept hash verifies the password that produced it); input
+  validation (username rules reused from FeralOS installer validators:
+  `[a-z_][a-z0-9_-]*`)
 - Integration: create/delete a throwaway user in a container (system
   user CLI present; no daemon bus required)
 

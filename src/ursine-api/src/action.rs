@@ -620,6 +620,9 @@ pub enum Action {
     /// List human users (uid >= 1000).
     ListUsers,
     /// Create a user; `admin` adds wheel membership.
+    ///
+    /// No password is set: the account is created locked and cannot log in
+    /// until `SetPassword` gives it one.
     CreateUser {
         name: String,
         fullname: String,
@@ -637,6 +640,11 @@ pub enum Action {
         name: Option<String>,
     },
     /// Set a user's password (value never logged or audited).
+    ///
+    /// The password is hashed in-process and the hash is stored as-is, so
+    /// the account accepts exactly the password supplied here; an account
+    /// created by `CreateUser` stays locked until this runs (or while it
+    /// fails).
     SetPassword {
         /// Numeric id; pass this or `name`, not both.
         #[serde(default)]

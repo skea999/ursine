@@ -40,7 +40,8 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             if *admin {
                 groups::ensure_known_group("wheel")?;
             }
-            // Locked password; the GUI sets it explicitly after creation.
+            // No password is set here: the account is left locked (shadow
+            // field `!`) and only `set_password` gives it a usable password.
             backup_accounts().await?;
             accounts::create(name, fullname).await?;
             if *admin {
@@ -67,6 +68,8 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             let uid = resolve_uid(*uid, name.as_deref())?;
             reject_system_uid(uid)?;
             groups::validate_password(new_password)?;
+            // Hash here, then hand the hash to `chpasswd -e`: the tool must
+            // store this exact string, or the password just set never logs in.
             let password = new_password.clone();
             let hashed = tokio::task::spawn_blocking(move || {
                 pwhash::sha512_crypt::hash_with(
