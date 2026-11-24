@@ -385,7 +385,7 @@ pub enum Message {
     /// preview, without arming the install confirm).
     FlatpakPreviewRequested,
     FlatpakPreviewFinished(u64, Result<FlatpakInfo, ApiError>),
-    PackageFlatpakLoaded(u64, Result<(Vec<FlatpakPackage>, Option<u64>), ApiError>),
+    PackageFlatpakLoaded(u64, Result<Vec<FlatpakPackage>, ApiError>),
     PackageFlatpakUpdatesLoaded(u64, u64, Result<Vec<FlatpakPackage>, ApiError>),
     PackageFlatpakRemotesLoaded(u64, Result<Vec<ursine_api::FlatpakRemote>, ApiError>),
     PackageApkSearchLoaded(u64, Result<Vec<ApkPackage>, ApiError>),
@@ -3378,17 +3378,14 @@ impl App {
     fn finish_flatpak(
         &mut self,
         epoch: u64,
-        result: Result<(Vec<FlatpakPackage>, Option<u64>), ApiError>,
+        result: Result<Vec<FlatpakPackage>, ApiError>,
     ) -> Task<cosmic::Action<Message>> {
         if epoch != self.epoch {
             return Task::none();
         }
         self.packages.busy = false;
         match result {
-            Ok((packages, orphans)) => {
-                self.packages.orphans = orphans;
-                self.packages.apply_flatpak(packages);
-            }
+            Ok(packages) => self.packages.apply_flatpak(packages),
             Err(error) => {
                 if self.handle_session_error(&error) {
                     return Task::none();

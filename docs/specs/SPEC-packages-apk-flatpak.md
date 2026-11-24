@@ -21,7 +21,7 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `list_apk_updates` | `apk version -l <` → `ApkUpdate[]`; runs `apk update` FIRST only when `refresh=true` (that request rewrites the index cache and is mutating, the default read answers from the cache) |
 | `apk_remove_regex` | match installed names against the regex daemon-side (the apk CLI has none) → dry-run returns `{dry_run, would_change}`, apply runs one `apk del <names…>` job (destructive in the CLI) |
 | `apk_upgrade_regex` | same match → one `apk upgrade <names…>` job |
-| `list_flatpak` | `flatpak list --columns=application,name,version,branch,origin,description --system/--user` + best-effort orphan count (`flatpak uninstall --unused --system/--user` answered `n` — read-only plan parse; `orphans` field may be null) |
+| `list_flatpak` | `flatpak list --columns=application,name,version,branch,origin,description --system/--user` → `{packages}`; the action is read-only and never runs `flatpak uninstall` (flatpak 1.18.4 has no report-only `uninstall` option, so the unused-runtime count is gone; `remove_flatpak_orphans` removes them) |
 | `list_flatpak_remotes` | `flatpak remotes --columns=name,url [--system/--user]` |
 | `add_flatpak_remote` | `flatpak remote-add <scope> <name> <url>` |
 | `remove_flatpak_remote` | `flatpak remote-delete <scope> <name>` |
@@ -33,6 +33,7 @@ center as the Nix store. Both backends are capability-gated and audited.
 | `install_flatpak` | `flatpak install -y --noninteractive <scope> <remote> <app>` (remote default `flathub`, validated) |
 | `get_flatpak_info` | `flatpak remote-info <scope> <remote> <app>` (name, version, sizes) |
 | `remove_flatpak` | `flatpak uninstall -y --noninteractive <scope> <app>` |
+| `remove_flatpak_orphans` | `flatpak uninstall --unused -y --noninteractive <scope>` — the only unused-runtime removal, mutating and gated; nothing counts unused runtimes beforehand |
 | `flatpak_remove_regex` | match ref id/name daemon-side over applications **and** runtimes → dry-run `{dry_run, would_change, matches}` or one `flatpak uninstall … <refs…>` job |
 | `flatpak_upgrade_regex` | same match → one `flatpak update … <refs…>` job |
 | `update_flatpak` | `flatpak update -y --noninteractive <scope>` |

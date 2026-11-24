@@ -153,9 +153,6 @@ pub struct PackagesState {
     /// Generation counter: bumped on every reload so a check started
     /// before the reload (wrong kind/scope) can never land after it.
     pub updates_seq: u64,
-    /// Unused-runtime count from the last flatpak list (None = not
-    /// probed / unknown; Some(0) = nothing to remove).
-    pub orphans: Option<u64>,
     /// A flatpak/apk search is in flight (drives the Search label
     /// exactly like `nix`'s `search_busy`).
     pub search_busy: bool,
@@ -223,7 +220,6 @@ impl Default for PackagesState {
             installed_page: 0,
             filter_keys: Vec::new(),
             pending_pattern: None,
-            orphans: None,
             search_busy: false,
             error: None,
             message: None,
@@ -276,7 +272,6 @@ impl PackagesState {
         self.pending_update = None;
         self.pending_orphans = false;
         self.pending_install = None;
-        self.orphans = None;
         self.pending_apk_repo_remove = None;
         self.pending_flatpak_remote_remove = None;
     }
@@ -550,17 +545,15 @@ impl PackagesState {
 
         // --- Maintenance (flatpak only; apk's check refreshes indexes) ---
         let maintenance = (kind == PackageKind::Flatpak).then(|| {
-            let label = self.orphans.map_or_else(
-                || "Remove orphans…".to_string(),
-                |count| format!("Remove orphans… ({count})"),
-            );
             SectionVm {
                 title: "Maintenance".to_string(),
                 items: vec![settings::item(
                     "Remove unused runtimes",
-                    button::text(label).on_press_maybe(
-                        (!self.action_busy && self.orphans != Some(0))
-                            .then_some(Message::PackageOrphansRequested),
+                    // The daemon no longer counts unused runtimes: counting
+                    // them needed a `flatpak uninstall` probe a read-only
+                    // listing must not run, so the button states no count.
+                    button::text("Remove orphans…").on_press_maybe(
+                        (!self.action_busy).then_some(Message::PackageOrphansRequested),
                     ),
                 )
                 .into()],
