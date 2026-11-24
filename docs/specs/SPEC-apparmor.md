@@ -34,6 +34,29 @@ module — no duplicate logic).
 All profile paths: canonicalized, must live under `/etc/apparmor.d`, must
 be regular files; `..` and symlink escapes rejected.
 
+## Backups (outside the profile directory)
+
+The `AppArmor` parser loads every file below `/etc/apparmor.d`, so a slot
+next to a profile defines the same profile twice ("Conflicting profiles").
+Every profile backup therefore lives under
+`/var/backups/ursine/apparmor/<encoded relative path>`, the profile's path
+relative to `/etc/apparmor.d` with `/` (and every other unsafe character)
+replaced by `%` (pure function `backup_base`), with the shared
+`backup_configs` slot names and `copies` cap.
+
+**0.48.0 leftovers**: that release wrote `<profile>.ursine-backup` and
+`<profile>.ursine-backup.<n>` beside the profiles and never removed them. The
+three actions that make the parser read the directory —
+`apparmor_profile_set`, `apparmor_set_mode` and `apparmor_reload_all` — first
+run an idempotent migration that moves every such file (recognised by name
+only, plain `<profile>.ursine-backup[.<digits>]`, any depth) into the slot of
+the same profile under the backup root, suffix preserved, falling back to
+copy+unlink across file systems. Only those slot files are ever touched: a
+live profile or an unrelated sibling stays. When the destination name is
+taken the moved copy gains `.migrated` (`.migrated.<n>`), so neither backup
+is lost. Every move is logged (`tracing::info`), a file that cannot be moved
+is logged as a warning and does not block the write.
+
 Excluded with rationale: `aa-genprof`/`aa-logprof`/`aa-mergeprof`
 (interactive learning loops), `aa-exec` (executes programs), `aa-notify`
 as a reader (exposed instead as the activation button), `aa-audit` (not

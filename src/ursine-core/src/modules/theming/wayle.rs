@@ -20,13 +20,21 @@ pub(super) fn snapshot(
     config_toml: &str,
     matugen_json: Option<&str>,
 ) -> Result<ThemeSnapshot, ApiError> {
-    let doc: toml::Value = config_toml
-        .parse()
-        .map_err(|e| ApiError::internal(format!("parse wayle config.toml: {e}")))?;
+    let doc: toml::Value = config_toml.parse().map_err(|e| {
+        ApiError::unavailable(
+            format!("parse wayle config.toml: {e}"),
+            "rewrite ~/.config/wayle/config.toml so it parses as TOML; wayle itself needs a readable config",
+        )
+    })?;
     let styling = doc
         .get("styling")
         .and_then(toml::Value::as_table)
-        .ok_or_else(|| ApiError::internal("wayle config has no [styling] section"))?;
+        .ok_or_else(|| {
+            ApiError::unavailable(
+                "wayle config has no [styling] section",
+                "add a [styling] section with theme-provider and [styling.palette] to ~/.config/wayle/config.toml",
+            )
+        })?;
     let provider = styling
         .get("theme-provider")
         .and_then(toml::Value::as_str)
@@ -52,13 +60,19 @@ pub(super) fn snapshot(
         ));
     }
 
+    // No palette and no matugen cache: nothing to read. This is the host's
+    // configuration, not a bad request, so the code is `unavailable` and the
+    // fix names the provider that has to be completed.
     let palette = styling
         .get("palette")
         .and_then(toml::Value::as_table)
         .ok_or_else(|| {
-            ApiError::internal(format!(
-                "wayle [styling] has no palette (theme-provider = \"{provider}\")"
-            ))
+            ApiError::unavailable(
+                format!("wayle [styling] has no palette (theme-provider = \"{provider}\")"),
+                format!(
+                    "set [styling.palette] in ~/.config/wayle/config.toml, or let {provider} write a matugen cache at ~/.cache/wayle/matugen-colors.json"
+                ),
+            )
         })?;
     palette_snapshot(&doc, palette, provider, corner_radius)
 }
@@ -268,13 +282,48 @@ blue = "#35a639"
     #[test]
     fn missing_styling_section_is_an_error() {
         let err = snapshot("[bar]\nlocation = \"top\"\n", None).unwrap_err();
+        assert_eq!(err.code, ursine_api::ErrorCode::Unavailable);
         assert!(err.message.contains("styling"), "{}", err.message);
+        assert!(
+            err.fix
+                .as_deref()
+                .is_some_and(|fix| fix.contains("styling")),
+            "{:?}",
+            err.fix
+        );
+    }
+
+    #[test]
+    fn unparsable_config_is_unavailable_not_internal() {
+        let err = snapshot("[styling\ntheme-provider = \"pywal\"\n", None).unwrap_err();
+        assert_eq!(err.code, ursine_api::ErrorCode::Unavailable);
+        assert!(
+            err.fix
+                .as_deref()
+                .is_some_and(|fix| fix.contains("config.toml")),
+            "{:?}",
+            err.fix
+        );
     }
 
     #[test]
     fn missing_palette_key_is_an_error() {
         let err = snapshot("[styling]\ntheme-provider = \"wayle\"\n", None).unwrap_err();
+        assert_eq!(err.code, ursine_api::ErrorCode::Unavailable);
         assert!(err.message.contains("palette"), "{}", err.message);
+    }
+
+    #[test]
+    fn other_provider_without_a_palette_names_the_provider_and_the_fix() {
+        let err = snapshot("[styling]\ntheme-provider = \"pywal\"\n", None).unwrap_err();
+        assert_eq!(err.code, ursine_api::ErrorCode::Unavailable);
+        // The message stays recognisable and names the provider.
+        assert!(err.message.contains("palette"), "{}", err.message);
+        assert!(err.message.contains("pywal"), "{}", err.message);
+        let fix = err.fix.as_deref().unwrap_or_default();
+        assert!(!fix.is_empty(), "an unavailable answer needs a fix");
+        assert!(fix.contains("pywal"), "{fix}");
+        assert!(fix.contains("styling.palette"), "{fix}");
     }
 
     const MATUGEN_JSON: &str = r##"{

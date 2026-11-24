@@ -21,6 +21,9 @@ use crate::modules::packages_nix::exec;
 
 const PROFILES_DIR: &str = "/etc/apparmor.d";
 const DISABLE_DIR: &str = "/etc/apparmor.d/disable";
+/// Root of the profile backup slots: the parser loads every file inside
+/// [`PROFILES_DIR`], so the slots must live outside it.
+const BACKUP_DIR: &str = "/var/backups/ursine/apparmor";
 const NOTIFY_CONF: &str = "/etc/apparmor/notify.conf";
 const AUTOSTART: &str = ".config/autostart/aa-notify.desktop";
 const TIMEOUT: Duration = Duration::from_secs(60);
@@ -137,6 +140,9 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             Ok(json!(view(user).await?))
         }
         Action::ApparmorReloadAll => {
+            // The parser reads the whole directory here, so 0.48.0 leftovers
+            // would abort the reload with "Conflicting profiles".
+            migrate_legacy_backups_logged();
             let parser = tool(&AA_PARSER, "apparmor_parser")?;
             exec::run_root_program(parser, &["-r", "-W", PROFILES_DIR], TIMEOUT).await?;
             Ok(json!(view(user).await?))
@@ -562,6 +568,9 @@ fn validate_mode(mode: &str) -> Result<(), ApiError> {
 async fn set_mode(path: &str, mode: &str) -> Result<(), ApiError> {
     validate_mode(mode)?;
     let path = validate_profile_path(path)?;
+    // The aa-* tools parse the whole profile directory: leftovers from
+    // 0.48.0 would make them fail with "Conflicting profiles".
+    migrate_legacy_backups_logged();
     match mode {
         "enforce" => {
             let program = tool(&AA_ENFORCE, "aa-enforce")?;
@@ -617,6 +626,7 @@ async fn profile_set(path: &str, content: &str, copies: usize) -> Result<(), Api
         return Err(ApiError::invalid("profile content rejected (size or NUL)"));
     }
     let _guard = SET_LOCK.lock().await;
+    migrate_legacy_backups_logged();
     // Safety chain: the NEW content must parse BEFORE anything is
     // written — the parser reads stdin when no profile argument is given.
     let parser = tool(&AA_PARSER, "apparmor_parser")?;
@@ -646,18 +656,11 @@ fn rotate_profile(path: &str, copies: usize) -> Result<(), ApiError> {
             )))
         }
     };
-    let relative = path.strip_prefix(PROFILES_DIR).unwrap_or(path);
-    let encoded: String = relative
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
-                c
-            } else {
-                '%'
-            }
-        })
-        .collect();
-    let target = PathBuf::from("/var/backups/ursine/apparmor").join(encoded);
+    let target = backup_base(
+        Path::new(BACKUP_DIR),
+        Path::new(PROFILES_DIR),
+        Path::new(path),
+    );
     if let Some(dir) = target.parent() {
         std::fs::create_dir_all(dir).map_err(|e| {
             ApiError::internal(format!("create apparmor backup dir {}: {e}", dir.display()))
@@ -668,6 +671,187 @@ fn rotate_profile(path: &str, copies: usize) -> Result<(), ApiError> {
 
 async fn rotate_profiles_dir(copies: usize) -> Result<(), ApiError> {
     crate::backup_configs::rotate_async(PathBuf::from(PROFILES_DIR), copies, None).await
+}
+
+// ---- 0.48.0 leftover migration -----------------------------------------
+
+/// Backup slot base of one profile: the profile's path relative to
+/// `profiles_dir`, copied verbatim when it is already safe and with every
+/// other character replaced by `%` — the slot chain then lives under `root`
+/// with the same relative layout and never inside the profile directory.
+fn backup_base(root: &Path, profiles_dir: &Path, path: &Path) -> PathBuf {
+    let relative = path.strip_prefix(profiles_dir).unwrap_or(path);
+    let encoded: String = relative
+        .to_string_lossy()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '%'
+            }
+        })
+        .collect();
+    root.join(encoded)
+}
+
+/// One `*.ursine-backup*` file moved out of the profile directory.
+#[derive(Debug, PartialEq, Eq)]
+struct LegacyBackupMove {
+    /// Slot that 0.48.0 wrote next to the profile.
+    from: PathBuf,
+    /// Where the slot lives now.
+    to: PathBuf,
+}
+
+/// Result of one migration pass: files that moved and files that could not.
+#[derive(Debug, Default)]
+struct LegacyMigration {
+    moved: Vec<LegacyBackupMove>,
+    failed: Vec<(PathBuf, String)>,
+}
+
+/// Profile name a 0.48.0 slot file name belongs to, or `None` when the name
+/// is not a slot. Only `<profile>.ursine-backup` and the numbered
+/// `<profile>.ursine-backup.<n>` forms qualify, so a live profile is never
+/// mistaken for a backup.
+fn legacy_slot_profile(name: &str) -> Option<&str> {
+    let (profile, suffix) = name.split_once(".ursine-backup")?;
+    if profile.is_empty() {
+        return None;
+    }
+    let slot = suffix.strip_prefix('.').map_or(suffix.is_empty(), |rest| {
+        !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
+    });
+    // `foo.ursine-backup.ursine-backup` is rejected: the first match wins and
+    // the tail is not a slot index.
+    slot.then_some(profile)
+}
+
+/// Collect every slot file below `dir`, deepest subdirectories included.
+/// Directories that merely carry a slot name are skipped: the caller must
+/// never move or delete anything that is not a slot file.
+fn collect_legacy_slots(dir: &Path, found: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if meta.is_dir() {
+            collect_legacy_slots(&path, found);
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if legacy_slot_profile(&name).is_some() {
+            found.push(path);
+        }
+    }
+}
+
+/// Append `suffix` to the file name of `path` (`Path::with_extension` would
+/// replace the slot extension instead).
+fn with_name_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+/// First free name for a migrated slot: `<slot>`, then `<slot>.migrated`,
+/// `<slot>.migrated.1`, … so an existing backup is never overwritten.
+fn free_slot_destination(dest: &Path) -> PathBuf {
+    if !dest.exists() {
+        return dest.to_path_buf();
+    }
+    let mut candidate = with_name_suffix(dest, ".migrated");
+    let mut index = 1;
+    while candidate.exists() && index < 1000 {
+        candidate = with_name_suffix(dest, &format!(".migrated.{index}"));
+        index += 1;
+    }
+    candidate
+}
+
+/// Move one slot, falling back to copy+unlink when `/etc` and `/var` are
+/// separate file systems (`rename` cannot cross them).
+fn move_slot(from: &Path, to: &Path) -> std::io::Result<()> {
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    match std::fs::rename(from, to) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
+            std::fs::copy(from, to)?;
+            // Only drop the source once the copy exists: a failed copy keeps
+            // the only copy of the profile.
+            std::fs::remove_file(from)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Move every 0.48.0 leftover slot out of `profiles_dir` into `backup_root`.
+///
+/// 0.48.0 wrote `<profile>.ursine-backup` / `.ursine-backup.<n>` next to the
+/// profiles, where the parser reads them as duplicate profiles; 0.49.0 writes
+/// the slots under `backup_root` but never removed the old ones. Only files
+/// whose name is such a slot are touched, the migration is idempotent, and a
+/// name already taken in `backup_root` gains a `.migrated` suffix instead of
+/// losing either copy.
+fn migrate_legacy_backups(profiles_dir: &Path, backup_root: &Path) -> LegacyMigration {
+    let mut slots = Vec::new();
+    collect_legacy_slots(profiles_dir, &mut slots);
+    let mut report = LegacyMigration::default();
+    for from in slots {
+        let Some(name) = from.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        let Some(profile) = legacy_slot_profile(&name) else {
+            continue;
+        };
+        // Keep the slot's own suffix: a numbered slot stays numbered next to
+        // the same profile base. `strip_prefix` cannot split a character.
+        let Some(slot_suffix) = name.strip_prefix(profile) else {
+            continue;
+        };
+        let base = backup_base(backup_root, profiles_dir, &from.with_file_name(profile));
+        let mut dest = with_name_suffix(&base, slot_suffix);
+        if let Some(parent) = dest.parent() {
+            if let Err(error) = std::fs::create_dir_all(parent) {
+                report.failed.push((from, format!("{error}")));
+                continue;
+            }
+        }
+        dest = free_slot_destination(&dest);
+        match move_slot(&from, &dest) {
+            Ok(()) => report.moved.push(LegacyBackupMove { from, to: dest }),
+            Err(error) => report.failed.push((from, format!("{error}"))),
+        }
+    }
+    report
+}
+
+/// Run the migration on the real paths and log the outcome. Best effort on
+/// purpose: a slot that cannot be moved (read-only `/etc`, foreign owner) must
+/// not block a profile write — the parser reports the leftover itself.
+fn migrate_legacy_backups_logged() {
+    let report = migrate_legacy_backups(Path::new(PROFILES_DIR), Path::new(BACKUP_DIR));
+    for moved in &report.moved {
+        tracing::info!(
+            from = %moved.from.display(),
+            to = %moved.to.display(),
+            "moved a leftover apparmor backup out of the profile directory"
+        );
+    }
+    for (path, error) in &report.failed {
+        tracing::warn!(
+            path = %path.display(),
+            error = %error,
+            "cannot move a leftover apparmor backup out of the profile directory"
+        );
+    }
 }
 
 /// One button: `show_notifications="yes"` (line-surgical, backup first)
@@ -816,7 +1000,18 @@ fn tool(candidates: &[&'static str], label: &str) -> Result<&'static str, ApiErr
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)] // tests use the host temp dir
+
     use super::*;
+
+    /// Fresh empty directory under the host temp dir (test only).
+    fn temp(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("ursine-apparmor-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     const STATUS_TEXT: &str = "apparmor module is loaded.\n\
         110 profiles are loaded.\n\
@@ -934,5 +1129,119 @@ mod tests {
         let body = "[Desktop Entry]\nType=Application\nExec=aa-notify -p\n";
         assert!(body.starts_with("[Desktop Entry]"));
         assert!(body.contains("Exec=aa-notify -p"));
+    }
+
+    #[test]
+    fn backup_base_mirrors_the_profile_path_under_the_backup_root() {
+        let root = Path::new("/var/backups/ursine/apparmor");
+        let profiles = Path::new(PROFILES_DIR);
+        assert_eq!(
+            backup_base(root, profiles, Path::new("/etc/apparmor.d/usr.bin.jq")),
+            root.join("usr.bin.jq")
+        );
+        // Subdirectories keep the layout with `%` in place of the separator.
+        assert_eq!(
+            backup_base(root, profiles, Path::new("/etc/apparmor.d/containers/foo")),
+            root.join("containers%foo")
+        );
+    }
+
+    #[test]
+    fn only_slot_file_names_are_recognised() {
+        assert_eq!(
+            legacy_slot_profile("usr.bin.jq.ursine-backup"),
+            Some("usr.bin.jq")
+        );
+        assert_eq!(
+            legacy_slot_profile("usr.bin.jq.ursine-backup.1"),
+            Some("usr.bin.jq")
+        );
+        assert_eq!(
+            legacy_slot_profile("usr.bin.jq.ursine-backup.12"),
+            Some("usr.bin.jq")
+        );
+        // A live profile, an unrelated sibling and a malformed slot stay put.
+        assert_eq!(legacy_slot_profile("usr.bin.jq"), None);
+        assert_eq!(legacy_slot_profile("usr.bin.jq.ursine-backups"), None);
+        assert_eq!(legacy_slot_profile("usr.bin.jq.ursine-backup.old"), None);
+        assert_eq!(legacy_slot_profile("usr.bin.jq.ursine-backup."), None);
+        assert_eq!(legacy_slot_profile(".ursine-backup"), None);
+    }
+
+    #[test]
+    fn migration_moves_slots_out_of_the_profile_directory() {
+        let profiles = temp("migrate-profiles");
+        let backups = temp("migrate-backups");
+        std::fs::write(profiles.join("usr.bin.jq"), "profile\n").unwrap();
+        std::fs::write(profiles.join("usr.bin.jq.ursine-backup"), "newest\n").unwrap();
+        std::fs::write(profiles.join("usr.bin.jq.ursine-backup.1"), "older\n").unwrap();
+        std::fs::write(profiles.join("usr.bin.keep.ursine-backups"), "not a slot\n").unwrap();
+
+        let report = migrate_legacy_backups(&profiles, &backups);
+
+        assert!(report.failed.is_empty(), "{:?}", report.failed);
+        assert_eq!(report.moved.len(), 2);
+        // The profile itself stays, the slots are gone from its directory.
+        assert!(profiles.join("usr.bin.jq").is_file());
+        assert!(!profiles.join("usr.bin.jq.ursine-backup").exists());
+        assert!(!profiles.join("usr.bin.jq.ursine-backup.1").exists());
+        // Not a slot: untouched.
+        assert!(profiles.join("usr.bin.keep.ursine-backups").is_file());
+        // Both slots now live under the backup root, suffix preserved.
+        assert_eq!(
+            std::fs::read_to_string(backups.join("usr.bin.jq.ursine-backup")).unwrap(),
+            "newest\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(backups.join("usr.bin.jq.ursine-backup.1")).unwrap(),
+            "older\n"
+        );
+        let _ = std::fs::remove_dir_all(&profiles);
+        let _ = std::fs::remove_dir_all(&backups);
+    }
+
+    #[test]
+    fn migration_keeps_both_copies_when_the_slot_name_is_taken() {
+        let profiles = temp("migrate-occupied-profiles");
+        let backups = temp("migrate-occupied-backups");
+        std::fs::write(profiles.join("usr.bin.jq.ursine-backup"), "leftover\n").unwrap();
+        std::fs::write(backups.join("usr.bin.jq.ursine-backup"), "current\n").unwrap();
+
+        let report = migrate_legacy_backups(&profiles, &backups);
+
+        assert_eq!(
+            report.moved.first().map(|moved| moved.to.clone()),
+            Some(backups.join("usr.bin.jq.ursine-backup.migrated"))
+        );
+        assert_eq!(
+            std::fs::read_to_string(backups.join("usr.bin.jq.ursine-backup")).unwrap(),
+            "current\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(backups.join("usr.bin.jq.ursine-backup.migrated")).unwrap(),
+            "leftover\n"
+        );
+        let _ = std::fs::remove_dir_all(&profiles);
+        let _ = std::fs::remove_dir_all(&backups);
+    }
+
+    #[test]
+    fn migration_is_idempotent_and_silent_without_slots() {
+        let profiles = temp("migrate-idempotent-profiles");
+        let backups = temp("migrate-idempotent-backups");
+        // Nothing to migrate: empty report, nothing created beyond the roots.
+        let quiet = migrate_legacy_backups(&profiles, &backups);
+        assert!(quiet.moved.is_empty() && quiet.failed.is_empty());
+        assert_eq!(std::fs::read_dir(&backups).unwrap().count(), 0);
+
+        std::fs::write(profiles.join("usr.bin.jq"), "profile\n").unwrap();
+        std::fs::write(profiles.join("usr.bin.jq.ursine-backup"), "slot\n").unwrap();
+        assert_eq!(migrate_legacy_backups(&profiles, &backups).moved.len(), 1);
+        // Second pass finds nothing left to move.
+        let again = migrate_legacy_backups(&profiles, &backups);
+        assert!(again.moved.is_empty() && again.failed.is_empty());
+        assert!(profiles.join("usr.bin.jq").is_file());
+        let _ = std::fs::remove_dir_all(&profiles);
+        let _ = std::fs::remove_dir_all(&backups);
     }
 }
