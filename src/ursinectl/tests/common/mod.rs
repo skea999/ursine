@@ -53,6 +53,37 @@ pub const SAMPLES: &[Sample] = &[
         destructive: false,
         dispatch: Dispatch::Code(ursine_api::ErrorCode::NotFound),
     },
+    // ISSUES.md entry 10: the machine-state actions. A reboot, a poweroff or
+    // an `/etc` write must never run from this shared daemon, so the samples
+    // only prove the wire tag, the payload and the `--yes` classification.
+    Sample {
+        module: ursine_api::ModuleId::System,
+        action: "reboot",
+        pairs: &[],
+        destructive: true,
+        dispatch: Dispatch::Skip,
+    },
+    Sample {
+        module: ursine_api::ModuleId::System,
+        action: "poweroff",
+        pairs: &[],
+        destructive: true,
+        dispatch: Dispatch::Skip,
+    },
+    Sample {
+        module: ursine_api::ModuleId::System,
+        action: "set_hostname",
+        pairs: &[("name", "feral-box")],
+        destructive: false,
+        dispatch: Dispatch::Skip,
+    },
+    Sample {
+        module: ursine_api::ModuleId::System,
+        action: "set_timezone",
+        pairs: &[("zone", "Europe/Rome")],
+        destructive: false,
+        dispatch: Dispatch::Skip,
+    },
     // -- config --
     // init/set_module_switch write a real file: dedicated tests use a
     // scratch config path, this shared daemon has none.
@@ -1241,9 +1272,11 @@ pub const ALL_ACTIONS: &[&str] = &[
     "partition_create",
     "partition_delete",
     "pause_printer",
+    "poweroff",
     "preview_apk_install",
     "printer_jobs",
     "prune_generations_nix",
+    "reboot",
     "refresh",
     "reload_firewall",
     "remove_nix",
@@ -1272,6 +1305,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "set_default_printer",
     "set_firewall_enabled",
     "set_groups",
+    "set_hostname",
     "set_module_switch",
     "set_network_connection",
     "set_network_ipv4",
@@ -1280,6 +1314,7 @@ pub const ALL_ACTIONS: &[&str] = &[
     "set_printer_options",
     "set_scanner_device",
     "set_scanner_discovery",
+    "set_timezone",
     "set_update_auto",
     "set_wifi_enabled",
     "stats",

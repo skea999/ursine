@@ -116,7 +116,20 @@ gate and parameters of every action).
 .TP
 .B system
 .BR status ,
-.BR job_output .
+.BR job_output ,
+.BR reboot ,
+.BR poweroff ,
+.BR set_hostname ,
+.BR set_timezone .
+reboot and poweroff hand the machine to the running init (dinit-reboot and
+dinit-poweroff on FeralOS, /sbin/reboot and /sbin/poweroff on an OpenRC box)
+and require
+.BR \-\-yes ;
+the connection usually drops while the machine stops. set_hostname writes
+/etc/hostname through the backup chain and applies the name with hostname;
+set_timezone points /etc/localtime at /usr/share/zoneinfo/<zone> atomically
+and writes /etc/timezone. Both validate their payload: the name must be one
+RFC 1123 label, the zone a regular file inside the zoneinfo tree.
 .TP
 .B config
 .BR init ,

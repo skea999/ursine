@@ -193,6 +193,38 @@ const JOB_OUTPUT: ActionSpec = row(
     Gate::Never,
     &[param("job_id", true), param("offset", false)],
 );
+// -- System: power state and identity --
+// Both power actions interrupt every other user: `--yes` is always required.
+const REBOOT: ActionSpec = row(
+    "reboot",
+    ModuleId::System,
+    Effect::Mutating,
+    Gate::Always,
+    &[],
+);
+const POWER_OFF: ActionSpec = row(
+    "poweroff",
+    ModuleId::System,
+    Effect::Mutating,
+    Gate::Always,
+    &[],
+);
+// Identity actions are ungated: the name and the zone are validated instead
+// (a wrong value is refused before anything is written).
+const SET_HOSTNAME: ActionSpec = row(
+    "set_hostname",
+    ModuleId::System,
+    Effect::Mutating,
+    Gate::Never,
+    &[param("name", true)],
+);
+const SET_TIMEZONE: ActionSpec = row(
+    "set_timezone",
+    ModuleId::System,
+    Effect::Mutating,
+    Gate::Never,
+    &[param("zone", true)],
+);
 
 // -- PackagesNix --
 const LIST_INSTALLED_NIX: ActionSpec = row(
@@ -1309,6 +1341,11 @@ pub static ACTIONS: &[ActionSpec] = &[
     // -- Capabilities --
     JOB_OUTPUT,
     // -- System --
+    // -- System --
+    REBOOT,
+    POWER_OFF,
+    SET_HOSTNAME,
+    SET_TIMEZONE,
     LIST_INSTALLED_NIX,
     SEARCH_NIX,
     LIST_NIX_REPOSITORIES,
@@ -1481,6 +1518,10 @@ impl Action {
             Self::List => &LIST,
             Self::Refresh => &REFRESH,
             Self::JobOutput { .. } => &JOB_OUTPUT,
+            Self::Reboot => &REBOOT,
+            Self::PowerOff => &POWER_OFF,
+            Self::SetHostname { .. } => &SET_HOSTNAME,
+            Self::SetTimezone { .. } => &SET_TIMEZONE,
             Self::ListInstalled => &LIST_INSTALLED_NIX,
             Self::Search { .. } => &SEARCH_NIX,
             Self::ListNixRepositories { .. } => &LIST_NIX_REPOSITORIES,
@@ -1923,6 +1964,40 @@ mod tests {
             section: Some("home".into())
         }
         .is_destructive());
+    }
+
+    #[test]
+    fn power_and_identity_rows_keep_their_documented_classification() {
+        // ISSUES.md entry 10: the four machine-state actions. A reboot and a
+        // poweroff interrupt every other user, so they always ask for `--yes`;
+        // the two identity writes are validated instead of gated.
+        for (name, gate) in [
+            ("reboot", Gate::Always),
+            ("poweroff", Gate::Always),
+            ("set_hostname", Gate::Never),
+            ("set_timezone", Gate::Never),
+        ] {
+            let spec = row_named(name);
+            assert_eq!(spec.module, ModuleId::System, "{name} module");
+            assert_eq!(spec.effect, Effect::Mutating, "{name} effect");
+            assert_eq!(spec.gate, gate, "{name} gate");
+        }
+        // `poweroff` is one word on the wire (the init tool's spelling), not
+        // the `power_off` the enum rename would derive.
+        assert_eq!(Action::PowerOff.spec().name, "poweroff");
+        assert!(Action::PowerOff.is_destructive());
+        assert!(Action::Reboot.is_destructive());
+        assert!(!Action::SetHostname {
+            name: "feral-box".into()
+        }
+        .is_destructive());
+        assert!(!Action::SetTimezone {
+            zone: "Europe/Rome".into()
+        }
+        .is_destructive());
+        // The payload is the whole request: both fields are required.
+        assert_eq!(row_named("set_hostname").params, &[param("name", true)]);
+        assert_eq!(row_named("set_timezone").params, &[param("zone", true)]);
     }
 
     #[test]
