@@ -14,26 +14,34 @@ The flagship: GUI + API for Nix user profiles — install, remove, search, list,
 **Only the NEW nix CLI is supported** (`nix profile ...`, flake refs). Classic
 channels / `nix-env` are out of scope by decision (skea999).
 
+The `Action` column is the wire tag: every nix action names its module, like
+`install_apk` and `install_flatpak` do, so an audit line or a client log is
+unambiguous without the module next to it. The bare tags of earlier versions
+(`list_installed`, `search`, `install`, `remove`, `remove_all`, `remove_regex`,
+`upgrade`, `upgrade_regex`, `generations`, `rollback`, `wipe_history`,
+`diff_closures`, `store_gc`, `prune_generations`) stay accepted as serde
+aliases: an existing client or script keeps deserializing to the same variant.
+
 | Action | Executed as | Command shape |
 |---|---|---|
-| `nix.listInstalled` | asUser | `nix profile list --json` → `InstalledPackage[]` + best-effort `meta.description` (one `nix eval --impure --json --expr` per unique flake reference, validated names/attr segments only; eval failure/timeout leaves descriptions absent, never fails the list) |
-| `nix.install` | asUser | `nix profile add <nixpkgs#pkg\|flake#attr>` (bare name → `nixpkgs#name`) |
-| `nix.remove` | asUser | `nix profile remove <element>` |
-| `nix.removeAll` | asUser | `nix profile remove --all` |
-| `nix.removeRegex` | asUser | `nix profile remove --regex <pattern>` |
-| `nix.upgrade` | asUser | `nix profile upgrade <element>` / `--all`. `all` is optional on the wire and defaults to `false` (upgrade the named package); a request that names neither a package nor `all=true` answers `invalid`. |
-| `nix.upgradeRegex` | asUser | `nix profile upgrade --regex <pattern>` |
-| `nix.search` | asUser | `nix search <repo> <query> --json` → `SearchResult[]` (repo defaults to `nixpkgs`; custom repos prefix bare installables) |
-| `nix.listRepositories` | asUser | `nix registry list` + `nix-channel --list` → `NixRepository[]` for the selected scope (`system` or the target user). Only configured entries: builtin `global` defaults are never returned (no file to edit, no way to restore them). A channel fills a name the registry does not define. |
-| `nix.addRepository` | asUser | user scope: `nix registry add <name> <flake-ref>`; system scope: merge an `indirect` entry into `/etc/nix/registry.json` (`github:owner/repo[/ref]` only), backup + atomic write |
-| `nix.removeRepository` | asUser | destructive: `source=registry` → `nix registry remove` (user) or the system-file edit; `source=channel` → `nix-channel --remove` |
-| `nix.listNixUpdates` | asUser | `nix profile list --json` + the current lock of every unique reference, fetched in parallel (bounded 4). `flake:` aliases resolve through the registry; a target that parses as `github:owner/repo[/ref]` and whose elements all carry a pinned rev uses `git ls-remote` (optional `git`, ~0.5 s, no fetch/eval); everything else uses `nix flake metadata <url> --json`. An element is outdated when a comparable lock differs (rev first, else narHash) — same proof rule as before, verified on nix 2.31.5 (no `profile upgrade --dry-run`) → `NixUpdates {count, packages}`; read-only, on demand |
-| `nix.generations` | asUser | `nix profile history` → lines (returned NEWEST first) |
-| `nix.rollback` | asUser | `nix profile rollback [--to N]` |
-| `nix.wipeHistory` | asUser | `nix profile wipe-history [--older-than D] [--dry-run]` |
-| `nix.diffClosures` | asUser | plain `nix profile diff-closures` → lines. `--to` is not passed: that flag belongs to `rollback` and nix rejects it here. With `generation=N` only the block whose header ends at N (`Version M -> N:`) is returned, because nix prints one block per generation pair; a generation that is no step in the history is an `invalid` error, not an empty diff |
-| `nix.storeGc` | **root** | `nix store gc` — total GC (unreachable paths only), timeout 3600s |
-| `nix.pruneGenerations` | **root** (exec) | plan from `nix profile history` (ANSI stripped; current generation read from `profile-N-link` symlink — nix 2.31 does not mark it); `dry_run` returns `current` + `would_delete`; exec `nix-env -p <profile> --delete-generations +N` (root: users cannot lock the store profile in multi-user mode). Both reads of the profile link share one helper: a missing link (or one that vanished between the two reads) answers the empty plan, never `Invalid` |
+| `list_installed_nix` | asUser | `nix profile list --json` → `InstalledPackage[]` + best-effort `meta.description` (one `nix eval --impure --json --expr` per unique flake reference, validated names/attr segments only; eval failure/timeout leaves descriptions absent, never fails the list) |
+| `install_nix` | asUser | `nix profile add <nixpkgs#pkg\|flake#attr>` (bare name → `nixpkgs#name`) |
+| `remove_nix` | asUser | `nix profile remove <element>` |
+| `remove_all_nix` | asUser | `nix profile remove --all` |
+| `remove_regex_nix` | asUser | `nix profile remove --regex <pattern>` |
+| `upgrade_nix` | asUser | `nix profile upgrade <element>` / `--all`. `all` is optional on the wire and defaults to `false` (upgrade the named package); a request that names neither a package nor `all=true` answers `invalid`. |
+| `upgrade_regex_nix` | asUser | `nix profile upgrade --regex <pattern>` |
+| `search_nix` | asUser | `nix search <repo> <query> --json` → `SearchResult[]` (repo defaults to `nixpkgs`; custom repos prefix bare installables) |
+| `list_nix_repositories` | asUser | `nix registry list` + `nix-channel --list` → `NixRepository[]` for the selected scope (`system` or the target user). Only configured entries: builtin `global` defaults are never returned (no file to edit, no way to restore them). A channel fills a name the registry does not define. |
+| `add_nix_repository` | asUser | user scope: `nix registry add <name> <flake-ref>`; system scope: merge an `indirect` entry into `/etc/nix/registry.json` (`github:owner/repo[/ref]` only), backup + atomic write |
+| `remove_nix_repository` | asUser | destructive: `source=registry` → `nix registry remove` (user) or the system-file edit; `source=channel` → `nix-channel --remove` |
+| `list_nix_updates` | asUser | `nix profile list --json` + the current lock of every unique reference, fetched in parallel (bounded 4). `flake:` aliases resolve through the registry; a target that parses as `github:owner/repo[/ref]` and whose elements all carry a pinned rev uses `git ls-remote` (optional `git`, ~0.5 s, no fetch/eval); everything else uses `nix flake metadata <url> --json`. An element is outdated when a comparable lock differs (rev first, else narHash) — same proof rule as before, verified on nix 2.31.5 (no `profile upgrade --dry-run`) → `NixUpdates {count, packages}`; read-only, on demand |
+| `generations_nix` | asUser | `nix profile history` → lines (returned NEWEST first) |
+| `rollback_nix` | asUser | `nix profile rollback [--to N]` |
+| `wipe_history_nix` | asUser | `nix profile wipe-history [--older-than D] [--dry-run]` |
+| `diff_closures_nix` | asUser | plain `nix profile diff-closures` → lines. `--to` is not passed: that flag belongs to `rollback` and nix rejects it here. With `generation=N` only the block whose header ends at N (`Version M -> N:`) is returned, because nix prints one block per generation pair; a generation that is no step in the history is an `invalid` error, not an empty diff |
+| `store_gc_nix` | **root** | `nix store gc` — total GC (unreachable paths only), timeout 3600s |
+| `prune_generations_nix` | **root** (exec) | plan from `nix profile history` (ANSI stripped; current generation read from `profile-N-link` symlink — nix 2.31 does not mark it); `dry_run` returns `current` + `would_delete`; exec `nix-env -p <profile> --delete-generations +N` (root: users cannot lock the store profile in multi-user mode). Both reads of the profile link share one helper: a missing link (or one that vanished between the two reads) answers the empty plan, never `Invalid` |
 
 Execution rules (binding): `su -l -s /bin/sh <user> -c 'nix ...'` (login env:
 HOME/PATH/XDG for the user's own profile); every argument validated against a

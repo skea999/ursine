@@ -195,15 +195,15 @@ const JOB_OUTPUT: ActionSpec = row(
 );
 
 // -- PackagesNix --
-const LIST_INSTALLED: ActionSpec = row(
-    "list_installed",
+const LIST_INSTALLED_NIX: ActionSpec = row(
+    "list_installed_nix",
     ModuleId::PackagesNix,
     Effect::ReadOnly,
     Gate::Never,
     &[],
 );
-const SEARCH: ActionSpec = row(
-    "search",
+const SEARCH_NIX: ActionSpec = row(
+    "search_nix",
     ModuleId::PackagesNix,
     Effect::ReadOnly,
     Gate::Never,
@@ -238,43 +238,43 @@ const REMOVE_NIX_REPOSITORY: ActionSpec = row(
         param("source", false),
     ],
 );
-const INSTALL: ActionSpec = row(
-    "install",
+const INSTALL_NIX: ActionSpec = row(
+    "install_nix",
     ModuleId::PackagesNix,
     Effect::Mutating,
     Gate::Never,
     &[param("package", true)],
 );
-const REMOVE: ActionSpec = row(
-    "remove",
+const REMOVE_NIX: ActionSpec = row(
+    "remove_nix",
     ModuleId::PackagesNix,
     Effect::Mutating,
     Gate::Always,
     &[param("package", true)],
 );
-const REMOVE_ALL: ActionSpec = row(
-    "remove_all",
+const REMOVE_ALL_NIX: ActionSpec = row(
+    "remove_all_nix",
     ModuleId::PackagesNix,
     Effect::Mutating,
     Gate::Always,
     &[],
 );
-const REMOVE_REGEX: ActionSpec = row(
-    "remove_regex",
+const REMOVE_REGEX_NIX: ActionSpec = row(
+    "remove_regex_nix",
     ModuleId::PackagesNix,
     Effect::Mutating,
     Gate::Request,
     &[param("pattern", true), param("dry_run", false)],
 );
-const UPGRADE: ActionSpec = row(
-    "upgrade",
+const UPGRADE_NIX: ActionSpec = row(
+    "upgrade_nix",
     ModuleId::PackagesNix,
     Effect::Mutating,
     Gate::Never,
     &[param("package", false), param("all", false)],
 );
-const UPGRADE_REGEX: ActionSpec = row(
-    "upgrade_regex",
+const UPGRADE_REGEX_NIX: ActionSpec = row(
+    "upgrade_regex_nix",
     ModuleId::PackagesNix,
     Effect::Mutating,
     Gate::Request,
@@ -287,43 +287,43 @@ const LIST_NIX_UPDATES: ActionSpec = row(
     Gate::Never,
     &[],
 );
-const GENERATIONS: ActionSpec = row(
-    "generations",
+const GENERATIONS_NIX: ActionSpec = row(
+    "generations_nix",
     ModuleId::PackagesNix,
     Effect::ReadOnly,
     Gate::Never,
     &[],
 );
-const ROLLBACK: ActionSpec = row(
-    "rollback",
+const ROLLBACK_NIX: ActionSpec = row(
+    "rollback_nix",
     ModuleId::PackagesNix,
     Effect::Mutating,
     Gate::Always,
     &[param("generation", false)],
 );
-const WIPE_HISTORY: ActionSpec = row(
-    "wipe_history",
+const WIPE_HISTORY_NIX: ActionSpec = row(
+    "wipe_history_nix",
     ModuleId::PackagesNix,
     Effect::Mutating,
     Gate::Request,
     &[param("older_than", false), param("dry_run", true)],
 );
-const DIFF_CLOSURES: ActionSpec = row(
-    "diff_closures",
+const DIFF_CLOSURES_NIX: ActionSpec = row(
+    "diff_closures_nix",
     ModuleId::PackagesNix,
     Effect::ReadOnly,
     Gate::Never,
     &[param("generation", false)],
 );
-const STORE_GC: ActionSpec = row(
-    "store_gc",
+const STORE_GC_NIX: ActionSpec = row(
+    "store_gc_nix",
     ModuleId::PackagesNix,
     Effect::Mutating,
     Gate::Always,
     &[],
 );
-const PRUNE_GENERATIONS: ActionSpec = row(
-    "prune_generations",
+const PRUNE_GENERATIONS_NIX: ActionSpec = row(
+    "prune_generations_nix",
     ModuleId::PackagesNix,
     Effect::Mutating,
     Gate::Request,
@@ -1309,24 +1309,24 @@ pub static ACTIONS: &[ActionSpec] = &[
     // -- Capabilities --
     JOB_OUTPUT,
     // -- System --
-    LIST_INSTALLED,
-    SEARCH,
+    LIST_INSTALLED_NIX,
+    SEARCH_NIX,
     LIST_NIX_REPOSITORIES,
     ADD_NIX_REPOSITORY,
     REMOVE_NIX_REPOSITORY,
-    INSTALL,
-    REMOVE,
-    REMOVE_ALL,
-    REMOVE_REGEX,
-    UPGRADE,
-    UPGRADE_REGEX,
+    INSTALL_NIX,
+    REMOVE_NIX,
+    REMOVE_ALL_NIX,
+    REMOVE_REGEX_NIX,
+    UPGRADE_NIX,
+    UPGRADE_REGEX_NIX,
     LIST_NIX_UPDATES,
-    GENERATIONS,
-    ROLLBACK,
-    WIPE_HISTORY,
-    DIFF_CLOSURES,
-    STORE_GC,
-    PRUNE_GENERATIONS,
+    GENERATIONS_NIX,
+    ROLLBACK_NIX,
+    WIPE_HISTORY_NIX,
+    DIFF_CLOSURES_NIX,
+    STORE_GC_NIX,
+    PRUNE_GENERATIONS_NIX,
     // -- PackagesNix --
     LIST_APK,
     SEARCH_APK,
@@ -1481,24 +1481,24 @@ impl Action {
             Self::List => &LIST,
             Self::Refresh => &REFRESH,
             Self::JobOutput { .. } => &JOB_OUTPUT,
-            Self::ListInstalled => &LIST_INSTALLED,
-            Self::Search { .. } => &SEARCH,
+            Self::ListInstalled => &LIST_INSTALLED_NIX,
+            Self::Search { .. } => &SEARCH_NIX,
             Self::ListNixRepositories { .. } => &LIST_NIX_REPOSITORIES,
             Self::AddNixRepository { .. } => &ADD_NIX_REPOSITORY,
             Self::RemoveNixRepository { .. } => &REMOVE_NIX_REPOSITORY,
-            Self::Install { .. } => &INSTALL,
-            Self::Remove { .. } => &REMOVE,
-            Self::RemoveAll => &REMOVE_ALL,
-            Self::RemoveRegex { .. } => &REMOVE_REGEX,
-            Self::Upgrade { .. } => &UPGRADE,
-            Self::UpgradeRegex { .. } => &UPGRADE_REGEX,
+            Self::Install { .. } => &INSTALL_NIX,
+            Self::Remove { .. } => &REMOVE_NIX,
+            Self::RemoveAll => &REMOVE_ALL_NIX,
+            Self::RemoveRegex { .. } => &REMOVE_REGEX_NIX,
+            Self::Upgrade { .. } => &UPGRADE_NIX,
+            Self::UpgradeRegex { .. } => &UPGRADE_REGEX_NIX,
             Self::ListNixUpdates => &LIST_NIX_UPDATES,
-            Self::Generations => &GENERATIONS,
-            Self::Rollback { .. } => &ROLLBACK,
-            Self::WipeHistory { .. } => &WIPE_HISTORY,
-            Self::DiffClosures { .. } => &DIFF_CLOSURES,
-            Self::StoreGc => &STORE_GC,
-            Self::PruneGenerations { .. } => &PRUNE_GENERATIONS,
+            Self::Generations => &GENERATIONS_NIX,
+            Self::Rollback { .. } => &ROLLBACK_NIX,
+            Self::WipeHistory { .. } => &WIPE_HISTORY_NIX,
+            Self::DiffClosures { .. } => &DIFF_CLOSURES_NIX,
+            Self::StoreGc => &STORE_GC_NIX,
+            Self::PruneGenerations { .. } => &PRUNE_GENERATIONS_NIX,
             Self::ListApk => &LIST_APK,
             Self::SearchApk { .. } => &SEARCH_APK,
             Self::ListApkRepositories => &LIST_APK_REPOSITORIES,
@@ -1700,9 +1700,27 @@ mod tests {
     }
 
     #[test]
-    fn every_row_has_a_unique_wire_name() {
+    fn no_wire_name_is_shared_between_modules() {
+        // An audit line or a client log carries the action name without its
+        // module; a name two modules both accept would be ambiguous there.
+        // (The nix actions were the last ones to break this rule.)
+        let mut rows: Vec<(&str, &str)> = ACTIONS
+            .iter()
+            .map(|spec| (spec.name, spec.module.as_str()))
+            .collect();
+        let total = rows.len();
+        rows.sort_unstable();
+        let mut shared: Vec<(&str, &str)> = Vec::new();
+        for pair in rows.windows(2) {
+            if pair[0].0 == pair[1].0 {
+                shared.push(pair[0]);
+            }
+        }
+        assert!(
+            shared.is_empty(),
+            "wire name shared between modules: {shared:?}"
+        );
         let mut names: Vec<&str> = ACTIONS.iter().map(|spec| spec.name).collect();
-        let total = names.len();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), total, "duplicate action name in the catalogue");
@@ -1710,6 +1728,22 @@ mod tests {
             total > 100,
             "the catalogue shrank unexpectedly: {total} rows"
         );
+    }
+
+    #[test]
+    fn nix_wire_names_name_their_module() {
+        // Every other package module qualifies its names (`install_apk`,
+        // `install_flatpak`); the nix rows do the same, so a log line says
+        // which package manager ran without the module field.
+        for spec in ACTIONS {
+            if spec.module == ModuleId::PackagesNix {
+                assert!(
+                    spec.name.contains("nix"),
+                    "nix action {:?} does not name the module",
+                    spec.name
+                );
+            }
+        }
     }
 
     #[test]
@@ -1739,7 +1773,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("{name} has no system param"));
             assert!(!system.required, "{name}: system must be optional");
         }
-        let all = row_named("upgrade")
+        let all = row_named("upgrade_nix")
             .params
             .iter()
             .find(|p| p.name == "all")
@@ -1750,7 +1784,7 @@ mod tests {
     #[test]
     fn destructive_deletions_keep_dry_run_required() {
         // Documented on the action: a deletion never previews by default.
-        for name in ["wipe_history", "prune_generations"] {
+        for name in ["wipe_history_nix", "prune_generations_nix"] {
             let dry_run = row_named(name)
                 .params
                 .iter()
@@ -1907,9 +1941,9 @@ mod tests {
         // A preview action: dry_run is optional on the wire (serde default
         // false) and the gate is decided per request.
         assert_eq!(
-            row_named("remove_regex").to_json(),
+            row_named("remove_regex_nix").to_json(),
             json!({
-                "name": "remove_regex",
+                "name": "remove_regex_nix",
                 "module": "packages_nix",
                 "effect": "mutating",
                 "destructive": "request",

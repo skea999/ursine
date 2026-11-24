@@ -202,7 +202,7 @@ fn crontab_round_trip_as_root() {
 fn module_help_lists_actions() {
     let out = run(&["nix"]);
     ok(&out);
-    assert!(stdout(&out).contains("list_installed"));
+    assert!(stdout(&out).contains("list_installed_nix"));
 }
 
 #[cfg(unix)]
@@ -229,12 +229,22 @@ fn api_error_exits_1_and_prints_fix() {
     // Nix is not installed in the CI container → capability gate fires:
     // an API error is exit 1 (usage errors are exit 2). The wire code is part
     // of the printed line, so a script reads it without parsing the text.
-    let out = run(&["nix", "search", "query=niri"]);
+    let out = run(&["nix", "search_nix", "query=niri"]);
     assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
     assert!(stderr(&out).contains("error["), "{}", stderr(&out));
     assert!(stderr(&out).contains("]: "), "{}", stderr(&out));
     assert!(stderr(&out).contains("fix:"), "{}", stderr(&out));
     assert!(stdout(&out).is_empty(), "errors belong on stderr");
+}
+
+#[test]
+fn legacy_nix_action_name_still_reaches_the_daemon() {
+    // The pre-rename bare tag stays accepted: a script that still says
+    // `ursinectl nix search` must meet the capability gate (exit 1), never a
+    // usage error (exit 2).
+    let out = run(&["nix", "search", "query=niri"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(stderr(&out).contains("error["), "{}", stderr(&out));
 }
 
 #[test]

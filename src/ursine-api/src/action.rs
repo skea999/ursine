@@ -3,6 +3,12 @@
 //! One flat enum keeps the wire format simple; `dispatch` validates that the
 //! `(ModuleId, Action)` pair is legal. Variants cover the v1 spec surface even
 //! where the handler still returns `NotImplemented`.
+//!
+//! Package actions carry their module in the wire name (`install_apk`,
+//! `install_nix`, …), so an audit line or a client log stays unambiguous
+//! without the module next to it. The nix actions used bare names before that
+//! rule existed; each renamed variant keeps its old name as a deserialization
+//! alias, so a client or script written against the bare name keeps working.
 
 use serde::{Deserialize, Serialize};
 
@@ -48,8 +54,10 @@ pub enum Action {
 
     // -- packages.nix --
     /// List installed packages in the target user's profile.
+    #[serde(rename = "list_installed_nix", alias = "list_installed")]
     ListInstalled,
     /// Search a registry flake (default `nixpkgs`; slow: UI shows progress).
+    #[serde(rename = "search_nix", alias = "search")]
     Search {
         query: String,
         /// Registry flake to search (default `nixpkgs`); bare installables
@@ -86,16 +94,20 @@ pub enum Action {
         source: crate::NixRepoSource,
     },
     /// Install a package into the target user's profile.
+    #[serde(rename = "install_nix", alias = "install")]
     Install {
         package: String,
     },
     /// Remove a package from the target user's profile.
+    #[serde(rename = "remove_nix", alias = "remove")]
     Remove {
         package: String,
     },
     /// Remove every package from the profile.
+    #[serde(rename = "remove_all_nix", alias = "remove_all")]
     RemoveAll,
     /// Remove all packages whose name matches a regex. `dry_run` lists matches.
+    #[serde(rename = "remove_regex_nix", alias = "remove_regex")]
     RemoveRegex {
         pattern: String,
         #[serde(default)]
@@ -107,12 +119,14 @@ pub enum Action {
     /// named package), so a client that only names a package does not have to
     /// send the flag. A request that names neither is refused with `invalid`
     /// rather than silently upgrading nothing.
+    #[serde(rename = "upgrade_nix", alias = "upgrade")]
     Upgrade {
         package: Option<String>,
         #[serde(default)]
         all: bool,
     },
     /// Upgrade all packages whose name matches a regex. `dry_run` lists matches.
+    #[serde(rename = "upgrade_regex_nix", alias = "upgrade_regex")]
     UpgradeRegex {
         pattern: String,
         #[serde(default)]
@@ -123,8 +137,10 @@ pub enum Action {
     /// (network; on demand).
     ListNixUpdates,
     /// Profile history (generations).
+    #[serde(rename = "generations_nix", alias = "generations")]
     Generations,
     /// Roll the profile back to a previous generation (default: previous).
+    #[serde(rename = "rollback_nix", alias = "rollback")]
     Rollback {
         generation: Option<u32>,
     },
@@ -133,20 +149,24 @@ pub enum Action {
     /// `dry_run` stays **required** on purpose: a destructive call has to
     /// state whether it previews or applies, and a silent `false` default is
     /// the one default that cannot be taken back.
+    #[serde(rename = "wipe_history_nix", alias = "wipe_history")]
     WipeHistory {
         older_than: Option<String>,
         dry_run: bool,
     },
     /// Show what changed between generations (human-readable closure diff).
+    #[serde(rename = "diff_closures_nix", alias = "diff_closures")]
     DiffClosures {
         generation: Option<u32>,
     },
     /// Garbage-collect the whole nix store (unreachable paths only).
+    #[serde(rename = "store_gc_nix", alias = "store_gc")]
     StoreGc,
     /// Prune profile generations, keeping the last `keep` (`dry_run` = no changes).
     ///
     /// `dry_run` stays **required** for the same reason as [`Action::WipeHistory`]:
     /// a deletion is never the implied default.
+    #[serde(rename = "prune_generations_nix", alias = "prune_generations")]
     PruneGenerations {
         keep: u32,
         dry_run: bool,
@@ -820,7 +840,136 @@ mod tests {
     #[test]
     fn action_tag_is_present_and_snake_case() {
         let json = serde_json::to_value(&Action::ListInstalled).unwrap();
-        assert_eq!(json["action"], "list_installed");
+        assert_eq!(json["action"], "list_installed_nix");
+        let search = serde_json::to_value(&Action::Search {
+            query: "niri".into(),
+            repo: None,
+        })
+        .unwrap();
+        assert_eq!(search["action"], "search_nix");
+    }
+
+    /// Every nix action that used a bare wire name before the rename, with the
+    /// module-qualified name it answers to now and one payload that builds it.
+    fn renamed_nix_actions() -> Vec<(&'static str, &'static str, Action)> {
+        vec![
+            (
+                "list_installed",
+                "list_installed_nix",
+                Action::ListInstalled,
+            ),
+            (
+                "search",
+                "search_nix",
+                Action::Search {
+                    query: "niri".into(),
+                    repo: None,
+                },
+            ),
+            (
+                "install",
+                "install_nix",
+                Action::Install {
+                    package: "hello".into(),
+                },
+            ),
+            (
+                "remove",
+                "remove_nix",
+                Action::Remove {
+                    package: "hello".into(),
+                },
+            ),
+            ("remove_all", "remove_all_nix", Action::RemoveAll),
+            (
+                "remove_regex",
+                "remove_regex_nix",
+                Action::RemoveRegex {
+                    pattern: "^py".into(),
+                    dry_run: true,
+                },
+            ),
+            (
+                "upgrade",
+                "upgrade_nix",
+                Action::Upgrade {
+                    package: Some("hello".into()),
+                    all: false,
+                },
+            ),
+            (
+                "upgrade_regex",
+                "upgrade_regex_nix",
+                Action::UpgradeRegex {
+                    pattern: "^py".into(),
+                    dry_run: true,
+                },
+            ),
+            ("generations", "generations_nix", Action::Generations),
+            (
+                "rollback",
+                "rollback_nix",
+                Action::Rollback {
+                    generation: Some(7),
+                },
+            ),
+            (
+                "wipe_history",
+                "wipe_history_nix",
+                Action::WipeHistory {
+                    older_than: None,
+                    dry_run: true,
+                },
+            ),
+            (
+                "diff_closures",
+                "diff_closures_nix",
+                Action::DiffClosures {
+                    generation: Some(3),
+                },
+            ),
+            ("store_gc", "store_gc_nix", Action::StoreGc),
+            (
+                "prune_generations",
+                "prune_generations_nix",
+                Action::PruneGenerations {
+                    keep: 3,
+                    dry_run: true,
+                    expected_current: None,
+                    expected_delete: None,
+                },
+            ),
+        ]
+    }
+
+    #[test]
+    fn nix_actions_serialize_with_the_module_in_the_name() {
+        for (old, new, action) in renamed_nix_actions() {
+            let json = serde_json::to_value(&action).unwrap();
+            assert_eq!(json["action"], new, "serialized tag of {old}");
+        }
+    }
+
+    #[test]
+    fn legacy_nix_action_names_deserialize_to_the_same_variant() {
+        // A client or script written before the rename sends the bare name;
+        // the alias keeps it on the same variant, so nothing breaks.
+        for (old, new, action) in renamed_nix_actions() {
+            let mut renamed = serde_json::to_value(&action).unwrap();
+            renamed["action"] = serde_json::Value::String(new.to_string());
+            assert_eq!(
+                serde_json::from_value::<Action>(renamed).unwrap(),
+                action,
+                "new name {new}"
+            );
+            let mut legacy = serde_json::to_value(&action).unwrap();
+            legacy["action"] = serde_json::Value::String(old.to_string());
+            assert_eq!(
+                serde_json::from_value::<Action>(legacy).unwrap(),
+                action,
+                "legacy alias {old}"
+            );
+        }
     }
 
     #[test]
