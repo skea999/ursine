@@ -770,7 +770,8 @@ pub const SAMPLES: &[Sample] = &[
         module: ursine_api::ModuleId::Snapshots,
         action: "create_snapshot",
         pairs: &[],
-        destructive: false,
+        // `btrbk snapshot` also applies retention and deletes snapshots.
+        destructive: true,
         dispatch: Dispatch::Gate,
     },
     Sample {

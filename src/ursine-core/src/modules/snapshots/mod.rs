@@ -38,15 +38,11 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             target,
             dry_run,
         } => {
+            let copies = crate::backup_configs::copies_from(&ctx.config);
             if *dry_run {
-                restore::preview(snapshot, target)
+                restore::preview(snapshot, target, copies)
             } else {
-                restore::apply(
-                    snapshot,
-                    target,
-                    crate::backup_configs::copies_from(&ctx.config),
-                )
-                .await
+                restore::apply(snapshot, target, copies).await
             }
         }
         Action::GetBtrbkConfig => {

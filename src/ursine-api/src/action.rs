@@ -579,10 +579,21 @@ pub enum Action {
     /// btrbk stats output.
     Stats,
     /// Run a snapshot-only btrbk pass for a config section.
+    ///
+    /// btrbk then applies the retention rules of the configuration
+    /// (`snapshot_preserve`, `snapshot_preserve_min`) and deletes the
+    /// snapshots they no longer keep, so this needs the destructive
+    /// confirmation (`Gate::Always`). The deletion is only visible in
+    /// btrbk's own output.
     CreateSnapshot {
         section: Option<String>,
     },
     /// Restore a snapshot to a target. `dry_run` returns the preview.
+    ///
+    /// The live target is moved aside into the uniform backup chain, which
+    /// keeps at most `backup_configs.copies` backups of it (3 by default) —
+    /// the oldest one is deleted to make room. The preview and the apply
+    /// answer name the deleted tree as `would_delete`.
     RestoreSnapshot {
         snapshot: String,
         target: String,
