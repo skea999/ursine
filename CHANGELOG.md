@@ -184,6 +184,14 @@
   `docs/specs/SPEC-system.md`, the catalogue rows and the `ursinectl` help
   (#10).
 
+- **The protocol specification matches the wire**: `docs/specs/SPEC-protocol.md`
+  states version 7, lists what v6 (Nix repository scopes) and v7
+  (`refresh_apk` removed) changed, and says a request whose `v` differs is
+  refused with `invalid`; the stale PAM and `Authorization: Bearer` comments in
+  `ursine-api` describe the shadow-file check and the `token` request field, and
+  a unit test fails when the documented number drifts from
+  `PROTOCOL_VERSION` (#42).
+
 ## [0.49.0] — 2026-11-23
 
 ### Added

@@ -59,7 +59,7 @@ pub enum Request {
   written against the old name deserializes to the same variant and the
   protocol version does not move.
 - Every type: `Debug, Clone, Serialize, Deserialize, PartialEq`
-- Wire format is versioned: `Request`/`Response` carry `v: u16` (currently 5; v2 added the search `{results, truncated}` page and exact prune preview fields, v3 package mutations `job_id`, v4 `list_apk_repositories` `{url, tag}` rows, v5 no-D-Bus removals: `set_bluetooth_pairing_pin`, `pairing_pin_set`, capability `accountsservice`→`shadow`). The daemon records but does not reject other versions; frontends must tolerate older daemons' response shapes by treating parse failures as capability errors.
+- Wire format is versioned: `Request`/`Response` carry `v: u16` (currently 7; v2 added the search `{results, truncated}` page and exact prune preview fields, v3 package mutations `job_id`, v4 `list_apk_repositories` `{url, tag}` rows, v5 no-D-Bus removals: `set_bluetooth_pairing_pin`, `pairing_pin_set`, capability `accountsservice`→`shadow`, v6 Nix repository scopes (`system: bool`) and the per-source remove, v7 the unused `refresh_apk` action removed). A request whose `v` differs from `PROTOCOL_VERSION` is refused with `invalid`, the message naming the sent and the accepted version, before any other work; frontends must tolerate older daemons' response shapes by treating parse failures as capability errors. The `spec_protocol_states_the_current_wire_version` test in `src/ursine-api/src/envelope.rs` fails when this sentence and the constant disagree.
 
 ## Testing Strategy
 
