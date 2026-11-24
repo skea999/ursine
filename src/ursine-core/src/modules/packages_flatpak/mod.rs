@@ -30,11 +30,14 @@ const LIST_COLUMNS: &str = "application,name,version,branch,origin,description";
 pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::Value, ApiError> {
     match action {
         Action::ListFlatpak { system } => {
-            let packages = list(*system, ctx.as_user).await?;
-            // Best-effort orphan count for the Maintenance row: a
-            // failing probe must never fail the list.
-            let orphans = unused_count(*system, ctx.as_user).await;
-            Ok(json!({"packages": packages, "orphans": orphans}))
+            // Read-only means read-only: this arm used to count unused
+            // runtimes by running `flatpak uninstall --unused` and answering
+            // its prompt with `n`, so a flatpak that ignored standard input
+            // would have removed runtimes from a listing. flatpak 1.18.4 has
+            // no option that only reports the plan (`uninstall --help` lists
+            // no `--dry-run`), so the count is gone; `remove_flatpak_orphans`
+            // is the explicit, confirmation-gated action that removes them.
+            Ok(json!({"packages": list(*system, ctx.as_user).await?}))
         }
         Action::ListFlatpakRemotes { system } => {
             Ok(json!({"remotes": remotes(*system, ctx.as_user).await?}))
@@ -113,8 +116,7 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
             start_job(ctx, "remove_flatpak", *system, &args)
         }
         Action::RemoveFlatpakOrphans { system } => {
-            let scope = scope(*system);
-            let args = ["uninstall", "--unused", "-y", "--noninteractive", scope];
+            let args = orphan_removal_argv(*system);
             start_job(ctx, "remove_flatpak_orphans", *system, &args)
         }
         Action::FlatpakRemoveRegex {
@@ -293,15 +295,39 @@ async fn list_kind(
     kind: FlatpakRefKind,
     updates: bool,
 ) -> Result<Vec<FlatpakPackage>, ApiError> {
-    let scope = scope(system);
     let columns = format!("--columns={LIST_COLUMNS}");
-    let args: &[&str] = if updates {
-        &["remote-ls", scope, kind_flag, "--updates", columns.as_str()]
-    } else {
-        &["list", columns.as_str(), kind_flag, scope]
-    };
-    let output = run(system, user, args).await?;
+    let args = list_argv(system, kind_flag, &columns, updates);
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let output = run(system, user, &refs).await?;
     Ok(parse_list(&output, system, kind))
+}
+
+/// argv for one ref list (installed or `--updates`). Every read-only path
+/// builds its argv here, which lets the test suite prove none of them names
+/// `uninstall` (a listing must never remove anything, not even through a
+/// prompt answered `n`).
+fn list_argv(system: bool, kind_flag: &str, columns: &str, updates: bool) -> Vec<String> {
+    let scope = scope(system);
+    let args: &[&str] = if updates {
+        &["remote-ls", scope, kind_flag, "--updates", columns]
+    } else {
+        &["list", columns, kind_flag, scope]
+    };
+    args.iter().copied().map(str::to_string).collect()
+}
+
+/// argv for the explicit unused-runtime removal — the only argv in this
+/// module that asks flatpak to uninstall without naming a ref. It runs under
+/// `remove_flatpak_orphans` (`Effect::Mutating`, `Gate::Always`), so a client
+/// cannot reach it from a read-only listing.
+fn orphan_removal_argv(system: bool) -> [&'static str; 5] {
+    [
+        "uninstall",
+        "--unused",
+        "-y",
+        "--noninteractive",
+        scope(system),
+    ]
 }
 
 async fn remotes(system: Option<bool>, user: &str) -> Result<Vec<FlatpakRemote>, ApiError> {
@@ -561,52 +587,6 @@ async fn backup_repo_config(system: bool, user: &str, copies: usize) -> Result<(
     crate::backup_configs::rotate_async(target, copies, None).await
 }
 
-/// Count unused runtimes WITHOUT removing anything:
-/// `flatpak uninstall --unused` prints the plan, then aborts at the
-/// default "N" answer (we always answer `n`; `--yes`/`--noninteractive`
-/// are never passed). Returns None when the probe cannot run — the
-/// caller shows an unknown count, never a failure.
-async fn unused_count(system: bool, user: &str) -> Option<u64> {
-    let program = flatpak_path().ok()?;
-    let args: &[&str] = if system {
-        &["uninstall", "--unused", "--system"]
-    } else {
-        &["uninstall", "--unused", "--user"]
-    };
-    let outcome = if system {
-        exec::run_root_program_tolerant(program, args, TIMEOUT, Some("n\n"))
-            .await
-            .ok()?
-    } else {
-        exec::run_as_user_argv_tolerant(user, program, args, TIMEOUT, Some("n\n"))
-            .await
-            .ok()?
-    };
-    Some(parse_unused(&outcome.stdout))
-}
-
-/// Refs listed under flatpak's "will be removed" plan header. The pin
-/// notice ("won't be removed") never matches that header.
-fn parse_unused(stdout: &str) -> u64 {
-    let mut count = 0u64;
-    let mut counting = false;
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if counting {
-            if trimmed.starts_with("app/") || trimmed.starts_with("runtime/") {
-                count += 1;
-            } else if !trimmed.is_empty() {
-                break; // the confirmation prompt or any other text
-            }
-        } else if line.contains("will be removed") {
-            counting = true;
-        } else if line.contains("Nothing unused") {
-            return 0;
-        }
-    }
-    count
-}
-
 async fn run(system: bool, user: &str, args: &[&str]) -> Result<String, ApiError> {
     let program = flatpak_path()?;
     // Complete output: installed/update lists must never truncate
@@ -625,21 +605,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_unused_plan_but_never_the_pin_notice() {
-        // Real shapes: the pin notice says "won't be removed" (no
-        // "will be removed" header) and its refs must not be counted.
-        let pinned = "These runtimes in installation 'user' are pinned \
-and won't be removed; see flatpak-pin(1):\n  runtime/org.freedesktop.Platform/x86_64/25.08\nNothing unused to uninstall\n";
-        assert_eq!(parse_unused(pinned), 0);
+    fn read_only_listings_never_build_an_uninstall_argv() {
+        // The list action is read-only in the catalogue, so its argv must
+        // never name `uninstall` (nor carry the flags that answer a prompt).
+        for system in [true, false] {
+            for kind_flag in ["--app", "--runtime"] {
+                for updates in [true, false] {
+                    let argv = list_argv(system, kind_flag, "--columns=x", updates);
+                    assert!(!argv.iter().any(|arg| arg == "uninstall"), "{argv:?}");
+                    assert!(!argv.iter().any(|arg| arg == "--unused"), "{argv:?}");
+                    assert!(
+                        !argv
+                            .iter()
+                            .any(|arg| arg == "-y" || arg == "--noninteractive"),
+                        "{argv:?}"
+                    );
+                    assert_eq!(argv[0], if updates { "remote-ls" } else { "list" });
+                    assert!(argv.contains(&scope(system).to_string()));
+                }
+            }
+        }
+    }
 
-        let plan = "These runtimes will be removed:\n\
-  runtime/org.freedesktop.Platform/x86_64/26.08\n\
-  runtime/org.freedesktop.Platform.Locale/x86_64/26.08\n\
-Is that ok? [y/N] ";
-        assert_eq!(parse_unused(plan), 2);
-
-        assert_eq!(parse_unused("Nothing unused to uninstall\n"), 0);
-        assert_eq!(parse_unused(""), 0);
+    #[test]
+    fn only_orphan_removal_builds_an_uninstall_argv() {
+        // Removing unused runtimes is the one deliberate `uninstall --unused`
+        // run: it belongs to `remove_flatpak_orphans` (mutating, gated).
+        for system in [true, false] {
+            let argv = orphan_removal_argv(system);
+            assert_eq!(argv[0], "uninstall");
+            assert_eq!(argv[1], "--unused");
+            assert!(argv.contains(&"-y") && argv.contains(&"--noninteractive"));
+            assert_eq!(argv[4], scope(system));
+        }
     }
 
     #[test]

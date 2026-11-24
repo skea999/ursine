@@ -120,6 +120,15 @@
   until `set_password` runs, and that action stores exactly the password it
   was given.
 
+- **`list_flatpak` no longer runs `flatpak uninstall`**: the read-only
+  listing counted unused runtimes by running `flatpak uninstall --unused`
+  and answering its prompt with `n`, so a flatpak that ignored standard
+  input would have removed runtimes from a listing; flatpak 1.18.4 has no
+  option that only reports the plan (`uninstall --help` lists no
+  `--dry-run`), so the count and the `orphans` field are gone, the GUI's
+  Maintenance row states no count, and `remove_flatpak_orphans` stays the
+  explicit gated action that removes them (#40).
+
 ## [0.49.0] — 2026-11-23
 
 ### Added

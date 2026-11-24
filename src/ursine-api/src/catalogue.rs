@@ -1781,6 +1781,21 @@ mod tests {
     }
 
     #[test]
+    fn flatpak_listing_is_read_only_so_orphan_removal_is_its_own_action() {
+        // The listing used to count unused runtimes by running
+        // `flatpak uninstall --unused` and answering `n`; a read-only row
+        // must never reach that command, so removal stays its own gated
+        // action and the listing carries no count at all.
+        let listing = Action::ListFlatpak { system: false }.spec();
+        assert_eq!(listing.effect, Effect::ReadOnly);
+        assert_eq!(listing.gate, Gate::Never);
+        let orphans = Action::RemoveFlatpakOrphans { system: false };
+        assert_eq!(orphans.spec().effect, Effect::Mutating);
+        assert_eq!(orphans.spec().gate, Gate::Always);
+        assert!(orphans.is_destructive());
+    }
+
+    #[test]
     fn previews_are_flagged_and_gated_by_the_payload() {
         let mut previews = Vec::new();
         for spec in ACTIONS {
