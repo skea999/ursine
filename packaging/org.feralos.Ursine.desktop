@@ -6,6 +6,6 @@ Comment=FeralOS control center: packages, services, disks, users
 Exec=ursine
 Icon=org.feralos.Ursine
 Terminal=false
-Categories=System;Settings;
+Categories=Settings;
 Keywords=FeralOS;admin;system;settings;packages;services;disks;users;
 StartupNotify=true

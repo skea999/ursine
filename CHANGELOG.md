@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- **Launcher entry has one main category**: `packaging/org.feralos.Ursine.desktop`
+  lists `Settings` alone instead of `System;Settings;`, which named two main
+  categories and made `desktop-file-validate` warn that the application might
+  appear twice in the menu; the desktop file now validates without output
+  (#41).
+
 - **`upgrade_apk_package` upgrades**: the handler runs `apk upgrade
   <package>` instead of `apk add <package>`, which kept the installed
   version and re-solved the world file (an unrelated `apk add` on the
