@@ -6383,25 +6383,10 @@ impl App {
         }
         match result {
             Ok(value) => {
-                // Same wording as the nix preview (shared schema).
-                let names = value
-                    .get("would_change")
-                    .and_then(|value| value.as_array())
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(|item| item.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    })
-                    .unwrap_or_default();
                 // Inline under the Pattern buttons — the result must
-                // be visible where the click happened.
-                self.packages.pattern_result = Some(if names.is_empty() {
-                    "No installed package matches.".to_string()
-                } else {
-                    format!("Matching packages: {names}.")
-                });
+                // be visible where the click happened. Flatpak rows carry
+                // kind and branch, which the shared summary renders.
+                self.packages.pattern_result = Some(crate::store::regex_preview_summary(&value));
                 self.packages.error = None;
             }
             Err(error) => {

@@ -9,7 +9,8 @@ use std::time::Duration;
 
 use serde_json::json;
 use ursine_api::{
-    Action, ApiError, FlatpakInfo, FlatpakPackage, FlatpakRefKind, FlatpakRemote, ModuleId,
+    Action, ApiError, FlatpakInfo, FlatpakPackage, FlatpakPatternMatch, FlatpakRefKind,
+    FlatpakRemote, ModuleId,
 };
 
 use super::ModuleCtx;
@@ -182,7 +183,7 @@ const fn scope(system: bool) -> &'static str {
 }
 
 /// Both regex actions pass the matched refs to one job: a dry run answers
-/// with the refs, an empty set answers with empty output.
+/// with the matched rows, an empty set answers with empty output.
 async fn start_regex_job(
     ctx: &ModuleCtx<'_>,
     pattern: &str,
@@ -191,8 +192,12 @@ async fn start_regex_job(
     verb: &str,
     action: &'static str,
 ) -> Result<serde_json::Value, ApiError> {
-    let ids = matched_app_ids(pattern, system, ctx.as_user).await?;
-    if let Some(answer) = exec::regex_noop(dry_run, &ids) {
+    let matches = matched_flatpaks(pattern, system, ctx.as_user).await?;
+    if dry_run {
+        return Ok(pattern_preview(&matches));
+    }
+    let ids = matched_ids(&matches);
+    if let Some(answer) = exec::regex_noop(false, &ids) {
         return Ok(answer);
     }
     let mut args: Vec<&str> = vec![verb, "-y", "--noninteractive", scope(system)];
@@ -200,20 +205,57 @@ async fn start_regex_job(
     start_job(ctx, action, system, &args)
 }
 
-/// Installed Flatpak refs matching `pattern` (id or human name).
-async fn matched_app_ids(pattern: &str, system: bool, user: &str) -> Result<Vec<String>, ApiError> {
-    let packages = list(system, user).await?;
-    matching_app_ids(pattern, packages)
+/// One argv entry per id: the same id can be installed on several branches
+/// and flatpak already acts on every ref of an id it is given.
+fn matched_ids(matches: &[FlatpakPatternMatch]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    matches
+        .iter()
+        .filter(|row| seen.insert(row.app_id.as_str()))
+        .map(|row| row.app_id.clone())
+        .collect()
 }
 
-/// Validate + compile once, then keep the refs whose app id OR human
-/// name the regex matches (pure — the test suite drives it directly).
-fn matching_app_ids(pattern: &str, packages: Vec<FlatpakPackage>) -> Result<Vec<String>, ApiError> {
+/// Dry-run answer for both pattern actions: `would_change` keeps the bare ids
+/// that clients already read, `matches` carries the rows the ids cannot
+/// describe (kind, branch).
+fn pattern_preview(matches: &[FlatpakPatternMatch]) -> serde_json::Value {
+    json!({
+        "dry_run": true,
+        "would_change": matched_ids(matches),
+        "matches": matches,
+    })
+}
+
+/// Installed Flatpak refs matching `pattern` (id or human name).
+async fn matched_flatpaks(
+    pattern: &str,
+    system: bool,
+    user: &str,
+) -> Result<Vec<FlatpakPatternMatch>, ApiError> {
+    let packages = list(system, user).await?;
+    matching_flatpaks(pattern, packages)
+}
+
+/// Validate + compile once, then keep the rows whose app id OR human
+/// name the regex matches. Applications and runtimes both match, because
+/// the installed list holds both and a pattern such as `Platform` is meant
+/// for the runtime; the row keeps the kind so the preview can say so
+/// (pure — the test suite drives it directly).
+fn matching_flatpaks(
+    pattern: &str,
+    packages: Vec<FlatpakPackage>,
+) -> Result<Vec<FlatpakPatternMatch>, ApiError> {
     let re = exec::compile_regex(pattern)?;
     Ok(packages
         .into_iter()
         .filter(|package| re.is_match(&package.app_id) || re.is_match(&package.name))
-        .map(|package| package.app_id)
+        .map(|package| FlatpakPatternMatch {
+            app_id: package.app_id,
+            name: package.name,
+            branch: package.branch,
+            kind: package.kind,
+        })
         .collect())
 }
 
@@ -612,23 +654,120 @@ Is that ok? [y/N] ";
             system: false,
             kind: FlatpakRefKind::App,
         };
+        let ids = |rows: Vec<FlatpakPatternMatch>| {
+            rows.into_iter().map(|row| row.app_id).collect::<Vec<_>>()
+        };
         let packages = vec![
             package("org.gnome.Calculator", "Calculator"),
             package("com.bitwarden.desktop", "Bitwarden"),
         ];
         assert_eq!(
-            matching_app_ids("^org[.]gnome", packages.clone()).unwrap(),
+            ids(matching_flatpaks("^org[.]gnome", packages.clone()).unwrap()),
             ["org.gnome.Calculator"]
         );
         // Human names match too (the documented flatpak behaviour).
         assert_eq!(
-            matching_app_ids("^(Calc|Bit)", packages.clone()).unwrap(),
+            ids(matching_flatpaks("^(Calc|Bit)", packages.clone()).unwrap()),
             ["org.gnome.Calculator", "com.bitwarden.desktop"]
         );
-        assert!(matching_app_ids("^nothing$", packages.clone())
+        assert!(matching_flatpaks("^nothing$", packages.clone())
             .unwrap()
             .is_empty());
-        assert!(matching_app_ids("bad'quote", packages).is_err());
+        assert!(matching_flatpaks("bad'quote", packages).is_err());
+    }
+
+    /// Fixture rows: the application and the runtime ids both carry
+    /// `Platform`, which is what made the old preview ambiguous.
+    fn pattern_fixture() -> Vec<FlatpakPackage> {
+        let row = |app_id: &str, name: &str, branch: &str, kind: FlatpakRefKind| FlatpakPackage {
+            app_id: app_id.to_string(),
+            name: name.to_string(),
+            version: "1".to_string(),
+            branch: branch.to_string(),
+            origin: "flathub".to_string(),
+            description: None,
+            system: true,
+            kind,
+        };
+        vec![
+            row(
+                "org.mozilla.firefox",
+                "Firefox",
+                "stable",
+                FlatpakRefKind::App,
+            ),
+            row(
+                "org.gnome.Platform",
+                "GNOME Application Platform",
+                "48",
+                FlatpakRefKind::Runtime,
+            ),
+        ]
+    }
+
+    #[test]
+    fn pattern_preview_keeps_the_kind_of_each_match() {
+        // A pattern meant for the application used to answer the runtime's
+        // bare id, with nothing to say which of the two it had selected.
+        let rows = matching_flatpaks("Platform|Firefox", pattern_fixture()).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].app_id, "org.mozilla.firefox");
+        assert_eq!(rows[0].kind, FlatpakRefKind::App);
+        assert_eq!(rows[0].branch, "stable");
+        assert_eq!(rows[1].app_id, "org.gnome.Platform");
+        assert_eq!(rows[1].kind, FlatpakRefKind::Runtime);
+        assert_eq!(rows[1].branch, "48");
+    }
+
+    #[test]
+    fn pattern_preview_lists_the_same_id_once_per_branch() {
+        // Two branches of one id are two refs: the preview must not collapse
+        // them into one indistinguishable string.
+        let runtime = |branch: &str| FlatpakPackage {
+            app_id: "org.gnome.Platform".to_string(),
+            name: "GNOME Application Platform".to_string(),
+            version: "48".to_string(),
+            branch: branch.to_string(),
+            origin: "flathub".to_string(),
+            description: None,
+            system: true,
+            kind: FlatpakRefKind::Runtime,
+        };
+        let rows = matching_flatpaks(
+            "^org[.]gnome[.]Platform$",
+            vec![runtime("48"), runtime("47")],
+        )
+        .unwrap();
+        let branches: Vec<&str> = rows.iter().map(|row| row.branch.as_str()).collect();
+        assert_eq!(branches, ["48", "47"]);
+        assert!(rows.iter().all(|row| row.kind == FlatpakRefKind::Runtime));
+        // The job gets one argv entry, the preview one row per branch.
+        assert_eq!(matched_ids(&rows), ["org.gnome.Platform"]);
+        let preview = pattern_preview(&rows);
+        assert_eq!(preview["matches"].as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn pattern_preview_carries_the_rows_with_kind_and_branch() {
+        let rows = matching_flatpaks("Platform|Firefox", pattern_fixture()).unwrap();
+        let preview = pattern_preview(&rows);
+        assert_eq!(preview["dry_run"], true);
+        // `would_change` stays the bare ids clients already read.
+        assert_eq!(
+            preview["would_change"],
+            serde_json::json!(["org.mozilla.firefox", "org.gnome.Platform"])
+        );
+        let matches = preview["matches"].as_array().unwrap();
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0]["app_id"], "org.mozilla.firefox");
+        assert_eq!(matches[0]["kind"], "app");
+        assert_eq!(matches[0]["branch"], "stable");
+        assert_eq!(matches[1]["app_id"], "org.gnome.Platform");
+        assert_eq!(matches[1]["kind"], "runtime");
+        assert_eq!(matches[1]["branch"], "48");
+        assert!(pattern_preview(&[])["matches"]
+            .as_array()
+            .is_some_and(Vec::is_empty));
     }
 
     #[test]
