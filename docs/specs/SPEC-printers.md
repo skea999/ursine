@@ -23,6 +23,9 @@ CUPS tools as root; the GUI only renders state and sends actions.
 - URI: `ipp://`, `ipps://`, `usb://`, `socket://`, `lpd://`.
 - Description/location are bounded and control-character-free.
 - Add uses driverless IPP (`-m everywhere`).
+- `list_printers` and `printer_jobs` answer an empty list when `lpstat` exits
+  non-zero with `No destinations added.` (a host with no printer configured);
+  every other failure keeps its typed error.
 
 ## GUI
 

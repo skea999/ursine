@@ -15,6 +15,15 @@
 
 ### Fixed
 
+- **`list_printers` answers an empty list when no printer is configured**: a
+  host whose CUPS has no destination makes `lpstat -p -d -l` print
+  `lpstat: No destinations added.` and exit 1, which came back as an internal
+  error with that text and made "no printer" indistinguishable from a broken
+  print service; `list_printers` and `printer_jobs` now read that one notice —
+  on stdout or stderr, with or without the `lpstat:` prefix and the trailing
+  period — as an empty list, while every other failure keeps its typed error
+  (#43).
+
 - **Launcher entry has one main category**: `packaging/org.feralos.Ursine.desktop`
   lists `Settings` alone instead of `System;Settings;`, which named two main
   categories and made `desktop-file-validate` warn that the application might

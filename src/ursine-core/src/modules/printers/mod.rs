@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use serde_json::json;
-use ursine_api::{Action, ApiError, PrintJob, Printer};
+use ursine_api::{Action, ApiError, ErrorCode, PrintJob, Printer};
 
 use super::ModuleCtx;
 use crate::modules::packages_nix::exec;
@@ -135,8 +135,8 @@ pub async fn handle(action: &Action, ctx: &ModuleCtx<'_>) -> Result<serde_json::
 }
 
 async fn list() -> Result<Vec<Printer>, ApiError> {
-    let output = run(&LPSTAT, &["-p", "-d", "-l"]).await?;
-    Ok(parse_printers(&output))
+    let listed = lpstat(&["-p", "-d", "-l"]).await?;
+    Ok(listed.map_or_else(Vec::new, |output| parse_printers(&output)))
 }
 
 async fn jobs(printer: Option<&str>) -> Result<Vec<PrintJob>, ApiError> {
@@ -147,8 +147,55 @@ async fn jobs(printer: Option<&str>) -> Result<Vec<PrintJob>, ApiError> {
     if let Some(printer) = printer {
         args.push(printer);
     }
-    let output = run(&LPSTAT, &args).await?;
-    Ok(parse_jobs(&output, printer))
+    let listed = lpstat(&args).await?;
+    Ok(listed.map_or_else(Vec::new, |output| parse_jobs(&output, printer)))
+}
+
+/// Run `lpstat` and answer its stdout, or `None` when CUPS reports that the
+/// host has no destination at all.
+///
+/// CUPS treats an empty configuration as a failure — `lpstat` prints
+/// `lpstat: No destinations added.` and exits 1 — so the strict runner turned
+/// "this machine has no printer" into an internal error and a client could not
+/// tell an empty list from a broken print service. Only that one notice is
+/// read as the empty answer; every other non-zero exit keeps the error the
+/// strict runner reported, message included.
+async fn lpstat(args: &[&str]) -> Result<Option<String>, ApiError> {
+    let program = tool(&LPSTAT, "CUPS")?;
+    let outcome = exec::run_root_program_tolerant(program, args, TIMEOUT, None).await?;
+    if is_no_destinations(outcome.code, &outcome.stdout, &outcome.stderr) {
+        return Ok(None);
+    }
+    if outcome.code != 0 {
+        let detail = if outcome.stderr.trim().is_empty() {
+            outcome.stdout.trim()
+        } else {
+            outcome.stderr.trim()
+        };
+        return Err(ApiError::new(
+            ErrorCode::Internal,
+            format!("command failed: {detail}"),
+        ));
+    }
+    Ok(Some(outcome.stdout))
+}
+
+/// Whether the outcome of an `lpstat` run means "no printer is configured".
+///
+/// The tool name prefix, the trailing period, the case and the trailing
+/// newline are decoration on the same sentence: CUPS moved that text between
+/// stdout and stderr across versions, so both streams are read. Exit 0 lists
+/// normally — a listing is data even when the notice also appears — and any
+/// other failure stays an error.
+fn is_no_destinations(code: i32, stdout: &str, stderr: &str) -> bool {
+    code != 0
+        && stdout.lines().chain(stderr.lines()).any(|line| {
+            let line = line.trim().to_ascii_lowercase();
+            let message = line
+                .strip_prefix("lpstat:")
+                .map_or(line.as_str(), str::trim);
+            message.trim_end_matches('.').trim_end() == "no destinations added"
+        })
 }
 
 fn parse_printers(output: &str) -> Vec<Printer> {
@@ -344,6 +391,43 @@ mod tests {
         assert!(printers[0].is_default);
         assert_eq!(printers[0].description.as_deref(), Some("Office"));
         assert!(!printers[1].accepting);
+    }
+
+    #[test]
+    fn no_destinations_notice_means_an_empty_list() {
+        let notices = [
+            "lpstat: No destinations added.\n",
+            "lpstat: No destinations added.",
+            "No destinations added.\n",
+            "lpstat: no destinations added\n",
+        ];
+        for notice in notices {
+            assert!(
+                is_no_destinations(1, "", notice),
+                "stderr {notice:?} is the empty answer"
+            );
+            assert!(
+                is_no_destinations(1, notice, ""),
+                "stdout {notice:?} is the empty answer"
+            );
+        }
+    }
+
+    #[test]
+    fn other_lpstat_failures_stay_errors() {
+        assert!(!is_no_destinations(1, "", "lpstat: Bad file descriptor\n"));
+        assert!(!is_no_destinations(
+            1,
+            "",
+            "lpstat: Unable to connect to server\n"
+        ));
+        // A successful run lists normally, whatever it printed.
+        assert!(!is_no_destinations(0, "", ""));
+        assert!(!is_no_destinations(
+            0,
+            "printer Office is idle. enabled since now\n",
+            ""
+        ));
     }
 
     #[test]
