@@ -19,7 +19,10 @@ Status: **implemented** (user decision 2026-10-29).
   small; follows the `job_output` polling precedent — no daemon streaming):
   - `Action::LogList` → `Vec<LogFile>`: path relative to `/var/log`, size,
     mtime; scanned fresh on every call (dynamic discovery); compressed
-    (`.gz/.xz/.bz2/.zst/.zip`) and non-regular entries skipped; directory walk capped at depth 3, path resolution at depth 8.
+    (`.gz/.xz/.bz2/.zst/.zip`) and non-regular entries skipped; files whose
+    first 8 KiB hold a NUL byte skipped too (binary records such as `btmp`,
+    `wtmp`, `lastlog` — the list never offers what the reader refuses);
+    directory walk capped at depth 3, path resolution at depth 8.
   - `Action::LogRead { file, lines, cursor }` with
     `LogCursor::End | Before { offset } | From { offset }` →
     `LogChunk { content, start, end, size, has_before }`:

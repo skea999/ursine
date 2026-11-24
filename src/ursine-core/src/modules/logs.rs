@@ -26,6 +26,12 @@ const MAX_SEARCH_LIMIT: u32 = 500;
 const SEARCH_SCAN_CAP: u64 = 4 * 1024 * 1024;
 /// Preview cap for one hit line.
 const HIT_LINE_CHARS: usize = 400;
+/// Bytes sniffed per file by the list to decide text vs binary.
+///
+/// 8 KiB covers the header of every `/var/log` record we know of — plain
+/// text, and the UTF-16 records whose NUL bytes sit in the first two (BOM)
+/// — while a 50-file `/var/log` costs at most 400 KiB per list call.
+const SNIFF_CAP: u64 = 8 * 1024;
 
 /// Route a logs action (blocking work runs off the async executor).
 pub async fn handle(
@@ -155,6 +161,12 @@ fn scan_dir(root: &Path, dir: &Path, depth: u32, out: &mut Vec<LogFile>) -> Resu
         };
         let lower = name.to_ascii_lowercase();
         if COMPRESSED.iter().any(|ext| lower.ends_with(ext)) {
+            continue;
+        }
+        // Binary records (`btmp`, `wtmp`, `lastlog`) would only be refused by
+        // the reader, so never offer them. An unreadable file is skipped like
+        // everywhere else in this walk.
+        if is_binary_file(&path) {
             continue;
         }
         let Ok(meta) = entry.metadata() else {
@@ -309,10 +321,29 @@ fn empty_chunk(start: u64, end: u64, size: u64) -> LogChunk {
 
 /// Text logs only: a NUL byte means this is not a text log (binary/gzip).
 fn ensure_text(buf: &[u8]) -> Result<(), ApiError> {
-    if buf.contains(&0) {
+    if looks_binary(buf) {
         return Err(ApiError::invalid("not a text log (binary content)"));
     }
     Ok(())
+}
+
+/// The one rule the list and the reader share: a NUL byte means binary.
+fn looks_binary(bytes: &[u8]) -> bool {
+    bytes.contains(&0)
+}
+
+/// Whether the first [`SNIFF_CAP`] bytes of `path` look binary; an unreadable
+/// file counts as binary so the walk skips it instead of failing the list.
+fn is_binary_file(path: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(path) else {
+        return true;
+    };
+    let mut handle = file.take(SNIFF_CAP);
+    let mut head = Vec::new();
+    if handle.read_to_end(&mut head).is_err() {
+        return true;
+    }
+    looks_binary(&head)
 }
 
 /// `(offset, len)` spans of lines inside `buf` (excluding the `\n` bytes);
@@ -369,7 +400,7 @@ fn search_file(rel: &str, query: &str, limit: u32) -> Result<LogSearchResult, Ap
             truncated_scan = true;
             break;
         }
-        if raw.contains(&0) {
+        if looks_binary(&raw) {
             // Same contract as chunk reads: this is not a text log.
             return Err(ApiError::invalid("not a text log (binary content)"));
         }
@@ -429,6 +460,34 @@ mod tests {
         let _ = std::fs::remove_file(Path::new(LOG_ROOT).join("ursine-test-a.log"));
         let _ = std::fs::remove_file(Path::new(LOG_ROOT).join("ursine-test-b.log.gz"));
         let _ = std::fs::remove_file(Path::new(LOG_ROOT).join("ursine-test-c.log"));
+    }
+
+    #[test]
+    fn looks_binary_is_the_reader_rule() {
+        assert!(!looks_binary(b""));
+        assert!(!looks_binary("héllo wörld\n".as_bytes()));
+        assert!(looks_binary(&[0xFF, 0xFE, b'h', 0x00])); // UTF-16LE BOM
+        assert!(looks_binary(b"\0"));
+        let mut late = vec![b'x'; 4096];
+        late.push(0);
+        assert!(looks_binary(&late));
+    }
+
+    #[test]
+    fn list_skips_binary_records() {
+        // Same `/var/log` fixture the other list tests use (the scan root is a
+        // constant, so the walk cannot be pointed at a temp directory).
+        let text = write_log("ursine-test-text.log", b"plain log line\n");
+        let binary = write_log("ursine-test-record.btmp", b"\x07\0\0\0binary record");
+        let files = list_logs().unwrap();
+        let names: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert!(names.contains(&"ursine-test-text.log"), "{names:?}");
+        assert!(!names.contains(&"ursine-test-record.btmp"), "{names:?}");
+        // The reader refuses exactly what the list now hides.
+        let err = read_chunk("ursine-test-record.btmp", 5, LogCursor::End).unwrap_err();
+        assert!(err.message.contains("binary"), "{}", err.message);
+        let _ = std::fs::remove_file(text);
+        let _ = std::fs::remove_file(binary);
     }
 
     #[test]

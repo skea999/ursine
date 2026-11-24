@@ -15,6 +15,16 @@
 
 ### Fixed
 
+- **The log list no longer offers files the reader refuses**: `list_logs`
+  answered 50 files on a FeralOS install, among them the binary records
+  `btmp`, `wtmp` and `lastlog`, and reading one answered `not a text log
+  (binary content)`; the scan now sniffs at most the first 8 KiB of each
+  file and leaves out any that holds a NUL byte, through the same pure
+  helper (`looks_binary`) the chunk read and the search use, so list and
+  reader share one rule. The 8 KiB cap covers the header of every
+  `/var/log` record, UTF-16 BOMs included, and costs at most 400 KiB for a
+  50-file list (ISSUES.md entry 45).
+
 - **`list_printers` answers an empty list when no printer is configured**: a
   host whose CUPS has no destination makes `lpstat -p -d -l` print
   `lpstat: No destinations added.` and exit 1, which came back as an internal
