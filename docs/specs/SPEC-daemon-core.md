@@ -33,11 +33,11 @@ src/ursine-core/src/
    ├─ auth/
    │  ├─ mod.rs         Authenticator trait (issue, verify) — the ONLY seam
    │  └─ shadow.rs      /etc/shadow verify (pwhash, Webmin pattern) + tests
-   ├─ session.rs        token store in RAM: HashMap, TTL 10 min idle (config), sliding expiry
+   ├─ session.rs        token store in RAM: HashMap, TTL 10 min idle (config), sliding expiry, per-session scope (read-only + client id)
    ├─ ratelimit.rs      failed-login rate limit in RAM (default 5/min per uid, config)
    ├─ socket.rs         /run/ursine.sock root:root 0666, peer creds (SO_PEERCRED)
    ├─ dispatch.rs       Request -> module router; enforces auth, asUser resolution
-   ├─ audit.rs          JSONL append: ts, principal, action, asUser, result; fsync per line
+   ├─ audit.rs          JSONL append: ts, principal, action, asUser, on_behalf_of, result; fsync per line
    └─ modules/          one dir per module (see module specs)
 tests/                  integration tests (socket loop, auth flows)
 artifacts/              generated + build output (target-dir, gitignored contents)
@@ -58,10 +58,31 @@ pub trait Authenticator: Send + Sync {
 ## Authentication flow (binding)
 
 1. Connect to `/run/ursine.sock` (root:root, 0666 — any local user may connect, like a Webmin login page)
-2. Client sends `Auth { user, password }`
-3. Daemon: rate-limit check → shadow verify (`/etc/shadow`, fail-closed + timing-equalized) → wheel group check → issue 256-bit random token, RAM only
+2. Client sends `Auth { user, password, read_only?, client? }`
+3. Daemon: rate-limit check → `client` shape check (1–64 bytes of
+   `[A-Za-z0-9_.-]`, `invalid` + `fix` otherwise) → shadow verify
+   (`/etc/shadow`, fail-closed + timing-equalized) → wheel group check →
+   issue 256-bit random token, RAM only, carrying the requested scope
 4. Every subsequent `Call` carries `Authorization: Bearer <token>`; daemon validates + slides TTL (default 10 min idle, `token_ttl_min` in config)
 5. Auth failure → generic error (no user-exists oracle), audit line, rate-limit tick
+6. A read-only session (`read_only: true`) passes dispatch's token check and
+   then refuses every mutating action (`Action::is_mutating()`) with code
+   `forbidden` and a `fix` naming the scope. The refusal is audited like any
+   other failed action. Reads, `dry_run` previews and a read-write session are
+   untouched.
+
+## Audit line (binding)
+
+One JSON object per line, fsynced before the next entry: `ts_millis`,
+`principal`, `origin`, `module` (omitted for the handshake), `action`,
+`as_user` (omitted when the request carried no honored target), `outcome`
+(`{"result":"ok"}`, or `{"result":"err","code":…,"message":…}`).
+
+`on_behalf_of` carries the session's `client` id and is omitted when the
+session named none: it answers "which program acted", the question a review
+of an admin action asks right after "who". A job completion line has no
+session behind it (the job outlives the request that started it), so it
+carries the principal and no `on_behalf_of`.
 
 ## Update-check preference (binding)
 

@@ -15,7 +15,7 @@ use crate::clock::Clock;
 use crate::jobs::JobRegistry;
 use crate::modules;
 use crate::ratelimit::RateLimiter;
-use crate::session::TokenStore;
+use crate::session::{SessionInfo, TokenStore};
 
 /// Auth input caps: bound work before any audit or authentication call.
 const MAX_AUTH_USER_BYTES: usize = 256;
@@ -28,6 +28,23 @@ const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
 pub const MAX_INFLIGHT_AUTH: usize = 8;
 /// A profile target user is a local account name, never a path or a blob.
 const MAX_AS_USER_BYTES: usize = 64;
+/// Longest accepted client id. It lands in the audit log, so it is bounded
+/// like the other untrusted strings the daemon copies into a line.
+const MAX_CLIENT_BYTES: usize = 64;
+
+/// Whether a client id is acceptable: non-empty, at most
+/// [`MAX_CLIENT_BYTES`] bytes and drawn from `[A-Za-z0-9_.-]`.
+///
+/// The set is the intersection of "readable in an audit line" and "safe in a
+/// JSON string": no spaces, no quoting, no control characters, so a client
+/// cannot forge structure in a log a human reads.
+fn valid_client(client: &str) -> bool {
+    !client.is_empty()
+        && client.len() <= MAX_CLIENT_BYTES
+        && client
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+}
 
 /// Everything the daemon owns. Built once at startup, shared via `Arc`.
 pub struct Daemon {
@@ -98,8 +115,14 @@ impl Daemon {
         }
 
         match req.body {
-            RequestBody::Auth { user, password } => {
-                self.handle_auth(id, peer, &user, &password).await
+            RequestBody::Auth {
+                user,
+                password,
+                read_only,
+                client,
+            } => {
+                self.handle_auth(id, peer, &user, &password, read_only, client.as_deref())
+                    .await
             }
             RequestBody::Call {
                 module,
@@ -211,6 +234,8 @@ impl Daemon {
         peer: &PeerInfo,
         user: &str,
         password: &str,
+        read_only: bool,
+        client: Option<&str>,
     ) -> Response {
         // Charge the rate limiter before the size check so oversized input
         // cannot bypass login throttling. A limited request must not write an
@@ -221,6 +246,20 @@ impl Daemon {
             return Response::err(id, ApiError::rate_limited());
         }
 
+        // A malformed client id is the client's bug, not a credential
+        // problem, and the peer is already charged by the rate limiter: the
+        // request is answered before any authentication work happens.
+        if client.is_some_and(|name| !valid_client(name)) {
+            return Response::err(
+                id,
+                ApiError::invalid(format!(
+                    "client must be 1-{MAX_CLIENT_BYTES} characters of [A-Za-z0-9_.-]"
+                ))
+                .with_fix("send a short name such as `ursinectl`, or omit the field"),
+            );
+        }
+        let client = client.map(str::to_owned);
+
         // Bound the work before any audit or auth call. On rejection, audit the
         // kernel peer identity so a huge claimed name cannot grow the log. The
         // rate limiter above caps these writes per uid.
@@ -230,6 +269,7 @@ impl Daemon {
                 &peer_principal,
                 None,
                 "auth",
+                None,
                 None,
                 Outcome::Err {
                     code: ErrorCode::Unauthorized,
@@ -251,6 +291,7 @@ impl Daemon {
                 &anonymous,
                 None,
                 "auth",
+                None,
                 None,
                 Outcome::Err {
                     code: ErrorCode::Internal,
@@ -279,6 +320,7 @@ impl Daemon {
                     None,
                     "auth",
                     None,
+                    None,
                     Outcome::Err {
                         code: ErrorCode::Internal,
                         message: "authenticator timed out".into(),
@@ -294,6 +336,7 @@ impl Daemon {
                     None,
                     "auth",
                     None,
+                    None,
                     Outcome::Err {
                         code: ErrorCode::Unauthorized,
                         message: "invalid credentials".into(),
@@ -308,6 +351,7 @@ impl Daemon {
                     None,
                     "auth",
                     None,
+                    None,
                     Outcome::Err {
                         code: ErrorCode::Internal,
                         message: "authenticator failure".into(),
@@ -321,6 +365,7 @@ impl Daemon {
                     &anonymous,
                     None,
                     "auth",
+                    None,
                     None,
                     Outcome::Err {
                         code: ErrorCode::Internal,
@@ -337,6 +382,7 @@ impl Daemon {
                 None,
                 "auth",
                 None,
+                None,
                 Outcome::Err {
                     code: ErrorCode::Forbidden,
                     message: "not in wheel".into(),
@@ -346,10 +392,12 @@ impl Daemon {
         }
 
         self.ratelimit.reset(peer.uid);
-        let (token, ttl) = self.sessions.issue(principal.clone());
+        let (token, ttl) = self
+            .sessions
+            .issue(principal.clone(), read_only, client.clone());
         self.audit
-            .record(&principal, None, "auth", None, Outcome::Ok);
-        Response::auth_ok(id, token, ttl)
+            .record(&principal, None, "auth", None, None, Outcome::Ok);
+        Response::auth_ok(id, token, ttl, read_only, client)
     }
 
     async fn handle_call(
@@ -363,10 +411,14 @@ impl Daemon {
         let Some(token) = token else {
             return Response::err(id, ApiError::unauthorized());
         };
-        let Some(principal) = self.sessions.validate(token) else {
+        let Some(info) = self.sessions.validate(token) else {
             return Response::err(id, ApiError::unauthorized());
         };
-
+        let SessionInfo {
+            principal,
+            read_only,
+            client,
+        } = info;
         // `asUser` is meaningful for packages actions that read or mutate one
         // profile, for theming (writes land in that user's home) and for
         // Flatpak actions scoped to the user installation.
@@ -442,6 +494,20 @@ impl Daemon {
             }
             _ => modules::action_name(&action).to_string(),
         };
+        // A read-only credential may read everything and change nothing. The
+        // refusal is computed here, beside the other request-level refusals,
+        // so an attempt to write through a read-only session still reaches the
+        // audit line below instead of vanishing as a silent early return.
+        // `is_mutating` (not the nominal catalogue effect) is the
+        // classification used: a `dry_run` preview changes nothing and stays
+        // available to a read-only credential.
+        let scope_error = (read_only && action.is_mutating()).then(|| {
+            ApiError::new(
+                ErrorCode::Forbidden,
+                "a read-only credential cannot run a mutating action",
+            )
+            .with_fix("this credential is read-only; authenticate again without read_only")
+        });
         let config = self.config.read().await.clone();
         let ctx = modules::ModuleCtx {
             caps: &self.caps,
@@ -451,7 +517,9 @@ impl Daemon {
             principal: &principal,
         };
 
-        let result = if let Some(error) = as_user_error {
+        let result = if let Some(error) = scope_error {
+            Err(error)
+        } else if let Some(error) = as_user_error {
             Err(error)
         } else {
             // A foreign `as_user` must name an existing normal-login
@@ -494,6 +562,7 @@ impl Daemon {
                 Some(module),
                 &action_name,
                 audited_as_user,
+                client,
                 outcome,
             );
         }
@@ -633,6 +702,11 @@ mod tests {
     }
 
     fn auth_request(id: u64) -> Request {
+        scoped_auth_request(id, false, None)
+    }
+
+    /// Handshake asking for a given scope and client id.
+    fn scoped_auth_request(id: u64, read_only: bool, client: Option<&str>) -> Request {
         Request {
             v: PROTOCOL_VERSION,
             id: Some(id),
@@ -640,14 +714,38 @@ mod tests {
             body: RequestBody::Auth {
                 user: "skea999".into(),
                 password: "pw1".into(),
+                read_only,
+                client: client.map(str::to_owned),
             },
         }
     }
 
     async fn token(daemon: &Daemon) -> SessionToken {
-        match daemon.handle(auth_request(1), &peer()).await.body {
+        scoped_token(daemon, false, None).await
+    }
+
+    async fn scoped_token(daemon: &Daemon, read_only: bool, client: Option<&str>) -> SessionToken {
+        match daemon
+            .handle(scoped_auth_request(1, read_only, client), &peer())
+            .await
+            .body
+        {
             ResponseBody::AuthOk { token, .. } => token,
             other => panic!("want auth_ok, got {other:?}"),
+        }
+    }
+
+    /// One authenticated call through the shared dispatch path.
+    fn call_request(token: SessionToken, module: ModuleId, action: Action) -> Request {
+        Request {
+            v: PROTOCOL_VERSION,
+            id: Some(2),
+            token: Some(token),
+            body: RequestBody::Call {
+                module,
+                action,
+                as_user: None,
+            },
         }
     }
 
@@ -659,6 +757,7 @@ mod tests {
             ResponseBody::AuthOk {
                 token,
                 expires_in_secs,
+                ..
             } => {
                 assert_eq!(expires_in_secs, 600);
                 token
@@ -682,6 +781,113 @@ mod tests {
                 assert!(result.get("version").is_some());
             }
             other => panic!("want ok, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_only_session_refuses_a_mutating_action() {
+        let (_clock, d) = daemon(&tmp_dir("read-only-refuse"));
+        let token = scoped_token(&d, true, Some("ursinectl")).await;
+        let call = call_request(token, ModuleId::Config, Action::Init);
+        match d.handle(call, &peer()).await.body {
+            ResponseBody::Err { error } => {
+                assert_eq!(error.code, ErrorCode::Forbidden);
+                assert!(
+                    error
+                        .fix
+                        .as_deref()
+                        .is_some_and(|fix| fix.contains("read_only")),
+                    "the refusal must tell the caller how to get write access"
+                );
+            }
+            other => panic!("want forbidden, got {other:?}"),
+        }
+        // The refusal is audited like any other failed action and names the
+        // client the session authenticated with.
+        let audit = std::fs::read_to_string(d.audit.path()).unwrap();
+        let last: serde_json::Value = serde_json::from_str(audit.lines().last().unwrap()).unwrap();
+        assert_eq!(last["outcome"]["code"], "forbidden");
+        assert_eq!(last["on_behalf_of"], "ursinectl");
+    }
+
+    #[tokio::test]
+    async fn read_only_session_still_reads() {
+        let (_clock, d) = daemon(&tmp_dir("read-only-read"));
+        let token = scoped_token(&d, true, Some("ursinectl")).await;
+        match d
+            .handle(
+                call_request(token, ModuleId::System, Action::Status),
+                &peer(),
+            )
+            .await
+            .body
+        {
+            ResponseBody::Ok { result } => assert!(result.get("version").is_some()),
+            other => panic!("a read must survive a read-only credential, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_write_session_is_not_refused_for_a_mutating_action() {
+        let (_clock, d) = daemon(&tmp_dir("read-write"));
+        let token = scoped_token(&d, false, None).await;
+        match d
+            .handle(call_request(token, ModuleId::Config, Action::Init), &peer())
+            .await
+            .body
+        {
+            ResponseBody::Err { error } => assert_ne!(
+                error.code,
+                ErrorCode::Forbidden,
+                "the scope gate must not touch a read-write session"
+            ),
+            ResponseBody::Ok { .. } => {}
+            other @ ResponseBody::AuthOk { .. } => panic!("want an outcome, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn client_id_validation_table() {
+        assert!(valid_client("ursinectl"));
+        assert!(valid_client("ursine-gui_2.0"));
+        assert!(valid_client(&"a".repeat(MAX_CLIENT_BYTES)));
+        for bad in ["", "has space", "has/slash", "quote\"", "ünïcode", "nul\0"] {
+            assert!(!valid_client(bad), "{bad:?} must be rejected");
+        }
+        assert!(
+            !valid_client(&"a".repeat(MAX_CLIENT_BYTES + 1)),
+            "one byte over the cap is rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn auth_rejects_a_malformed_client_id() {
+        let (_clock, d) = daemon(&tmp_dir("bad-client"));
+        let req = scoped_auth_request(1, false, Some("bad client"));
+        match d.handle(req, &peer()).await.body {
+            ResponseBody::Err { error } => {
+                assert_eq!(error.code, ErrorCode::Invalid);
+                assert!(error.fix.is_some(), "an invalid client id needs a fix hint");
+            }
+            other => panic!("want invalid, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn auth_echoes_the_granted_scope() {
+        let (_clock, d) = daemon(&tmp_dir("scope-echo"));
+        let body = d
+            .handle(scoped_auth_request(1, true, Some("ursine-gui")), &peer())
+            .await
+            .body;
+        match body {
+            ResponseBody::AuthOk {
+                read_only, client, ..
+            } => {
+                assert!(read_only);
+                assert_eq!(client.as_deref(), Some("ursine-gui"));
+            }
+            other => panic!("want auth_ok, got {other:?}"),
         }
     }
 
@@ -1125,6 +1331,8 @@ mod tests {
             body: RequestBody::Auth {
                 user: String::new(),
                 password: String::new(),
+                read_only: false,
+                client: None,
             },
         };
         match d.handle(req, &peer()).await.body {
@@ -1145,6 +1353,8 @@ mod tests {
                 body: RequestBody::Auth {
                     user: "x".into(),
                     password: String::new(),
+                    read_only: false,
+                    client: None,
                 },
             };
             last = Some(d.handle(req, &peer()).await.body);
@@ -1166,6 +1376,8 @@ mod tests {
             body: RequestBody::Auth {
                 user: long_user.clone(),
                 password: "pw".into(),
+                read_only: false,
+                client: None,
             },
         };
         match d.handle(req, &peer()).await.body {
@@ -1181,6 +1393,8 @@ mod tests {
             body: RequestBody::Auth {
                 user: "skea999".into(),
                 password: long_password.clone(),
+                read_only: false,
+                client: None,
             },
         };
         match d.handle(req, &peer()).await.body {
@@ -1248,6 +1462,8 @@ mod tests {
             body: RequestBody::Auth {
                 user: "a".into(),
                 password: "b".into(),
+                read_only: false,
+                client: None,
             },
         };
         match d.handle(req, &peer()).await.body {

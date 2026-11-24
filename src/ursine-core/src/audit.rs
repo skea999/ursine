@@ -26,6 +26,11 @@ pub struct AuditEntry {
     pub action: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub as_user: Option<String>,
+    /// Frontend the session named at authentication (`ursinectl`,
+    /// `ursine-gui`). The principal says who acted; this says which program
+    /// did, which is what a review of an admin action asks first.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of: Option<String>,
     pub outcome: Outcome,
 }
 
@@ -135,12 +140,16 @@ impl AuditLog {
     }
 
     /// Append one entry; fsync per line so a crash cannot lose it.
+    ///
+    /// `on_behalf_of` is the session's client id, or `None` when the client
+    /// sent none or the line is not about a session (the handshake itself).
     pub fn record(
         &self,
         principal: &Principal,
         module: Option<ModuleId>,
         action: impl Into<String>,
         as_user: Option<String>,
+        on_behalf_of: Option<String>,
         outcome: Outcome,
     ) {
         let entry = AuditEntry {
@@ -150,6 +159,7 @@ impl AuditLog {
             module,
             action: action.into(),
             as_user,
+            on_behalf_of,
             outcome,
         };
         let Ok(mut line) = serde_json::to_string(&entry) else {
@@ -195,13 +205,18 @@ mod tests {
             Some(ModuleId::PackagesNix),
             "install",
             None,
+            Some("ursinectl".into()),
             Outcome::Ok,
         );
+        // A session that named no client: the field must vanish from the
+        // line, not serialize as `null`, so log consumers can tell the
+        // difference between "no client" and "client: null".
         log.record(
             &p,
             Some(ModuleId::Snapshots),
             "restore",
             Some("other".into()),
+            None,
             Outcome::Err {
                 code: ursine_api::ErrorCode::Unavailable,
                 message: "btrbk missing".into(),
@@ -215,9 +230,14 @@ mod tests {
         assert_eq!(v["principal"], "skea999");
         assert_eq!(v["module"], "packages_nix");
         assert_eq!(v["outcome"]["result"], "ok");
+        assert_eq!(v["on_behalf_of"], "ursinectl");
         let v2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(v2["outcome"]["result"], "err");
         assert_eq!(v2["as_user"], "other");
+        assert!(
+            v2.get("on_behalf_of").is_none(),
+            "absent client stays out of the line"
+        );
         assert!(!raw.to_lowercase().contains("password"));
         assert!(!raw.contains("token"));
         #[cfg(unix)]

@@ -210,11 +210,15 @@ struct CompletionAudit {
 
 impl CompletionAudit {
     fn record(self, audit: &AuditLog) {
+        // A job outlives the request that started it, so its completion line
+        // has no session to name: the principal who started the job is the
+        // whole of the attribution this line can honestly carry.
         audit.record(
             &self.principal,
             Some(self.module),
             &self.action,
             self.as_user,
+            None,
             self.outcome,
         );
     }

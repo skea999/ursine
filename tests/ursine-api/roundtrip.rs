@@ -27,16 +27,20 @@ fn capability_list_call_roundtrips_as_one_line() {
 
 #[test]
 fn auth_response_contract() {
-    let resp = Response::auth_ok(Some(1), SessionToken::new("tok"), 600);
+    let resp = Response::auth_ok(Some(1), SessionToken::new("tok"), 600, false, None);
     let line = serde_json::to_string(&resp).unwrap();
     let parsed: Response = serde_json::from_str(&line).unwrap();
     match parsed.body {
         ResponseBody::AuthOk {
             expires_in_secs,
             token,
+            read_only,
+            client,
         } => {
             assert_eq!(expires_in_secs, 600);
             assert_eq!(token.as_str(), "tok");
+            assert!(!read_only);
+            assert!(client.is_none());
         }
         other => panic!("unexpected body: {other:?}"),
     }

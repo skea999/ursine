@@ -44,7 +44,20 @@ pub struct Request {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RequestBody {
     /// One-time handshake: credentials verified by the daemon via PAM.
-    Auth { user: String, password: String },
+    Auth {
+        user: String,
+        password: String,
+        /// Ask for a read-only credential: mutating actions on this session
+        /// are refused. Absent on the wire means read-write, so a client that
+        /// predates the field keeps exactly the rights it had.
+        #[serde(default)]
+        read_only: bool,
+        /// Frontend that opened the session (`ursinectl`, `ursine-gui`).
+        /// Recorded in the audit log as `on_behalf_of`; the daemon does not
+        /// authorize on it, so omitting it is legal.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client: Option<String>,
+    },
     /// Authenticated call: requires `Authorization: Bearer <token>`.
     Call {
         module: ModuleId,
@@ -74,6 +87,14 @@ pub enum ResponseBody {
     AuthOk {
         token: SessionToken,
         expires_in_secs: u64,
+        /// The scope the daemon granted: the token carries it, so the client
+        /// can tell read-only from read-write without inspecting requests.
+        #[serde(default)]
+        read_only: bool,
+        /// Echo of the accepted client id, so a client can confirm the name
+        /// the audit log will show.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client: Option<String>,
     },
     /// Action succeeded.
     Ok { result: serde_json::Value },
@@ -82,13 +103,21 @@ pub enum ResponseBody {
 }
 
 impl Response {
-    pub fn auth_ok(id: Option<u64>, token: SessionToken, expires_in_secs: u64) -> Self {
+    pub fn auth_ok(
+        id: Option<u64>,
+        token: SessionToken,
+        expires_in_secs: u64,
+        read_only: bool,
+        client: Option<String>,
+    ) -> Self {
         Self {
             v: PROTOCOL_VERSION,
             id,
             body: ResponseBody::AuthOk {
                 token,
                 expires_in_secs,
+                read_only,
+                client,
             },
         }
     }
@@ -123,12 +152,65 @@ mod tests {
             body: RequestBody::Auth {
                 user: "skea999".into(),
                 password: "pw1".into(),
+                read_only: false,
+                client: None,
             },
         };
         let line = serde_json::to_string(&r).unwrap();
         assert!(line.contains("\"type\":\"auth\""));
         let back: Request = serde_json::from_str(&line).unwrap();
         assert_eq!(r, back);
+    }
+
+    #[test]
+    fn auth_request_client_and_scope_roundtrip() {
+        let r = Request {
+            v: PROTOCOL_VERSION,
+            id: Some(2),
+            token: None,
+            body: RequestBody::Auth {
+                user: "skea999".into(),
+                password: "pw1".into(),
+                read_only: true,
+                client: Some("ursinectl".into()),
+            },
+        };
+        let line = serde_json::to_string(&r).unwrap();
+        assert!(line.contains("\"read_only\":true"));
+        assert!(line.contains("\"client\":\"ursinectl\""));
+        let back: Request = serde_json::from_str(&line).unwrap();
+        assert_eq!(r, back);
+    }
+
+    #[test]
+    fn auth_request_without_scope_fields_means_read_write() {
+        // A client from before the scoped-credential change sends only the
+        // credentials; it must keep the read-write behaviour it had.
+        let line = r#"{"type":"auth","user":"skea999","password":"pw1"}"#;
+        let r: Request = serde_json::from_str(line).unwrap();
+        assert_eq!(
+            r.body,
+            RequestBody::Auth {
+                user: "skea999".into(),
+                password: "pw1".into(),
+                read_only: false,
+                client: None,
+            }
+        );
+    }
+
+    #[test]
+    fn auth_ok_without_scope_fields_still_parses() {
+        let line = r#"{"type":"auth_ok","token":"abc","expires_in_secs":600}"#;
+        let r: Response = serde_json::from_str(line).unwrap();
+        let ResponseBody::AuthOk {
+            read_only, client, ..
+        } = r.body
+        else {
+            panic!("want auth_ok");
+        };
+        assert!(!read_only);
+        assert!(client.is_none());
     }
 
     #[test]
@@ -167,8 +249,21 @@ mod tests {
         let s = serde_json::to_string(&err).unwrap();
         assert_eq!(serde_json::from_str::<Response>(&s).unwrap(), err);
 
-        let auth = Response::auth_ok(Some(1), SessionToken::new("tok"), 600);
+        let auth = Response::auth_ok(Some(1), SessionToken::new("tok"), 600, true, None);
         let s = serde_json::to_string(&auth).unwrap();
         assert_eq!(serde_json::from_str::<Response>(&s).unwrap(), auth);
+        assert!(s.contains("\"read_only\":true"));
+        assert!(!s.contains("client"), "absent client is not serialized");
+
+        let auth = Response::auth_ok(
+            Some(2),
+            SessionToken::new("tok2"),
+            600,
+            false,
+            Some("ursine-gui".into()),
+        );
+        let s = serde_json::to_string(&auth).unwrap();
+        assert_eq!(serde_json::from_str::<Response>(&s).unwrap(), auth);
+        assert!(s.contains("\"client\":\"ursine-gui\""));
     }
 }

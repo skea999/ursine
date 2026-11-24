@@ -32,4 +32,4 @@ pub use dispatch::Daemon;
 pub use error::CoreError;
 pub use jobs::JobRegistry;
 pub use ratelimit::RateLimiter;
-pub use session::TokenStore;
+pub use session::{SessionInfo, TokenStore};

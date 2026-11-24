@@ -29,6 +29,8 @@ pub enum Cmd {
 pub struct RunOpts {
     pub json: bool,
     pub yes: bool,
+    /// `--read-only`: the session issued for this run cannot mutate anything.
+    pub read_only: bool,
     pub as_user: Option<String>,
     pub config: PathBuf,
     pub module: String,
@@ -39,8 +41,8 @@ pub struct RunOpts {
 pub const USAGE: &str = "\
 ursinectl — Ursine root CLI (in-process; works in a chroot)
 
-USAGE: sudo ursinectl [--json] [--yes] [--as-user USER] [--config PATH] \\
-                      <module> <action> [key=value ...]
+USAGE: sudo ursinectl [--json] [--yes] [--read-only] [--as-user USER] \\
+                      [--config PATH] <module> <action> [key=value ...]
 
   Values are JSON when possible (dry_run=true, keep=3), else plain strings.
   key=@path reads a file; key=- reads stdin.
@@ -48,6 +50,8 @@ USAGE: sudo ursinectl [--json] [--yes] [--as-user USER] [--config PATH] \\
   module, read-only vs mutating, --yes gate, parameters). No root needed.
   password/new_password MUST be key=- (never on the command line).
   Destructive actions require --yes.
+  --read-only issues a read-only session: every mutating action is refused
+  with a typed `forbidden` error. Reads and dry runs still work.
   --as-user USER targets another account: the user must EXIST (typed
   error otherwise). theming/crontab/nix accept a foreign target only
   when running as root; theming has no root fallback — pass --as-user.
@@ -131,6 +135,7 @@ EXAMPLES:
 pub fn parse(args: &[String]) -> Result<Cmd, String> {
     let mut json = false;
     let mut yes = false;
+    let mut read_only = false;
     let mut as_user = None;
     let mut config = PathBuf::from("/etc/ursine/config.toml");
     let mut positional = Vec::new();
@@ -145,6 +150,7 @@ pub fn parse(args: &[String]) -> Result<Cmd, String> {
             "--version" => return Ok(Cmd::Version),
             "--json" => json = true,
             "--yes" | "-y" => yes = true,
+            "--read-only" => read_only = true,
             "--as-user" => {
                 let v = it.next().ok_or("--as-user needs a user")?;
                 as_user = Some(v.clone());
@@ -192,6 +198,7 @@ pub fn parse(args: &[String]) -> Result<Cmd, String> {
     Ok(Cmd::Run(RunOpts {
         json,
         yes,
+        read_only,
         as_user,
         config,
         module,
@@ -585,12 +592,23 @@ mod tests {
         };
         assert_eq!(opts.as_user.as_deref(), Some("bob"));
         assert_eq!(opts.config, PathBuf::from("/tmp/x.toml"));
+        assert!(!opts.read_only, "write access is the default");
         assert!(parse(&args(&["--nope"])).is_err());
         assert!(parse(&args(&["--as-user"])).is_err());
         assert!(parse(&args(&["--config"])).is_err());
         assert!(parse(&args(&[])).is_err());
         assert!(parse(&args(&["only-module"])).is_ok(), "module help");
         assert!(parse(&args(&["a", "b", "c"])).is_err());
+    }
+
+    #[test]
+    fn read_only_flag_scopes_the_run() {
+        let Cmd::Run(opts) = parse(&args(&["--read-only", "system", "status"])).unwrap() else {
+            panic!("want run");
+        };
+        assert!(opts.read_only);
+        assert_eq!(opts.module, "system");
+        assert_eq!(opts.action, "status");
     }
 
     #[test]
