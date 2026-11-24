@@ -57,12 +57,13 @@ MODULES (wire name; short alias in parentheses):
   config              init, get_config, set_module_switch,
                       set_update_auto
   capabilities(caps)  list, refresh
-  packages_nix(nix)   list_installed, search, install, remove, remove_all,
-                      remove_regex, upgrade, upgrade_regex, generations,
-                      rollback, wipe_history, diff_closures, store_gc,
-                      prune_generations, list_nix_repositories,
-                      add_nix_repository, remove_nix_repository,
-                      list_nix_updates
+  packages_nix(nix)   list_installed_nix, search_nix, install_nix,
+                      remove_nix, remove_all_nix, remove_regex_nix,
+                      upgrade_nix, upgrade_regex_nix, generations_nix,
+                      rollback_nix, wipe_history_nix, diff_closures_nix,
+                      store_gc_nix, prune_generations_nix,
+                      list_nix_repositories, add_nix_repository,
+                      remove_nix_repository, list_nix_updates
   packages_apk(apk)   list_apk, search_apk,
                       apk_remove_regex, apk_upgrade_regex,
                       list_apk_repositories, add_apk_repository,
@@ -120,7 +121,7 @@ MODULES (wire name; short alias in parentheses):
 EXAMPLES:
   ursinectl system status
   ursinectl caps list
-  ursinectl nix search query=niri
+  ursinectl nix search_nix query=niri
   ursinectl apk install_apk package=niri --yes
   ursinectl crontab crontab_set content=@my.cron --yes
   printf 'secret\\n' | ursinectl users set_password uid=1000 new_password=- --yes
@@ -473,7 +474,7 @@ mod tests {
 
     #[test]
     fn aliases_resolve() {
-        let Cmd::Run(opts) = parse(&args(&["nix", "search", "query=x"])).unwrap() else {
+        let Cmd::Run(opts) = parse(&args(&["nix", "search_nix", "query=x"])).unwrap() else {
             panic!("want run");
         };
         assert_eq!(opts.module, "packages_nix");
@@ -482,7 +483,7 @@ mod tests {
 
     #[test]
     fn json_scalars_and_strings() {
-        let a = build_action("wipe_history", &[("dry_run".into(), "true".into())]).unwrap();
+        let a = build_action("wipe_history_nix", &[("dry_run".into(), "true".into())]).unwrap();
         assert_eq!(
             a,
             Action::WipeHistory {
@@ -491,7 +492,7 @@ mod tests {
             }
         );
         let a = build_action(
-            "prune_generations",
+            "prune_generations_nix",
             &[
                 ("keep".into(), "3".into()),
                 ("dry_run".into(), "false".into()),
@@ -508,7 +509,7 @@ mod tests {
             }
         );
         // Non-JSON stays a string.
-        let a = build_action("search", &[("query".into(), "niri".into())]).unwrap();
+        let a = build_action("search_nix", &[("query".into(), "niri".into())]).unwrap();
         assert_eq!(
             a,
             Action::Search {
@@ -516,6 +517,58 @@ mod tests {
                 repo: None,
             }
         );
+    }
+
+    #[test]
+    fn legacy_nix_action_names_still_build() {
+        // The bare tags of the nix actions stay deserialization aliases, so a
+        // script written before the rename keeps running unchanged.
+        let pairs = |items: &[(&str, &str)]| -> Vec<(String, String)> {
+            items
+                .iter()
+                .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+                .collect()
+        };
+        for (legacy, new, args) in [
+            ("list_installed", "list_installed_nix", pairs(&[])),
+            ("search", "search_nix", pairs(&[("query", "niri")])),
+            ("install", "install_nix", pairs(&[("package", "hello")])),
+            ("remove", "remove_nix", pairs(&[("package", "hello")])),
+            ("remove_all", "remove_all_nix", pairs(&[])),
+            (
+                "remove_regex",
+                "remove_regex_nix",
+                pairs(&[("pattern", "^py"), ("dry_run", "true")]),
+            ),
+            ("upgrade", "upgrade_nix", pairs(&[("all", "true")])),
+            (
+                "upgrade_regex",
+                "upgrade_regex_nix",
+                pairs(&[("pattern", "^py"), ("dry_run", "true")]),
+            ),
+            ("generations", "generations_nix", pairs(&[])),
+            ("rollback", "rollback_nix", pairs(&[("generation", "42")])),
+            (
+                "wipe_history",
+                "wipe_history_nix",
+                pairs(&[("dry_run", "true")]),
+            ),
+            (
+                "diff_closures",
+                "diff_closures_nix",
+                pairs(&[("generation", "3")]),
+            ),
+            ("store_gc", "store_gc_nix", pairs(&[])),
+            (
+                "prune_generations",
+                "prune_generations_nix",
+                pairs(&[("keep", "3"), ("dry_run", "true")]),
+            ),
+        ] {
+            let old = build_action(legacy, &args).unwrap_or_else(|e| panic!("{legacy}: {e}"));
+            let renamed = build_action(new, &args).unwrap_or_else(|e| panic!("{new}: {e}"));
+            assert_eq!(old, renamed, "{legacy} and {new} must build one action");
+        }
     }
 
     #[test]
@@ -578,7 +631,7 @@ mod tests {
             "--as-user=bob",
             "--config=/tmp/x.toml",
             "nix",
-            "generations",
+            "generations_nix",
         ]))
         .unwrap() else {
             panic!("want run");
@@ -596,11 +649,11 @@ mod tests {
     #[test]
     fn duplicate_and_empty_keys_are_rejected() {
         assert!(build_action(
-            "search",
+            "search_nix",
             &[("query".into(), "a".into()), ("query".into(), "b".into())]
         )
         .is_err());
-        assert!(build_action("search", &[(String::new(), "x".into())]).is_err());
+        assert!(build_action("search_nix", &[(String::new(), "x".into())]).is_err());
     }
 
     #[test]
@@ -681,9 +734,9 @@ mod tests {
 
     #[test]
     fn unknown_field_is_rejected_not_silently_dropped() {
-        // dry_run is required for wipe_history: provide it plus a typo.
+        // dry_run is required for wipe_history_nix: provide it plus a typo.
         let err = build_action(
-            "wipe_history",
+            "wipe_history_nix",
             &[
                 ("dry_run".into(), "true".into()),
                 ("dry_ru".into(), "true".into()),
@@ -692,13 +745,13 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("unknown field"), "{err}");
         let err = build_action(
-            "search",
+            "search_nix",
             &[("query".into(), "x".into()), ("queryy".into(), "x".into())],
         )
         .unwrap_err();
         assert!(err.contains("unknown field"), "{err}");
         // Known fields still work, including Option + explicit null skip.
-        assert!(build_action("rollback", &[("generation".into(), "42".into())]).is_ok());
+        assert!(build_action("rollback_nix", &[("generation".into(), "42".into())]).is_ok());
     }
 
     #[test]
@@ -779,7 +832,7 @@ mod tests {
         );
         // A real type error (non-numeric garbage for a number field) still fails.
         assert!(build_action(
-            "prune_generations",
+            "prune_generations_nix",
             &[
                 ("keep".to_string(), "abc".to_string()),
                 ("dry_run".to_string(), "false".to_string()),
@@ -855,7 +908,7 @@ mod tests {
         assert!(install.ends_with("package"), "{install}");
         let remove_regex = lines
             .iter()
-            .find(|line| line.split_whitespace().next() == Some("remove_regex"))
+            .find(|line| line.split_whitespace().next() == Some("remove_regex_nix"))
             .unwrap();
         assert!(
             remove_regex.ends_with("pattern, dry_run?"),

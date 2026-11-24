@@ -575,7 +575,7 @@ async fn every_call_leaves_an_audit_line() {
     assert_eq!(ok_line["action"], "status");
     assert_eq!(ok_line["module"], "system");
     let err_line: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
-    assert_eq!(err_line["action"], "list_installed");
+    assert_eq!(err_line["action"], "list_installed_nix");
     assert_eq!(err_line["module"], "logs");
     // Outcome is internally tagged on `result`.
     assert_eq!(err_line["outcome"]["result"], "err");

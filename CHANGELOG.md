@@ -138,6 +138,20 @@
   comment and the action's documentation now say so instead of claiming nothing
   is written (#39).
 
+- **nix actions name their module in the wire tag**: `list_installed`,
+  `search`, `install`, `remove`, `remove_all`, `remove_regex`, `upgrade`,
+  `upgrade_regex`, `generations`, `rollback`, `wipe_history`,
+  `diff_closures`, `store_gc` and `prune_generations` are now
+  `list_installed_nix`, `search_nix`, `install_nix`, `remove_nix`,
+  `remove_all_nix`, `remove_regex_nix`, `upgrade_nix`,
+  `upgrade_regex_nix`, `generations_nix`, `rollback_nix`,
+  `wipe_history_nix`, `diff_closures_nix`, `store_gc_nix` and
+  `prune_generations_nix`, so an audit line or a client log says which package
+  manager ran. The old names still deserialize (`#[serde(alias)]`) and still
+  work from `ursinectl`, so existing clients and scripts keep running; the
+  catalogue, `ursinectl --help`, `ursinectl actions` and the guides print the
+  new names (#8).
+
 ## [0.49.0] — 2026-11-23
 
 ### Added

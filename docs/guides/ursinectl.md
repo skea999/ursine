@@ -102,18 +102,29 @@ audit log). Run `ursinectl --help` for the grouped list.
 
 ### packages_nix (`nix`)
 
-`list_installed`, `search query=… [repo=…]`, `install package=…`,
+`list_installed_nix`, `search_nix query=… [repo=…]`, `install_nix package=…`,
 `list_nix_repositories [system=true]`,
 `add_nix_repository name=… url=… [system=true]`,
 `remove_nix_repository name=… [system=true] [source=registry|channel]`,
-`remove package=…`, `remove_all`, `remove_regex pattern=… [dry_run=true]`,
-`upgrade [package=… | all=true]`, `upgrade_regex pattern=… [dry_run=true]`,
-`generations`, `rollback [generation=…]`,
+`remove_nix package=…`, `remove_all_nix`,
+`remove_regex_nix pattern=… [dry_run=true]`,
+`upgrade_nix [package=… | all=true]`,
+`upgrade_regex_nix pattern=… [dry_run=true]`,
+`generations_nix`, `rollback_nix [generation=…]`,
 `list_nix_updates` (on-demand update check: compares each profile
 element's pinned lock with the current `nix flake metadata` lock of its
 flake reference; prints the count + names; network),
-`wipe_history [older_than=…] dry_run=…`, `diff_closures [generation=…]`,
-`store_gc`, `prune_generations keep=… dry_run=…`
+`wipe_history_nix [older_than=…] dry_run=…`,
+`diff_closures_nix [generation=…]`, `store_gc_nix`,
+`prune_generations_nix keep=… dry_run=…`
+
+The nix actions name their module in the wire tag, like `install_apk` and
+`install_flatpak` do, so an audit line or a client log says which package
+manager ran. The bare names of earlier versions (`list_installed`, `search`,
+`install`, `remove`, `remove_all`, `remove_regex`, `upgrade`,
+`upgrade_regex`, `generations`, `rollback`, `wipe_history`,
+`diff_closures`, `store_gc`, `prune_generations`) stay accepted as aliases,
+so existing scripts keep working.
 
 `list_nix_repositories` shows the configured repositories of one scope:
 `system=true` is the system registry (`/etc/nix/registry.json`) plus root's
@@ -456,7 +467,7 @@ status                         system            read-only  no
 …
 install_apk                    packages_apk      mutating   no          package
 list_apk_updates               packages_apk      read-only  no          refresh?
-remove_regex                   packages_nix      mutating   by request  pattern, dry_run?
+remove_regex_nix               packages_nix      mutating   by request  pattern, dry_run?
 format_disk                    disks             mutating   always      device, fstype, confirm_device
 ```
 
@@ -565,8 +576,8 @@ sudo ursinectl caps list
 sudo ursinectl config set_module_switch module=crontab value=false
 
 # nix: search, install (streams the job log, exits with its code)
-sudo ursinectl nix search query=niri
-sudo ursinectl nix install package=niri --yes
+sudo ursinectl nix search_nix query=niri
+sudo ursinectl nix install_nix package=niri --yes
 
 # manage another user's crontab and theme
 sudo ursinectl crontab crontab_get --as-user gab

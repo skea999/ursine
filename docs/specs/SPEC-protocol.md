@@ -53,6 +53,11 @@ pub enum Request {
 ```
 
 - serde tag/adjacently tagged enums for every payload; `snake_case` wire names
+- An action wire name carries its module when more than one module could own the
+  verb: `install_apk`, `install_flatpak`, `install_nix`. A renamed action keeps
+  its old tag as `#[serde(alias = "…")]`, so the change is additive: a client
+  written against the old name deserializes to the same variant and the
+  protocol version does not move.
 - Every type: `Debug, Clone, Serialize, Deserialize, PartialEq`
 - Wire format is versioned: `Request`/`Response` carry `v: u16` (currently 5; v2 added the search `{results, truncated}` page and exact prune preview fields, v3 package mutations `job_id`, v4 `list_apk_repositories` `{url, tag}` rows, v5 no-D-Bus removals: `set_bluetooth_pairing_pin`, `pairing_pin_set`, capability `accountsservice`→`shadow`). The daemon records but does not reject other versions; frontends must tolerate older daemons' response shapes by treating parse failures as capability errors.
 
